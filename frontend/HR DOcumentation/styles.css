@@ -1,0 +1,736 @@
+/* Tailwind CSS Production Styles - Minimal Version */
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+
+/* Layout utilities */
+.relative {
+  position: relative;
+}
+
+.absolute {
+  position: absolute;
+}
+
+.flex {
+  display: flex;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.items-end {
+  align-items: flex-end;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.justify-start {
+  justify-content: flex-start;
+}
+
+.flex-1 {
+  flex: 1 1 0%;
+}
+
+.flex-shrink-0 {
+  flex-shrink: 0;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-left {
+  text-align: left;
+}
+
+.text-right {
+  text-align: right;
+}
+
+/* Spacing */
+.p-8 {
+  padding: 2rem;
+}
+
+.p-6 {
+  padding: 1.5rem;
+}
+
+.p-4 {
+  padding: 1rem;
+}
+
+.p-3 {
+  padding: 0.75rem;
+}
+
+.p-2 {
+  padding: 0.5rem;
+}
+
+.px-10 {
+  padding-left: 2.5rem;
+  padding-right: 2.5rem;
+}
+
+.px-8 {
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+.py-8 {
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+
+.py-6 {
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
+.py-4 {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+.pb-20 {
+  padding-bottom: 5rem;
+}
+
+.pb-16 {
+  padding-bottom: 4rem;
+}
+
+.pb-4 {
+  padding-bottom: 1rem;
+}
+
+.mt-12 {
+  margin-top: 3rem;
+}
+
+.mt-8 {
+  margin-top: 2rem;
+}
+
+.mt-6 {
+  margin-top: 1.5rem;
+}
+
+.mt-4 {
+  margin-top: 1rem;
+}
+
+.mt-3 {
+  margin-top: 0.75rem;
+}
+
+.mt-2 {
+  margin-top: 0.5rem;
+}
+
+.mt-1 {
+  margin-top: 0.25rem;
+}
+
+.mb-6 {
+  margin-bottom: 1.5rem;
+}
+
+.mb-2 {
+  margin-bottom: 0.5rem;
+}
+
+.mx-auto {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.mx-2 {
+  margin-left: 0.5rem;
+  margin-right: 0.5rem;
+}
+
+/* Sizing */
+.w-32 {
+  width: 8rem;
+}
+
+.w-20 {
+  width: 5rem;
+}
+
+.w-16 {
+  width: 4rem;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.h-6 {
+  height: 1.5rem;
+}
+
+.h-8 {
+  height: 2rem;
+}
+
+.h-20 {
+  height: 5rem;
+}
+
+.h-16 {
+  height: 4rem;
+}
+
+.h-0\.5 {
+  height: 0.125rem;
+}
+
+.h-full {
+  height: 100%;
+}
+
+.h-auto {
+  height: auto;
+}
+
+.max-w-4xl {
+  max-width: 56rem;
+}
+
+/* Colors */
+.bg-gray-100 {
+  background-color: rgb(243 244 246);
+}
+
+.bg-white {
+  background-color: rgb(255 255 255);
+}
+
+.bg-slate-900 {
+  background-color: rgb(15 23 42);
+}
+
+.bg-blue-600 {
+  background-color: rgb(37 99 235);
+}
+
+.bg-gray-400 {
+  background-color: rgb(156 163 175);
+}
+
+.text-gray-800 {
+  color: rgb(31 41 55);
+  margin-top: 13px;
+}
+
+.text-gray-700 {
+  color: rgb(55 65 81);
+}
+
+.text-gray-600 {
+  color: rgb(75 85 99);
+}
+
+.text-white {
+  color: rgb(255 255 255);
+}
+
+.text-blue-600 {
+  color: rgb(37 99 235);
+}
+
+.text-blue-700 {
+  color: rgb(29 78 216);
+}
+
+.border-gray-300 {
+  border-color: rgb(209 213 219);
+}
+
+.border-gray-400 {
+  border-color: rgb(156 163 175);
+}
+
+.border-gray-200 {
+  border-color: rgb(229 231 235);
+}
+
+.border-slate-700 {
+  border-color: rgb(51 65 85);
+}
+
+.border-slate-800 {
+  border-color: rgb(30 41 59);
+}
+
+/* Borders */
+.border {
+  border-width: 1px;
+  border-style: solid;
+}
+
+.border-b {
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+
+.border-b-2 {
+  border-bottom-width: 2px;
+  border-bottom-style: solid;
+}
+
+.border-t {
+  border-top-width: 1px;
+  border-top-style: solid;
+}
+
+.border-2 {
+  border-width: 2px;
+  border-style: solid;
+}
+
+/* Typography */
+.font-bold {
+  font-weight: 700;
+}
+
+.font-semibold {
+  font-weight: 600;
+}
+
+.text-sm {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.text-base {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.text-lg {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+.text-3xl {
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+}
+
+.uppercase {
+  text-transform: uppercase;
+}
+
+.tracking-wide {
+  letter-spacing: 0.025em;
+}
+
+.leading-relaxed {
+  line-height: 1.625;
+}
+
+/* Effects */
+.shadow-lg {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+.shadow-md {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.overflow-hidden {
+  overflow: hidden;
+}
+
+.rounded-lg {
+  border-radius: 0.5rem;
+}
+
+.rounded-b-lg {
+  border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.rounded-t-lg {
+  border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.rounded {
+  border-radius: 0.25rem;
+}
+
+.transition-colors {
+  transition-property: color, background-color, border-color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Hover states */
+.hover\:bg-blue-700:hover {
+  background-color: rgb(29 78 216);
+}
+
+/* Positioning */
+.bottom-0 {
+  bottom: 0;
+}
+
+.left-2 {
+  left: 0.5rem;
+}
+
+.left-6 {
+  left: 1.5rem;
+}
+
+.right-2 {
+  right: 0.5rem;
+}
+
+.right-6 {
+  right: 1.5rem;
+}
+
+.z-10 {
+  z-index: 10;
+}
+
+.z-0 {
+  z-index: 0;
+}
+
+/* Object fit */
+.object-contain {
+  object-fit: contain;
+}
+
+/* Gaps */
+.gap-3 {
+  gap: 0.75rem;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
+
+.space-y-4 > * + * {
+  margin-top: 1rem;
+}
+
+/* ===============================
+   Letterhead layout (letter-head.png as background)
+   Logo & watermark are on the image – no separate .vg-shield / .watermark needed
+   =============================== */
+.letterhead-doc {
+  width: 210mm;
+  min-height: 297mm;
+  box-sizing: border-box;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  background-position: top left;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.letterhead-header {
+  padding: 0.5rem 2.5rem 1rem;
+  position: relative;
+  background: transparent;
+}
+
+.letterhead-title {
+  text-align: center;
+  margin-top: 250px;
+  margin-bottom: 0;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  color: rgb(31 41 55);
+}
+
+.letterhead-divider {
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+  padding: 0.35rem 2.5rem 0;
+  border-top: 2px solid rgb(229 231 235);
+}
+
+.letterhead-main {
+  padding: 1.5rem 2.5rem 5rem;
+  position: relative;
+  z-index: 1;
+  font-size: 0.875rem;
+  line-height: 1.625;
+  color: rgb(31 41 55);
+}
+
+.letterhead-main .text-gray-800 {
+  margin-top: 13px;
+}
+
+/* Print styles – letterhead: full A4, content properly positioned */
+@media print {
+  @page {
+    size: A4;
+    margin-top: 20px;
+    margin-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    
+  }
+
+  .print\:bg-white {
+    background-color: rgb(255 255 255) !important;
+  }
+
+  .print\:shadow-none {
+    box-shadow: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* Letterhead doc: A4 exact, background prints */
+  .letterhead-doc {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    background-color: transparent !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .letterhead-header {
+    background: transparent !important;
+    padding-top: 0.5rem !important;
+    padding-bottom: 1rem !important;
+  }
+
+  .letterhead-title {
+    margin-top: 234px !important;
+  }
+
+  .letterhead-main {
+    padding-top: 2rem !important;
+    padding-bottom: 5rem !important;
+    padding-left: 2.5rem !important;
+    padding-right: 2.5rem !important;
+    font-size: 0.8rem !important;
+    line-height: 1.4 !important;
+  }
+
+  /* Same structure as screen: text-gray-800 for proper print */
+  .text-gray-800 {
+    --tw-text-opacity: 1;
+    color: rgb(31 41 55 / var(--tw-text-opacity)) !important;
+    margin-top: 13px;
+  }
+
+
+  /* Main container when not using letterhead */
+  .max-w-4xl {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  header {
+    padding: 1rem !important;
+  }
+
+  main {
+    padding: 1rem 1.5rem !important;
+    font-size: 0.8rem !important;
+    line-height: 1.4 !important;
+  }
+
+  .space-y-4 > * + * {
+    margin-top: 0.75rem !important;
+  }
+
+  .mb-6 {
+    margin-bottom: 1rem !important;
+  }
+
+  .mt-12 {
+    margin-top: 2rem !important;
+  }
+
+  .mt-8 {
+    margin-top: 1.5rem !important;
+  }
+
+  .mt-6 {
+    margin-top: 1rem !important;
+  }
+
+  .mt-4 {
+    margin-top: 0.75rem !important;
+  }
+
+  .mt-2 {
+    margin-top: 0.5rem !important;
+  }
+
+  .text-3xl {
+    font-size: 1.5rem !important;
+    line-height: 1.8rem !important;
+  }
+
+  .text-lg {
+    font-size: 1rem !important;
+    line-height: 1.4rem !important;
+  }
+
+  .text-base {
+    font-size: 0.9rem !important;
+    line-height: 1.3rem !important;
+  }
+
+  .text-sm {
+    font-size: 0.8rem !important;
+    line-height: 1.2rem !important;
+  }
+
+  footer {
+    padding: 0.75rem 1rem !important;
+    position: relative !important;
+    z-index: 2 !important;
+  }
+
+  footer .text-sm {
+    font-size: 0.75rem !important;
+  }
+
+  /* Not used when letterhead image has logo/watermark – keep for legacy docs without letterhead */
+  .vg-shield.small {
+    width: 150px !important;
+    height: 180px !important;
+    border-radius: 0 0 90px 90px !important;
+  }
+
+  .vg-shield.small img {
+    width: 140px !important;
+    height: 140px !important;
+  }
+
+  .watermark {
+    opacity: 0.35 !important;
+    z-index: 0 !important;
+    pointer-events: none !important;
+  }
+
+  .content-layer,
+  main,
+  header,
+  footer {
+    page-break-inside: avoid !important;
+  }
+
+  body,
+  html {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* Custom utilities */
+.inset-0 {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.inset-x-0 {
+  left: 0;
+  right: 0;
+}
+
+.pointer-events-none {
+  pointer-events: none;
+}
+
+.user-select-none {
+  user-select: none;
+}
+
+/* Footer icons styling */
+.footer-icon {
+  color: white !important;
+  font-weight: normal;
+  display: inline-block;
+}
+
+/* ===============================
+   VG Shield / Watermark – only for docs WITHOUT letterhead image
+   When using .letterhead-doc + letter-head.png, logo & watermark are on the image
+   =============================== */
+.vg-shield {
+  width: 260px;
+  height: 300px;
+  background: #0f253b;
+  border-radius: 0 0 140px 140px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.vg-shield .content {
+  text-align: center;
+}
+
+.vg-shield.small {
+  width: 200px;
+  height: 240px;
+  border-radius: 0 0 120px 120px;
+}
+
+.vg-shield.large {
+  width: 320px;
+  height: 360px;
+  border-radius: 0 0 180px 180px;
+}
+
+.content-layer {
+  position: relative;
+  z-index: 1;
+}

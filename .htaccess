@@ -1,0 +1,189 @@
+# MARCOM CRM - Node only (no PHP). Apache: show index.html which redirects to Node.
+# If you get 500: Apache 2.4 uses "Require all granted" (below). If project is at
+# document root (http://localhost/), change RewriteBase to: RewriteBase /
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # Subfolder (e.g. htdocs/MARCOM-STREET-NEW-CRM): use next line. Document root: use RewriteBase /
+    RewriteBase /MARCOM-STREET-NEW-CRM/
+
+    # ============================================
+    # CRITICAL: Static Assets MUST be served FIRST
+    # ============================================
+    
+    # 1. Serve React build assets (CSS, JS, fonts, images) from dist folder
+    RewriteCond %{REQUEST_URI} ^/(MARCOM-NEW-CRM|MARCOM-STREET-NEW-CRM)/assets/ [NC]
+    RewriteRule ^assets/(.*)$ frontend/dist/assets/$1 [L]
+    
+    # 2. Serve CSS files with correct MIME type (from any location)
+    RewriteCond %{REQUEST_URI} \.(css)$ [NC]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule . - [L,T=text/css]
+    
+    # 3. Serve JavaScript files with correct MIME type (from any location)
+    RewriteCond %{REQUEST_URI} \.(js|mjs)$ [NC]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule . - [L,T=application/javascript]
+    
+    # 4. Serve JSON files
+    RewriteCond %{REQUEST_URI} \.(json)$ [NC]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule . - [L,T=application/json]
+    
+    # 5. Serve PDF files directly with correct MIME type
+    RewriteCond %{REQUEST_URI} \.(pdf)$ [NC]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule . - [L,T=application/pdf]
+    
+    # 6. Serve image files directly
+    RewriteCond %{REQUEST_URI} \.(jpg|jpeg|png|gif|svg|ico|webp|bmp)$ [NC]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule . - [L]
+    
+    # 7. Serve font files
+    RewriteCond %{REQUEST_URI} \.(woff|woff2|ttf|eot|otf)$ [NC]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule . - [L]
+    
+    # 8. Serve other static files (XML, TXT, etc.)
+    RewriteCond %{REQUEST_URI} \.(xml|txt|map)$ [NC]
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule . - [L]
+    
+    # ============================================
+    # Special Routes (before React routing)
+    # ============================================
+    
+    # No PHP: serve-pdf and api run on Node. All other routes -> index.html (redirect to Node)
+    
+    # Backend assets / uploads (exclude from catch-all)
+    RewriteCond %{REQUEST_URI} ^/(MARCOM-NEW-CRM|MARCOM-STREET-NEW-CRM)/backend/ [NC]
+    RewriteRule . - [L]
+    
+    # Uploads directory (exclude from React)
+    RewriteCond %{REQUEST_URI} ^/(MARCOM-NEW-CRM|MARCOM-STREET-NEW-CRM)/uploads/ [NC]
+    RewriteRule . - [L]
+    
+    # ============================================
+    # Don't rewrite existing files or directories
+    # ============================================
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule . - [L]
+    
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule . - [L]
+    
+    # Catch-all: show index.html (redirects to Node - no PHP)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# ============================================
+# MIME Type Headers (CRITICAL for fixing errors)
+# ============================================
+<IfModule mod_headers.c>
+    # CSS files - MUST be first
+    <FilesMatch "\.css$">
+        Header set Content-Type "text/css; charset=utf-8"
+        Header unset X-Frame-Options
+    </FilesMatch>
+    
+    # JavaScript files
+    <FilesMatch "\.(js|mjs)$">
+        Header set Content-Type "application/javascript; charset=utf-8"
+        Header unset X-Frame-Options
+    </FilesMatch>
+    
+    # JSON files
+    <FilesMatch "\.json$">
+        Header set Content-Type "application/json; charset=utf-8"
+    </FilesMatch>
+    
+    # PDF files
+    <FilesMatch "\.pdf$">
+        Header set Content-Type "application/pdf"
+        Header set Content-Disposition "inline"
+        Header unset X-Frame-Options
+    </FilesMatch>
+    
+    # Image files
+    <FilesMatch "\.(jpg|jpeg|png|gif|svg|ico|webp|bmp)$">
+        Header set Content-Type "image/%{REQUEST_URI:e}"
+    </FilesMatch>
+    
+    # Font files
+    <FilesMatch "\.(woff|woff2|ttf|eot|otf)$">
+        Header set Content-Type "font/%{REQUEST_URI:e}"
+    </FilesMatch>
+    
+    # Prevent clickjacking (but allow PDFs and assets)
+    <FilesMatch "\.(html|htm|php)$">
+        Header always set X-Frame-Options "SAMEORIGIN"
+    </FilesMatch>
+    
+    # XSS Protection
+    Header always set X-XSS-Protection "1; mode=block"
+    
+    # Prevent MIME type sniffing
+    Header always set X-Content-Type-Options "nosniff"
+    
+    # Referrer Policy
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# ============================================
+# PHP Settings
+# ============================================
+<IfModule mod_php7.c>
+    php_value upload_max_filesize 10M
+    php_value post_max_size 10M
+    php_value max_execution_time 300
+    php_value max_input_time 300
+</IfModule>
+
+# ============================================
+# Gzip Compression (exclude binary files)
+# ============================================
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json application/xml
+    SetEnvIfNoCase Request_URI \.(?:pdf|jpg|jpeg|png|gif|svg|ico|woff|woff2|ttf|eot|otf)$ no-gzip dont-vary
+</IfModule>
+
+# ============================================
+# Browser Caching
+# ============================================
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpg "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType image/webp "access plus 1 year"
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType application/pdf "access plus 1 month"
+    ExpiresByType text/x-javascript "access plus 1 month"
+    ExpiresByType image/x-icon "access plus 1 year"
+    ExpiresByType font/woff "access plus 1 year"
+    ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType font/ttf "access plus 1 year"
+    ExpiresDefault "access plus 2 days"
+</IfModule>
+
+# ============================================
+# Security Settings (Apache 2.4 syntax - avoids 500 error)
+# ============================================
+DirectoryIndex index.html index.htm
+Options -Indexes +FollowSymLinks
+
+# Allow access to HTML (project is Node-only; index.html redirects to Node)
+<FilesMatch "\.(html|htm)$">
+    Require all granted
+</FilesMatch>
+
+# Protect sensitive files (Apache 2.4)
+<FilesMatch "\.(env|log|ini|conf|sql|md|git)$">
+    Require all denied
+</FilesMatch>

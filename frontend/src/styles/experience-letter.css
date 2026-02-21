@@ -1,0 +1,1212 @@
+/* Experience Letter Styles - Imported from HR Documentation */
+/* Tailwind CSS Production Styles - Minimal Version */
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+
+/* Layout utilities */
+.relative {
+  position: relative;
+}
+
+.absolute {
+  position: absolute;
+}
+
+.flex {
+  display: flex;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.items-end {
+  align-items: flex-end;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.justify-start {
+  justify-content: flex-start;
+}
+
+.flex-1 {
+  flex: 1 1 0%;
+}
+
+.flex-shrink-0 {
+  flex-shrink: 0;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-left {
+  text-align: left;
+}
+
+.text-right {
+  text-align: right;
+}
+
+/* Spacing */
+.p-8 {
+  padding: 2rem;
+}
+
+.p-6 {
+  padding: 1.5rem;
+}
+
+.p-4 {
+  padding: 1rem;
+}
+
+.p-3 {
+  padding: 0.75rem;
+}
+
+.p-2 {
+  padding: 0.5rem;
+}
+
+.px-10 {
+  padding-left: 2.5rem;
+  padding-right: 2.5rem;
+}
+
+.px-8 {
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+.py-8 {
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+
+.py-6 {
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
+.py-4 {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+.pb-20 {
+  padding-bottom: 5rem;
+}
+
+.pb-16 {
+  padding-bottom: 4rem;
+}
+
+.pb-4 {
+  padding-bottom: 1rem;
+}
+
+.mt-12 {
+  margin-top: 3rem;
+}
+
+.mt-8 {
+  margin-top: 2rem;
+}
+
+.mt-6 {
+  margin-top: 1.5rem;
+}
+
+.mt-4 {
+  margin-top: 1rem;
+}
+
+.mt-3 {
+  margin-top: 0.75rem;
+}
+
+.mt-2 {
+  margin-top: 0.5rem;
+}
+
+.mt-1 {
+  margin-top: 0.25rem;
+}
+
+.mb-6 {
+  margin-bottom: 1.5rem;
+}
+
+.mb-2 {
+  margin-bottom: 0.5rem;
+}
+
+.mx-auto {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.mx-2 {
+  margin-left: 0.5rem;
+  margin-right: 0.5rem;
+}
+
+/* Sizing */
+.w-32 {
+  width: 6rem;
+}
+
+.w-20 {
+  width: 5rem;
+}
+
+.w-16 {
+  width: 4rem;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.h-6 {
+  height: 1.5rem;
+}
+
+.h-8 {
+  height: 2rem;
+}
+
+.h-20 {
+  height: 5rem;
+}
+
+.h-16 {
+  height: 4rem;
+}
+
+.h-0\.5 {
+  height: 0.125rem;
+}
+
+.h-full {
+  height: 100%;
+}
+
+.h-auto {
+  height: auto;
+}
+
+.max-w-4xl {
+  max-width: 56rem;
+}
+
+/* Colors */
+.bg-gray-100 {
+  background-color: rgb(243 244 246);
+}
+
+.bg-white {
+  background-color: rgb(255 255 255);
+}
+
+.bg-slate-900 {
+  background-color: rgb(15 23 42);
+}
+
+.bg-blue-600 {
+  background-color: rgb(37 99 235);
+}
+
+.bg-gray-400 {
+  background-color: rgb(156 163 175);
+}
+
+.text-gray-800 {
+  color: rgb(31 41 55);
+}
+
+/* Experience Letter header title - letterhead layout */
+.experience-letter-title {
+  color: rgb(31 41 55);
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  margin-top: 196px;
+  margin-bottom: 0;
+  padding: 0;
+}
+
+/* Letterhead divider line only - dedicated class, no impact on other elements */
+.letterhead-divider {
+  padding-left: 2.5rem;
+  padding-right: 2.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  font-size: 0.875rem;
+  color: rgb(34 70 132);
+  border-top: 2px solid rgb(229 231 235);
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+
+/* ===== Experience Letter with letter-head.png as background ===== */
+.experience-letter-with-letterhead {
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
+.experience-letter-header-on-bg {
+  padding-top: 0.25rem;
+  padding-bottom: 0.5rem;
+}
+
+.experience-letter-title-on-bg {
+  text-align: center;
+  margin-top: 196px;
+  margin-bottom: 0;
+  padding: 0;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  color: rgb(31 41 55);
+}
+
+/* Experience Letter only – alag class, kisi aur content pe asar nahi */
+.experience-letter-doc-title {
+  text-align: center;
+  margin-top: 196px;
+  margin-bottom: 0;
+  padding: 0;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  color: rgb(31 41 55);
+}
+
+/* Offer Letter only – letterhead pe title + line, content line ke niche */
+.offer-letter-doc-title {
+  text-align: center;
+  margin-top: 218px;
+  margin-bottom: 0;
+  padding: 0;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  color: rgb(31 41 55);
+  text-transform: uppercase;
+}
+.offer-letter-header-line {
+  border-top: 1px solid rgb(203 213 225);
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+  padding: 0;
+  max-width: 100%;
+}
+.offer-letter-doc.experience-letter-with-letterhead .experience-letter-main.offer-letter-main {
+  padding-top: 0.75rem;
+}
+
+/* Signature box – niche wali line hata di (Experience Letter + Offer Letter) */
+.experience-letter-signature-box,
+.hr-signature-box {
+  border: none !important;
+  border-bottom: none !important;
+}
+
+/* Full and Final only – logo se niche, thoda upar (screen + print) */
+.full-and-final-doc-title {
+  text-align: center;
+  margin-top: 218px;
+  margin-bottom: 0;
+  padding: 0;
+  font-size: 1.875rem;
+  line-height: 8.25rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  color: rgb(31 41 55);
+  text-transform: uppercase;
+}
+
+/* Line under title – fixed gap, no extra space */
+.full-and-final-header-line {
+  border-top: 1px solid rgb(203 213 225);
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+  padding: 0;
+  max-width: 100%;
+}
+
+/* Full and Final only – content line ke bilkul niche, gap kam */
+.full-and-final-doc.experience-letter-with-letterhead .experience-letter-main {
+  padding-top: 0.5rem;
+}
+.full-and-final-doc.experience-letter-with-letterhead .experience-letter-main .full-and-final-content-block,
+.full-and-final-doc.experience-letter-with-letterhead .experience-letter-main .mb-6:first-of-type {
+  margin-bottom: 1rem;
+}
+.full-and-final-doc.experience-letter-with-letterhead .experience-letter-main .full-and-final-content-block {
+  margin-top: 0;
+}
+
+/* Joining Form only – letterhead pe title, line ke niche content (F&F jaisa) */
+.joining-form-doc-title {
+  text-align: center;
+  margin-top: 218px;
+  margin-bottom: 0;
+  padding: 0;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  color: rgb(31 41 55);
+}
+.joining-form-header-line {
+  border-top: 1px solid rgb(203 213 225);
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+  padding: 0;
+  max-width: 100%;
+}
+.joining-form-doc.experience-letter-with-letterhead .experience-letter-main.joining-form-main {
+  padding-top: 0.5rem;
+}
+.joining-form-doc.experience-letter-with-letterhead .experience-letter-main .joining-form-content-start {
+  margin-top: 0;
+  margin-bottom: 0.25rem;
+}
+
+.letterhead-divider-on-bg {
+  margin-top: 0.5rem;
+}
+
+/* Line between company name and address – 13px gap above line */
+.experience-letter-company-line {
+  margin-top: 13px;
+  border-top: 1px solid rgb(229 231 235);
+  padding-top: 0;
+  margin-bottom: 0;
+}
+
+/* Main content: leave space for letterhead footer; top spacing so content doesn't sit too high; above bg */
+.experience-letter-with-letterhead .experience-letter-main {
+  padding-top: 1.5rem;
+  padding-bottom: 6rem;
+  position: relative;
+  z-index: 2;
+}
+.experience-letter-with-letterhead .experience-letter-header {
+  position: relative;
+  z-index: 2;
+}
+
+.text-gray-700 {
+  color: rgb(55 65 81);
+}
+
+.text-gray-600 {
+  color: rgb(75 85 99);
+}
+
+.text-gray-400 {
+  color: rgb(156 163 175);
+}
+
+.text-white {
+  color: rgb(255 255 255);
+}
+
+.text-blue-600 {
+  color: rgb(37 99 235);
+}
+
+.text-blue-700 {
+  color: rgb(29 78 216);
+}
+
+.border-gray-300 {
+  border-color: rgb(209 213 219);
+}
+
+.border-gray-400 {
+  border-color: rgb(156 163 175);
+}
+
+.border-gray-200 {
+  border-color: rgb(229 231 235);
+}
+
+.border-slate-700 {
+  border-color: rgb(51 65 85);
+}
+
+.border-slate-800 {
+  border-color: rgb(30 41 59);
+}
+
+/* Borders */
+.border {
+  border-width: 1px;
+  border-style: solid;
+}
+
+.border-b {
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+
+.border-b-2 {
+  border-bottom-width: 2px;
+  border-bottom-style: solid;
+}
+
+.border-t {
+  border-top-width: 1px;
+  border-top-style: solid;
+}
+
+.border-2 {
+  border-width: 2px;
+  border-style: solid;
+}
+
+/* Typography */
+.font-bold {
+  font-weight: 700;
+}
+
+.font-semibold {
+  font-weight: 600;
+}
+
+.text-sm {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.text-base {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.text-lg {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+.text-3xl {
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+}
+
+.uppercase {
+  text-transform: uppercase;
+}
+
+.tracking-wide {
+  letter-spacing: 0.025em;
+}
+
+.leading-relaxed {
+  line-height: 1.625;
+}
+
+/* Effects */
+.shadow-lg {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+.shadow-md {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.overflow-hidden {
+  overflow: hidden;
+}
+
+.rounded-lg {
+  border-radius: 0.5rem;
+}
+
+.rounded-b-lg {
+  border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.rounded-t-lg {
+  border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.rounded {
+  border-radius: 0.25rem;
+}
+
+.transition-colors {
+  transition-property: color, background-color, border-color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Hover states */
+.hover\:bg-blue-700:hover {
+  background-color: rgb(29 78 216);
+}
+
+/* Positioning */
+.bottom-0 {
+  bottom: 0;
+}
+
+.left-2 {
+  left: 0.5rem;
+}
+
+.left-6 {
+  left: 1.5rem;
+}
+
+.right-2 {
+  right: 0.5rem;
+}
+
+.right-6 {
+  right: 1.5rem;
+}
+
+.z-10 {
+  z-index: 10;
+}
+
+.z-0 {
+  z-index: 0;
+}
+
+/* Object fit */
+.object-contain {
+  object-fit: contain;
+}
+
+/* Gaps */
+.gap-3 {
+  gap: 0.75rem;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
+
+.space-y-4 > * + * {
+  margin-top: 1rem;
+}
+
+/* ===============================
+   VG Shield Background Structure
+   =============================== */
+.vg-shield {
+  width: 260px;
+  height: 300px;
+  background: #0f253b;
+  /* Vanya Group navy blue */
+  border-radius: 0 0 140px 140px;
+  position: relative;
+  /* Logo / content alignment */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Optional inner safe area for logo */
+.vg-shield .content {
+  text-align: center;
+}
+
+.vg-shield.small {
+  width: 200px;
+  height: 240px;
+  border-radius: 0 0 120px 120px;
+}
+
+.vg-shield.large {
+  width: 320px;
+  height: 360px;
+  border-radius: 0 0 180px 180px;
+}
+
+/* Content layer for z-index */
+.content-layer {
+  position: relative;
+  z-index: 1;
+}
+
+/* Footer icons styling */
+.footer-icon {
+  color: white !important;
+  font-weight: normal;
+  display: inline-block;
+}
+
+/* Multi-page: letterhead top/bottom strips – screen pe hide, print me har page pe */
+.doc-print-letterhead-top,
+.doc-print-letterhead-bottom {
+  display: none;
+  pointer-events: none;
+}
+
+/* Print styles - only document prints, letterhead/footer on every page */
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  /* Letterhead strips – dono page pe dikhne ke liye fixed (multi-page docs) */
+  .doc-print-letterhead-top {
+    display: block !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: 100px !important;
+    background-size: 210mm 297mm !important;
+    background-repeat: no-repeat !important;
+    background-position: center 0 !important;
+    z-index: 5 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .doc-print-letterhead-bottom {
+    display: block !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: 70px !important;
+    background-size: 210mm 297mm !important;
+    background-repeat: no-repeat !important;
+    background-position: center 100% !important;
+    z-index: 5 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Only the experience letter document prints - hide everything else */
+  body * {
+    visibility: hidden !important;
+  }
+
+  .experience-letter-doc,
+  .experience-letter-doc * {
+    visibility: visible !important;
+  }
+
+  .experience-letter-doc {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    min-height: 100vh !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Letterhead: A4 exact size so letter-head.png fits 1:1; centered on page, background prints */
+  .experience-letter-doc.experience-letter-with-letterhead {
+    width: 210mm !important;
+    min-width: 210mm !important;
+    min-height: 297mm !important;
+    max-width: 210mm !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    background-color: #fff !important;
+    background-size: 100% 100% !important;
+    background-repeat: no-repeat !important;
+    background-position: top left !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* ===== Experience Letter: one page only, normal flow, compact for print ===== */
+  .experience-letter-doc.doc-print-as-screen {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Letterhead version: content top gap kam – print pe proper set */
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main {
+    padding-top: 85px !important;
+    padding-bottom: 1.5rem !important;
+    padding-left: 2.5rem !important;
+    padding-right: 2.5rem !important;
+    margin-top: 0 !important;
+    position: relative !important;
+    z-index: 2 !important;
+    font-size: 0.8rem !important;
+    line-height: 1.55 !important;   /* Proper line-height for print readability */
+    page-break-inside: avoid !important;
+  }
+  /* Print: paragraph and text line-height so lines show properly */
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main p,
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main div,
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main .leading-relaxed {
+    line-height: 1.55 !important;
+  }
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main p {
+    margin-bottom: 0.4em !important;
+    margin-top: 0 !important;
+  }
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main p + p {
+    margin-top: 0.35em !important;
+  }
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-header {
+    position: relative !important;
+    z-index: 2 !important;
+  }
+  /* Sirf Experience Letter title – .experience-letter-doc-title, dusre pe asar nahi */
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-doc-title {
+    margin-top: 220px !important;
+    margin-bottom: 0 !important;
+    font-size: 1.875rem !important;
+    line-height: 2.25rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.025em !important;
+  }
+  /* Full and Final title – print me thoda upar */
+  .experience-letter-doc.full-and-final-doc.experience-letter-with-letterhead.doc-print-as-screen .full-and-final-doc-title {
+    margin-top: 248px !important;
+    margin-bottom: 0 !important;
+    font-size: 1.875rem !important;
+    line-height: 4.25rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.025em !important;
+    text-transform: uppercase !important;
+  }
+  /* F&F header line – print me line aur content ke bich gap na ho */
+  .experience-letter-doc.full-and-final-doc.experience-letter-with-letterhead.doc-print-as-screen .full-and-final-header-line {
+    margin-top: 0.3rem !important;
+    margin-bottom: 0 !important;
+  }
+  .experience-letter-doc.full-and-final-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-header.full-and-final-header {
+    padding-top: 0 !important;
+    padding-bottom: 0.25rem !important;
+    padding-left: 2.5rem !important;
+    padding-right: 2.5rem !important;
+  }
+  /* Full and Final only – content line ke turant niche, gap kam; font screen jaisa */
+  .experience-letter-doc.full-and-final-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main {
+    padding-top: 28px !important;
+    font-size: 0.875rem !important;
+  }
+  /* F&F first block (DATE/Dear) – extra margin na ho */
+  .experience-letter-doc.full-and-final-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main .full-and-final-content-block,
+  .experience-letter-doc.full-and-final-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main .full-and-final-content-block .text-gray-800 {
+    margin-top: 0 !important;
+  }
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-header {
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.5rem !important;
+    padding-left: 2.5rem !important;
+    padding-right: 2.5rem !important;
+  }
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .letterhead-divider-on-bg {
+    margin-top: 0.5rem !important;
+    margin-bottom: 0.25rem !important;
+  }
+  /* Joining Form – 2-page: fixed header (title + line) har page pe, content line ke niche, flow allowed */
+  .experience-letter-doc.joining-form-doc.doc-print-as-screen {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+  .experience-letter-doc.joining-form-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-header.joining-form-header {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    margin-top: 0 !important;
+    padding: 0.35rem 2.5rem 0.4rem !important;
+    background: #fff !important;
+    border-bottom: 1px solid rgb(203 213 225) !important;
+    z-index: 10 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .experience-letter-doc.joining-form-doc.experience-letter-with-letterhead.doc-print-as-screen .joining-form-doc-title {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    font-size: 1.5rem !important;
+    line-height: 1.75rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.025em !important;
+  }
+  .experience-letter-doc.joining-form-doc.experience-letter-with-letterhead.doc-print-as-screen .joining-form-header-line {
+    margin-top: 0.25rem !important;
+    margin-bottom: 0 !important;
+  }
+  .experience-letter-doc.joining-form-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main.joining-form-main {
+    padding-top: 165px !important;
+    padding-bottom: 75px !important;
+    padding-left: 2.5rem !important;
+    padding-right: 2.5rem !important;
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+  .experience-letter-doc.joining-form-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main.joining-form-main .joining-form-content-start,
+  .experience-letter-doc.joining-form-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main .joining-form-content-start .text-gray-800 {
+    margin-top: 0 !important;
+  }
+  .experience-letter-doc.joining-form-doc .experience-letter-main table {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  /* Employment History ke niche wala content (Documents Submitted + declaration) page 2 pe – letterhead dono page pe */
+  .experience-letter-doc.joining-form-doc .experience-letter-main .joining-form-page-2 {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  .experience-letter-doc.doc-print-as-screen .experience-letter-header {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    width: auto !important;
+    padding: 0.5rem 2rem 0.25rem !important;
+    background: white !important;
+  }
+  /* Letterhead doc: header must be transparent so letterhead shows */
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-header {
+    background: transparent !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-footer {
+    position: relative !important;
+    bottom: auto !important;
+    left: auto !important;
+    right: auto !important;
+    width: auto !important;
+    padding: 0.4rem 1rem !important;
+  }
+  /* Generic doc-print: do not override letterhead version – letterhead uses rule above */
+  .experience-letter-doc.doc-print-as-screen:not(.experience-letter-with-letterhead) .experience-letter-main {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
+    font-size: 0.75rem !important;
+    line-height: 1.35 !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-header .experience-letter-title {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-header .letterhead-divider {
+    margin-top: 0.25rem !important;
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.35rem !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-main .text-gray-800 {
+    --tw-text-opacity: 1;
+    color: rgb(31 41 55 / var(--tw-text-opacity)) !important;
+    margin-top: 13px !important;
+  }
+  /* Compact spacing so content fits on one page */
+  .experience-letter-doc.doc-print-as-screen .experience-letter-main .mb-6 {
+    margin-bottom: 0.35rem !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-main .mt-2 {
+    margin-top: 0.2rem !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-main .space-y-4 > * + * {
+    margin-top: 0.4rem !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-main .mt-12 {
+    margin-top: 0.6rem !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-main .pt-8 {
+    padding-top: 0.5rem !important;
+  }
+  /* Letterhead print: signature section or niche */
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main .border-t.border-gray-300 {
+    margin-top: 3rem !important;
+    padding-top: 1.5rem !important;
+  }
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main .border-t.border-gray-300 .mt-8 {
+    margin-top: 0.85rem !important;
+  }
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main .border-t.border-gray-300 .mt-4 {
+    margin-top: 0.5rem !important;
+  }
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main .border-t.border-gray-300 p {
+    margin-bottom: 0.2em !important;
+    line-height: 1.4 !important;
+  }
+  /* Experience Letter title: letterhead - margin-top 196px so print matches */
+  .experience-letter-doc.doc-print-as-screen .experience-letter-title {
+    font-size: 1.875rem !important;
+    line-height: 2.25rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.025em !important;
+    margin-top: 196px !important;
+    margin-bottom: 0 !important;
+    padding: 0 !important;
+  }
+  /* Experience Letter: VG watermark - same as letterhead (bottom 138px, right -60px, 400x170, opacity 0.7) */
+  .experience-letter-doc.doc-print-as-screen .watermark {
+    position: absolute !important;
+    bottom: 138px !important;
+    right: -60px !important;
+    width: 400px !important;
+    height: 170px !important;
+    opacity: 0.7 !important;
+    z-index: 1 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .watermark img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+  }
+  /* Experience Letter: header logo same as screen for proper letterhead print */
+  .experience-letter-doc.doc-print-as-screen .vg-shield.small {
+    width: 200px !important;
+    height: 240px !important;
+    border-radius: 0 0 120px 120px !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .vg-shield.small img {
+    width: 233px !important;
+    height: 233px !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-main .font-bold.text-lg {
+    font-size: 0.8rem !important;
+  }
+  .experience-letter-doc.doc-print-as-screen .experience-letter-footer .text-sm,
+  .experience-letter-doc.doc-print-as-screen .experience-letter-footer .flex {
+    font-size: 0.65rem !important;
+  }
+
+  /* Letterhead: fixed on every printed page (for Offer Letter / Joining Form multi-page) */
+  .experience-letter-header {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    padding: 0.75rem 1.5rem 0.5rem !important;
+    background: white !important;
+    z-index: 10 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Experience Letter with letterhead bg: header in normal flow so background shows */
+  .experience-letter-doc.experience-letter-with-letterhead .experience-letter-header {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    width: auto !important;
+    background: transparent !important;
+  }
+
+  /* Offer Letter: letterhead strip ke niche header, content proper – dono page pe letterhead */
+  .offer-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-header.offer-letter-header {
+    position: fixed !important;
+    top: 100px !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    margin-top: 0 !important;
+    padding: 0.35rem 2.5rem 0.4rem !important;
+    background: #fff !important;
+    border-bottom: 1px solid rgb(203 213 225) !important;
+    z-index: 10 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .offer-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .offer-letter-doc-title {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    font-size: 1.5rem !important;
+    line-height: 1.75rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.025em !important;
+    text-transform: uppercase !important;
+  }
+  .offer-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .offer-letter-header-line {
+    margin-top: 0.25rem !important;
+    margin-bottom: 0 !important;
+  }
+  .offer-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-main.offer-letter-main {
+    padding-top: 165px !important;
+    padding-bottom: 75px !important;
+    padding-left: 2.5rem !important;
+    padding-right: 2.5rem !important;
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    page-break-inside: auto !important;
+  }
+  /* Print: reset title/divider margins so header matches screen layout */
+  .experience-letter-header .experience-letter-title {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+  }
+  .experience-letter-header .letterhead-divider {
+    margin-top: 0.5rem !important;
+  }
+  /* Print: same structure as screen - text-gray-800 color + margin-top 13px */
+  .experience-letter-main .text-gray-800 {
+    --tw-text-opacity: 1;
+    color: rgb(31 41 55 / var(--tw-text-opacity)) !important;
+    margin-top: 13px !important;
+  }
+  /* Print: body text line-height proper for all experience letter docs */
+  .experience-letter-main.content-layer {
+    line-height: 1.55 !important;
+  }
+  .experience-letter-main p {
+    line-height: 1.55 !important;
+  }
+  /* Print: company name and line – 13px gap preserved */
+  .experience-letter-main .experience-letter-company-line {
+    margin-top: 13px !important;
+    border-top: 1px solid rgb(229 231 235) !important;
+  }
+
+  /* Footer: fixed on every printed page (for multi-page docs) */
+  .experience-letter-footer {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    padding: 0.5rem 1rem !important;
+    z-index: 10 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Main content: padding so it doesn't go under fixed header/footer (multi-page docs) */
+  .experience-letter-main {
+    padding-top: 220px !important;
+    padding-bottom: 100px !important;
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    page-break-inside: auto !important;
+    margin-top: 0 !important;
+  }
+
+  /* Letterhead single-page: content top gap kam */
+  .experience-letter-doc.experience-letter-with-letterhead .experience-letter-main {
+    padding-top: 85px !important;
+    padding-bottom: 1.5rem !important;
+  }
+
+  .experience-letter-main .space-y-4 > * + * {
+    margin-top: 0.75rem !important;
+  }
+
+  .experience-letter-main .mb-6 {
+    margin-bottom: 1rem !important;
+  }
+
+  .experience-letter-main .mt-12 {
+    margin-top: 2rem !important;
+  }
+
+  .experience-letter-main .mt-8 {
+    margin-top: 1.5rem !important;
+  }
+
+  /* Don't break inside signature block if possible */
+  .experience-letter-main .border-t.border-gray-300 {
+    page-break-inside: avoid !important;
+  }
+
+  /* Offer letter: each section on new page */
+  .experience-letter-main .offer-letter-page {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  /* Logo size for print */
+  .vg-shield.small {
+    width: 150px !important;
+    height: 180px !important;
+    border-radius: 0 0 90px 90px !important;
+  }
+
+  .vg-shield.small img {
+    width: 140px !important;
+    height: 140px !important;
+  }
+
+  .experience-letter-footer .text-sm {
+    font-size: 0.75rem !important;
+  }
+
+  /* Watermark - low opacity, behind content */
+  .watermark {
+    position: absolute !important;
+    bottom: 138px !important;
+    right: -60px !important;
+    width: 400px !important;
+    height: 170px !important;
+    opacity: 0.35 !important;
+    z-index: 0 !important;
+    pointer-events: none !important;
+  }
+
+  body,
+  html {
+    height: auto !important;
+    overflow: visible !important;
+  }
+}
