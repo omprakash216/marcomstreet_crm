@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import MeetingCalendar from '../components/MeetingCalendar';
 import { MdEventNote } from 'react-icons/md';
 
@@ -47,7 +47,7 @@ export default function Calendar() {
                                 onClick={() => setSelectedMeeting(null)}
                                 className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-lg transition-all"
                             >
-                                ✕
+                                X
                             </button>
                         </div>
                         <div className="p-8 space-y-6">
@@ -102,3 +102,4 @@ export default function Calendar() {
         </div>
     );
 }
+

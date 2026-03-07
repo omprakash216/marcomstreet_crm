@@ -5,6 +5,142 @@
   box-sizing: border-box;
 }
 
+/* ===============================================
+   Offer Letter Dedicated Multi-Page Sheet Layout
+   =============================================== */
+.offer-letter-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.offer-letter-sheet-header {
+  position: relative;
+  z-index: 2;
+  padding-left: 2.5rem;
+  padding-right: 2.5rem;
+  min-height: 286px;
+  box-sizing: border-box;
+  display: flow-root; /* Prevent title margin collapse so content starts after header block */
+}
+
+.offer-letter-sheet-header--title {
+  padding-top: 268px;
+}
+
+.offer-letter-sheet-title {
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 1.875rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgb(31 41 55);
+  text-transform: uppercase;
+  word-break: break-word;
+}
+
+.offer-letter-sheet-title-line {
+  border-top: 1px solid rgb(203 213 225);
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+}
+
+.offer-letter-sheet-top-spacer {
+  height: 280px;
+}
+
+.offer-letter-sheet-title-line--anchor {
+  margin-top: 0 !important;
+}
+
+.offer-letter-sheet-content {
+  position: relative;
+  z-index: 2;
+  padding: 1.5rem 2.5rem 5.25rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.offer-letter-keep-together {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media print {
+  .offer-letter-pages {
+    gap: 0 !important;
+  }
+
+  .offer-letter-sheet {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    max-width: 210mm !important;
+    margin: 0 auto !important;
+    border: none !important;
+    box-shadow: none !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    overflow: hidden !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .offer-letter-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .offer-letter-sheet-header {
+    padding-left: 10mm !important;
+    padding-right: 10mm !important;
+    min-height: 282px !important;
+    display: flow-root !important;
+  }
+
+  .offer-letter-sheet-header--title {
+    padding-top: 236px !important;
+  }
+
+  .offer-letter-sheet-title {
+    margin: 0 !important;
+    font-family: "Times New Roman", Georgia, serif !important;
+    font-size: 1.5rem !important;
+    line-height: 1.2 !important;
+    letter-spacing: 0.04em !important;
+  }
+
+  .offer-letter-sheet-title-line {
+    margin-top: 0.25rem !important;
+  }
+
+  .offer-letter-sheet-top-spacer {
+    height: 276px !important;
+  }
+
+  .offer-letter-sheet-content {
+    padding: 20px 10mm 72px 10mm !important;
+    font-size: 13px !important;
+    line-height: 1.52 !important;
+  }
+
+  .offer-letter-sheet-content p,
+  .offer-letter-sheet-content li,
+  .offer-letter-sheet-content td,
+  .offer-letter-sheet-content th {
+    line-height: 1.52 !important;
+  }
+
+  .offer-letter-sheet-content table,
+  .offer-letter-sheet-content .offer-letter-keep-together,
+  .offer-letter-sheet-content .hr-signature-box {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
+
 body {
   margin: 0;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
@@ -252,7 +388,7 @@ body {
   line-height: 2.25rem;
   font-weight: 700;
   letter-spacing: 0.025em;
-  margin-top: 196px;
+  margin-top: 214px;
   margin-bottom: 0;
   padding: 0;
 }
@@ -283,7 +419,7 @@ body {
 
 .experience-letter-title-on-bg {
   text-align: center;
-  margin-top: 196px;
+  margin-top: 214px;
   margin-bottom: 0;
   padding: 0;
   font-size: 1.875rem;
@@ -296,7 +432,7 @@ body {
 /* Experience Letter only – alag class, kisi aur content pe asar nahi */
 .experience-letter-doc-title {
   text-align: center;
-  margin-top: 196px;
+  margin-top: 284px;
   margin-bottom: 0;
   padding: 0;
   font-size: 1.875rem;
@@ -769,6 +905,33 @@ body {
     display: none !important;
   }
 
+  /* Offer Letter: print only this root at page top-left to avoid blank first page/layout shift */
+  .offer-letter-print-root,
+  .offer-letter-print-root * {
+    visibility: visible !important;
+  }
+
+  .offer-letter-print-root {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    z-index: 9999 !important;
+    transform: none !important;
+  }
+
+  .offer-letter-print-root .offer-letter-pages {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
   /* ===== Experience Letter: one page only, normal flow, compact for print ===== */
   .experience-letter-doc.doc-print-as-screen {
     page-break-inside: avoid !important;
@@ -807,7 +970,7 @@ body {
   }
   /* Sirf Experience Letter title – .experience-letter-doc-title, dusre pe asar nahi */
   .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-doc-title {
-    margin-top: 220px !important;
+    margin-top: 260px !important;
     margin-bottom: 0 !important;
     font-size: 1.875rem !important;
     line-height: 2.25rem !important;
@@ -991,7 +1154,7 @@ body {
     line-height: 2.25rem !important;
     font-weight: 700 !important;
     letter-spacing: 0.025em !important;
-    margin-top: 196px !important;
+    margin-top: 214px !important;
     margin-bottom: 0 !important;
     padding: 0 !important;
   }
@@ -1204,9 +1367,217 @@ body {
     pointer-events: none !important;
   }
 
+  /* Offer Letter: keep every sheet in normal print flow so all A4 pages print */
+  .offer-letter-pages {
+    display: block !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet.experience-letter-doc {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid-page !important;
+    overflow: hidden !important;
+    box-shadow: none !important;
+    border: none !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet.experience-letter-doc:first-child {
+    page-break-before: auto !important;
+    break-before: auto !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet.experience-letter-doc:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-header {
+    min-height: 286px !important;
+    padding-left: 8mm !important;
+    padding-right: 8mm !important;
+    display: flow-root !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-header--title {
+    padding-top: 268px !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-title {
+    margin: 0 !important;
+    font-family: "Times New Roman", Georgia, serif !important;
+    font-size: 1.875rem !important;
+    line-height: 1.2 !important;
+    letter-spacing: 0.04em !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-title-line {
+    margin-top: 0.35rem !important;
+    border-top: 1px solid rgb(203 213 225) !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-top-spacer {
+    height: 280px !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-content {
+    padding: 1.5rem 8mm 5.25rem !important;
+    font-size: 0.875rem !important;
+    line-height: 1.55 !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-content p,
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-content li,
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-content td,
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-content th {
+    line-height: 1.55 !important;
+  }
+
   body,
   html {
     height: auto !important;
     overflow: visible !important;
+  }
+}
+
+/* ========================================
+   Joining Form PDF (2-page A4 letterhead)
+   ======================================== */
+.joining-form-print-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.joining-form-print-page {
+  width: 210mm;
+  min-height: 297mm;
+  max-width: 210mm;
+  margin: 0 auto;
+  box-sizing: border-box;
+  page-break-after: always;
+  break-after: page;
+}
+
+.joining-form-print-page:last-child {
+  page-break-after: auto;
+  break-after: auto;
+}
+
+.joining-form-print-header {
+  padding-left: 12mm;
+  padding-right: 12mm;
+  padding-top: 270px;
+}
+
+.joining-form-print-title {
+  margin: 0;
+  margin-top: 18px;
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 1.65rem;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  color: rgb(31 41 55);
+}
+
+.joining-form-print-title-line {
+  margin-top: 0.3rem;
+  border-top: 1px solid rgb(203 213 225);
+}
+
+.joining-form-print-main {
+  padding: 10px 12mm 24mm;
+  box-sizing: border-box;
+}
+
+.joining-form-signature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.joining-form-sign-line {
+  margin-top: 1.2rem;
+  border-bottom: 1px solid rgb(107 114 128);
+  width: 100%;
+}
+
+@media print {
+  .joining-form-print-root,
+  .joining-form-print-root * {
+    visibility: visible !important;
+  }
+
+  .joining-form-print-root {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    z-index: 9999 !important;
+  }
+
+  .joining-form-print-pages {
+    gap: 0 !important;
+  }
+
+  .joining-form-print-page {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    max-width: 210mm !important;
+    margin: 0 auto !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .joining-form-print-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .joining-form-print-header {
+    padding-left: 10mm !important;
+    padding-right: 10mm !important;
+    padding-top: 248px !important;
+  }
+
+  .joining-form-print-title {
+    font-size: 1.5rem !important;
+  }
+
+  .joining-form-print-main {
+    padding: 8px 10mm 20mm !important;
+    font-size: 12.5px !important;
+    line-height: 1.45 !important;
+  }
+
+  .joining-form-print-main table,
+  .joining-form-print-main tr,
+  .joining-form-signature-grid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }

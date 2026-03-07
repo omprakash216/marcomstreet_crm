@@ -6,6 +6,37 @@ const { verifyToken, JWT_SECRET } = require('../middleware/auth');
 
 const router = express.Router();
 
+async function findEmployeeByEmail(email) {
+  const normalizedEmail = String(email || '').trim();
+
+  // Primary query for current schema (with status column).
+  try {
+    const rows = await query(
+      'SELECT * FROM employees WHERE LOWER(email) = LOWER(?) AND status = ?',
+      [normalizedEmail, 'active']
+    );
+    return rows[0] || null;
+  } catch (err) {
+    // Backward compatibility for older schemas where `status` column may not exist.
+    if (err && err.code === 'ER_BAD_FIELD_ERROR' && /status/i.test(err.message || '')) {
+      const rows = await query(
+        'SELECT * FROM employees WHERE LOWER(email) = LOWER(?)',
+        [normalizedEmail]
+      );
+      const employee = rows[0] || null;
+      if (!employee) return null;
+
+      // If a status-like field exists in older schema, enforce active users only.
+      if (employee.status && String(employee.status).toLowerCase() !== 'active') {
+        return null;
+      }
+      return employee;
+    }
+
+    throw err;
+  }
+}
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -13,11 +44,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
 
-    const rows = await query(
-      'SELECT * FROM employees WHERE email = ? AND status = ?',
-      [email.trim(), 'active']
-    );
-    const employee = rows[0];
+    const employee = await findEmployeeByEmail(email);
     if (!employee) {
       return res.status(401).json({
         success: false,

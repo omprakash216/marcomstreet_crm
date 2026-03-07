@@ -138,8 +138,6 @@ function App() {
           <Route path="whatsapp" element={<WhatsAppHits />} />
           <Route path="hrms/attendance" element={<Attendance />} />
           <Route path="hrms/leaves" element={<Leaves />} />
-          <Route path="hrms/documents" element={<HRDocuments />} />
-          <Route path="hrms/salary" element={<SalarySlips />} />
           <Route path="chat" element={<Chat />} />
           <Route path="calendar" element={<Calendar />} />
         </Route>
@@ -178,6 +176,7 @@ function App() {
           <Route path="tasks" element={<Tasks />} />
           <Route path="followups" element={<Followups />} />
           <Route path="quotations" element={<Quotations />} />
+          <Route path="invoices" element={<Invoices />} />
           <Route path="sample-reports" element={<SampleReports />} />
           <Route path="client-history" element={<ClientHistory />} />
           <Route path="group-meetings" element={<GroupMeetings />} />
@@ -190,7 +189,6 @@ function App() {
           <Route path="hrms/leaves" element={<Leaves />} />
           <Route path="hrms/attendance" element={<Attendance />} />
           <Route path="hrms/salary-slips" element={<SalarySlips />} />
-          <Route path="hrms/documents" element={<HRDocuments />} />
 
           {/* Chat Route */}
           <Route path="chat" element={<Chat />} />
@@ -220,6 +218,7 @@ function App() {
           <Route path="task-assignment" element={<AdminTaskAssignment />} />
           <Route path="departments" element={<AdminDepartments />} />
           <Route path="audit-logs" element={<AdminAuditLogs />} />
+          <Route path="reports" element={<Reports />} />
           <Route path="generate-document/:employeeId" element={<DocumentGenerator />} />
           <Route path="calendar" element={<Calendar />} />
         </Route>
@@ -229,4 +228,3 @@ function App() {
 }
 
 export default App;
-

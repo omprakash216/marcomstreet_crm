@@ -34,6 +34,14 @@ router.get('/status', verifyToken, async (req, res) => {
       },
     });
   } catch (err) {
+    const msg = (err && err.message) ? String(err.message) : '';
+    // Keep UI stable when attendance table/columns are not available yet.
+    if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+      return res.json({
+        success: true,
+        data: { checked_in: false, checked_out: false, checkin: null },
+      });
+    }
     return res.status(500).json({ success: false, message: err.message });
   }
 });

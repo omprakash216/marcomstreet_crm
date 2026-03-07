@@ -52,14 +52,77 @@ export default function HRDocuments() {
   });
 
   const employee = getEmployee();
-  const isAdminOrManager = employee?.role === 'admin' || employee?.role === 'manager' || employee?.role === 'human_resources';
+  const role = (employee?.role || '').toLowerCase();
+  const isAllowed = role === 'admin' || role === 'human_resources';
 
   // Node only: same origin, /serve-pdf from Node
   const BASE_URL = '';
 
+  const downloadDocPdf = async (filePath) => {
+    if (!filePath) return;
+    const cleanPath = String(filePath).trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    const url = `${BASE_URL}/serve-pdf?file=${encodeURIComponent(cleanPath)}&download=1`;
+    const safeName = cleanPath.split('/').pop()?.replace(/[^a-zA-Z0-9._-]/g, '_') || 'document.pdf';
+
+    try {
+      const resp = await fetch(url, { credentials: 'include' });
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => '');
+        throw new Error(txt || `Download failed (${resp.status})`);
+      }
+      const ct = String(resp.headers.get('content-type') || '').toLowerCase();
+      if (!ct.includes('application/pdf')) {
+        const txt = await resp.text().catch(() => '');
+        throw new Error(txt || 'Invalid file type received');
+      }
+
+      const blob = await resp.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = safeName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000);
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || 'Failed to download document');
+    }
+  };
+
+  const handleDeleteDoc = async (doc) => {
+    if (!doc?.id) return;
+    const ok = window.confirm(`Delete this document?\n\n${doc.title || 'Untitled'}`);
+    if (!ok) return;
+
+    try {
+      // Primary: new HRMS route (deletes DB + file). Fallback: legacy hr-documents route (DB only).
+      let resp;
+      try {
+        resp = await api.delete(`/hrms/documents/${doc.id}`);
+      } catch (e) {
+        if (e?.response?.status === 404) {
+          resp = await api.delete(`/hr-documents/${doc.id}`);
+        } else {
+          throw e;
+        }
+      }
+
+      if (resp?.data?.success) {
+        setDocs((prev) => prev.filter((d) => d.id !== doc.id));
+        return;
+      }
+      alert(resp?.data?.message || 'Failed to delete document');
+    } catch (e) {
+      console.error(e);
+      alert(e.response?.data?.message || e.message || 'Failed to delete document');
+    }
+  };
+
   useEffect(() => {
     fetchDocs();
-    if (isAdminOrManager) {
+    if (isAllowed) {
       fetchEmployees();
     }
   }, [filter]);
@@ -197,6 +260,18 @@ export default function HRDocuments() {
     setActiveTab('experience-letter');
   };
 
+  if (!isAllowed) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-100 text-red-600 mb-4">
+          <i className="fas fa-lock text-2xl"></i>
+        </div>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Restricted</h1>
+        <p className="text-gray-600">Only HR or Admin users can manage HR documents.</p>
+      </div>
+    );
+  }
+
   return (
     <div>
       {/* Standardized Header Section */}
@@ -216,7 +291,7 @@ export default function HRDocuments() {
               <h1 className="text-3xl font-bold text-white mb-1">HR Documents</h1>
               <p className="text-slate-300 text-sm">Access your official documents and company policies</p>
             </div>
-            {isAdminOrManager && activeTab === 'documents' && (
+            {isAllowed && activeTab === 'documents' && (
               <div className="flex space-x-3">
                 <button
                   onClick={() => setShowGenerateModal(true)}
@@ -235,7 +310,7 @@ export default function HRDocuments() {
               </div>
             )}
 
-            {(activeTab === 'experience-letter' || activeTab === 'offer-letter' || activeTab === 'joining-form' || activeTab === 'full-and-final') && isAdminOrManager && (
+            {(activeTab === 'experience-letter' || activeTab === 'offer-letter' || activeTab === 'joining-form' || activeTab === 'full-and-final') && isAllowed && (
               <div className="flex space-x-3">
                 <select
                   value={selectedEmployee?.id || ''}
@@ -365,50 +440,74 @@ export default function HRDocuments() {
           <p className="text-gray-500">No documents found</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredDocs.map((doc) => (
-            <div key={doc.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all group">
-              <div className="flex justify-between items-start mb-4">
-                <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-lg flex items-center justify-center group-hover:bg-purple-600 group-hover:text-white transition-all">
-                  <i className="fas fa-file-alt text-xl"></i>
-                </div>
-                <div className="text-right">
-                  <span className={`px-2 py-1 rounded text-xs font-bold uppercase block mb-1 ${doc.type === 'offer_letter' ? 'bg-green-100 text-green-700' :
-                    doc.type === 'policy' ? 'bg-blue-100 text-blue-700' :
-                      'bg-gray-100 text-gray-700'
-                    }`}>
-                    {doc.type ? doc.type.replace('_', ' ') : 'Unknown'}
-                  </span>
-                  {isAdminOrManager && <span className="text-xs text-purple-500 font-medium">{doc.employee_name}</span>}
-                </div>
-              </div>
-              <h3 className="font-bold text-gray-900 mb-1 truncate" title={doc.title}>{doc.title}</h3>
-              <p className="text-xs text-gray-500 mb-4">Uploaded on {new Date(doc.created_at).toLocaleDateString()}</p>
-              <div className="flex space-x-2">
-                {doc.file_path ? (
-                  <>
-                    <a
-                      href={getDocUrl(doc.file_path)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 inline-flex items-center justify-center px-3 py-2 bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 text-sm font-medium transition-all border border-gray-200"
-                    >
-                      View
-                    </a>
-                    <a
-                      href={getDocUrl(doc.file_path)}
-                      download
-                      className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-all border border-blue-100"
-                    >
-                      <i className="fas fa-download text-sm"></i>
-                    </a>
-                  </>
-                ) : (
-                  <span className="flex-1 text-center text-sm text-gray-400">File not available</span>
-                )}
-              </div>
-            </div>
-          ))}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-md overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="text-left font-semibold px-4 py-3">Title</th>
+                  <th className="text-left font-semibold px-4 py-3">Type</th>
+                  {isAllowed && <th className="text-left font-semibold px-4 py-3">Employee</th>}
+                  <th className="text-left font-semibold px-4 py-3">Date</th>
+                  <th className="text-right font-semibold px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredDocs.map((doc) => (
+                  <tr key={doc.id} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-slate-900">{doc.title || 'Untitled'}</div>
+                      <div className="text-xs text-slate-500">{doc.file_path || ''}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center px-2 py-1 rounded text-[11px] font-bold uppercase ${doc.type === 'offer_letter' ? 'bg-green-100 text-green-700' :
+                        doc.type === 'experience_letter' ? 'bg-indigo-100 text-indigo-700' :
+                          doc.type === 'joining_form' ? 'bg-amber-100 text-amber-800' :
+                            doc.type === 'full_and_final' ? 'bg-rose-100 text-rose-700' :
+                              doc.type === 'policy' ? 'bg-blue-100 text-blue-700' :
+                                'bg-gray-100 text-gray-700'
+                        }`}>
+                        {doc.type ? doc.type.replace(/_/g, ' ') : 'Unknown'}
+                      </span>
+                    </td>
+                    {isAllowed && <td className="px-4 py-3 text-slate-700">{doc.employee_name || '-'}</td>}
+                    <td className="px-4 py-3 text-slate-700">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <a
+                          href={getDocUrl(doc.file_path)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center px-3 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-700 font-medium"
+                          title="View"
+                        >
+                          <i className="fas fa-eye text-sm"></i>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => downloadDocPdf(doc.file_path)}
+                          className="inline-flex items-center justify-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                          title="Download"
+                        >
+                          <i className="fas fa-download text-sm"></i>
+                        </button>
+                        {isAllowed && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDoc(doc)}
+                            className="inline-flex items-center justify-center px-3 py-2 bg-red-50 text-red-700 border border-red-100 rounded-lg hover:bg-red-100 font-medium"
+                            title="Delete"
+                          >
+                            <i className="fas fa-trash-alt text-sm"></i>
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

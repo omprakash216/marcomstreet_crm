@@ -116,7 +116,12 @@ export default function AdminAttendance() {
     ]
   };
 
-  const dataToUse = data || mockData;
+  const dataToUse = data && data.summary ? data : mockData;
+  const summary = dataToUse.summary || { totalEmployees: 0, presentToday: 0, absentToday: 0, onLeave: 0, attendanceRate: 0, avgWorkingHours: 0 };
+  const monthlyStats = Array.isArray(dataToUse.monthlyStats) ? dataToUse.monthlyStats : [];
+  const departmentStats = Array.isArray(dataToUse.departmentStats) ? dataToUse.departmentStats : [];
+  const attendanceTypes = Array.isArray(dataToUse.attendanceTypes) ? dataToUse.attendanceTypes : [];
+  const employeeAttendance = Array.isArray(dataToUse.employeeAttendance) ? dataToUse.employeeAttendance : [];
 
   return (
     <div className="space-y-6">
@@ -144,6 +149,7 @@ export default function AdminAttendance() {
               <option value="2024-04">April 2024</option>
               <option value="2024-05">May 2024</option>
               <option value="2024-06">June 2024</option>
+              <option value="2026-02">February 2026</option>
             </select>
           </div>
         </div>
@@ -191,8 +197,8 @@ export default function AdminAttendance() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Present Today</p>
-              <p className="text-3xl font-bold text-gray-900">{dataToUse.summary.presentToday}</p>
-              <p className="text-xs text-green-600 font-medium mt-1">Out of {dataToUse.summary.totalEmployees}</p>
+              <p className="text-3xl font-bold text-gray-900">{summary.presentToday}</p>
+              <p className="text-xs text-green-600 font-medium mt-1">Out of {summary.totalEmployees}</p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center shadow-lg">
               <i className="fas fa-check-circle text-white"></i>
@@ -203,7 +209,7 @@ export default function AdminAttendance() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Absent Today</p>
-              <p className="text-3xl font-bold text-gray-900">{dataToUse.summary.absentToday}</p>
+              <p className="text-3xl font-bold text-gray-900">{summary.absentToday}</p>
               <p className="text-xs text-red-600 font-medium mt-1">Requires attention</p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -215,7 +221,7 @@ export default function AdminAttendance() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Attendance Rate</p>
-              <p className="text-3xl font-bold text-gray-900">{dataToUse.summary.attendanceRate}%</p>
+              <p className="text-3xl font-bold text-gray-900">{summary.attendanceRate}%</p>
               <p className="text-xs text-blue-600 font-medium mt-1">Monthly average</p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -227,7 +233,7 @@ export default function AdminAttendance() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Avg Working Hours</p>
-              <p className="text-3xl font-bold text-gray-900">{dataToUse.summary.avgWorkingHours}h</p>
+              <p className="text-3xl font-bold text-gray-900">{summary.avgWorkingHours}h</p>
               <p className="text-xs text-purple-600 font-medium mt-1">Per day</p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -246,7 +252,7 @@ export default function AdminAttendance() {
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
-                  data={dataToUse.attendanceTypes}
+                  data={attendanceTypes}
                   cx="50%"
                   cy="50%"
                   labelLine={false}
@@ -255,7 +261,7 @@ export default function AdminAttendance() {
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {dataToUse.attendanceTypes.map((entry, index) => (
+                  {attendanceTypes.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
@@ -268,7 +274,7 @@ export default function AdminAttendance() {
           <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Attendance Trend</h3>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={dataToUse.monthlyStats}>
+              <LineChart data={monthlyStats}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />
                 <YAxis />
@@ -348,7 +354,7 @@ export default function AdminAttendance() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {dataToUse.employeeAttendance.map((employee, index) => (
+                  {employeeAttendance.map((employee, index) => (
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">{employee.name}</div>

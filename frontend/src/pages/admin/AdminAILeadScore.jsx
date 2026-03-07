@@ -74,6 +74,9 @@ export default function AdminAILeadScore() {
 
   if (!data) return null;
 
+  const statistics = data.statistics || {};
+  const leads = Array.isArray(data.leads) ? data.leads : [];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -93,19 +96,19 @@ export default function AdminAILeadScore() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-white to-blue-50/50 rounded-xl shadow-lg p-5 border border-blue-100/50">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Total Leads</p>
-          <p className="text-3xl font-bold text-gray-900">{data.statistics.totalLeads}</p>
+          <p className="text-3xl font-bold text-gray-900">{statistics.totalLeads || 0}</p>
         </div>
         <div className="bg-gradient-to-br from-white to-green-50/50 rounded-xl shadow-lg p-5 border border-green-100/50">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">High Score</p>
-          <p className="text-3xl font-bold text-gray-900">{data.statistics.highScoreLeads}</p>
+          <p className="text-3xl font-bold text-gray-900">{statistics.highScoreLeads || 0}</p>
         </div>
         <div className="bg-gradient-to-br from-white to-yellow-50/50 rounded-xl shadow-lg p-5 border border-yellow-100/50">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Medium Score</p>
-          <p className="text-3xl font-bold text-gray-900">{data.statistics.mediumScoreLeads}</p>
+          <p className="text-3xl font-bold text-gray-900">{statistics.mediumScoreLeads || 0}</p>
         </div>
         <div className="bg-gradient-to-br from-white to-red-50/50 rounded-xl shadow-lg p-5 border border-red-100/50">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Low Score</p>
-          <p className="text-3xl font-bold text-gray-900">{data.statistics.lowScoreLeads}</p>
+          <p className="text-3xl font-bold text-gray-900">{statistics.lowScoreLeads || 0}</p>
         </div>
       </div>
 
@@ -170,7 +173,7 @@ export default function AdminAILeadScore() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {data.leads.map((lead, index) => (
+              {leads.map((lead, index) => (
                 <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{index + 1}</td>
                   <td className="px-6 py-4">

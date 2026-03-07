@@ -210,6 +210,28 @@ router.delete('/tasks/:id', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
+router.patch('/tasks/:id/status', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const { status } = req.body || {};
+    if (!taskId || !status) {
+      return res.status(400).json({ success: false, message: 'Task ID and status are required' });
+    }
+    const completedAt = status === 'completed' ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null;
+    const [result] = await query('UPDATE tasks SET status = ?, completed_at = ?, updated_at = NOW() WHERE id = ?', [
+      status,
+      completedAt,
+      taskId,
+    ]);
+    if (!result.affectedRows) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    return res.json({ success: true, message: 'Task status updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.get('/employees', verifyToken, async (req, res) => {
   try {
     const id = req.query.id || null;

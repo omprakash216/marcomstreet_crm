@@ -5,6 +5,9 @@ export default function Invoices() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [editingInvoiceId, setEditingInvoiceId] = useState(null);
+  const [viewInvoice, setViewInvoice] = useState(null);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [leads, setLeads] = useState([]);
   const [filters, setFilters] = useState({
     date_from: '',
@@ -110,6 +113,120 @@ export default function Invoices() {
   const handleRemoveItem = (index) => {
     const newItems = formData.items.filter((_, i) => i !== index);
     setFormData({ ...formData, items: newItems });
+  };
+
+  const fmtMoney = (v) => {
+    const n = Number.parseFloat(v);
+    if (!Number.isFinite(n)) return '0.00';
+    return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const fmtDate = (v) => {
+    if (!v) return '-';
+    const s = String(v);
+    if (/^\\d{4}-\\d{2}-\\d{2}/.test(s)) return s.slice(0, 10);
+    try {
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    } catch (_) {}
+    return s.slice(0, 10);
+  };
+
+  const toDateInput = (v) => {
+    if (!v) return '';
+    const s = String(v);
+    if (/^\\d{4}-\\d{2}-\\d{2}/.test(s)) return s.slice(0, 10);
+    try {
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    } catch (_) {}
+    return '';
+  };
+
+  const openInvoicePdf = async (invoice, download = false) => {
+    if (!invoice?.id) return;
+    const url = `/invoices/${encodeURIComponent(String(invoice.id))}/pdf${download ? '?download=1' : ''}`;
+    const safeName = `${String(invoice.invoice_number || `invoice_${invoice.id}`).replace(/[^a-zA-Z0-9._-]/g, '_')}.pdf`;
+
+    try {
+      const resp = await api.get(url, { responseType: 'blob' });
+      const blobUrl = window.URL.createObjectURL(resp.data);
+
+      if (download) {
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = safeName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else {
+        window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      }
+
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 8000);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to open invoice PDF');
+    }
+  };
+
+  const openEditInvoice = (invoice) => {
+    if (!invoice?.id) return;
+    setEditingInvoiceId(invoice.id);
+    setFormData({
+      lead_id: invoice.lead_id ? String(invoice.lead_id) : '',
+      items: Array.isArray(invoice.items) && invoice.items.length
+        ? invoice.items.map((it) => ({
+          item_name: it.item_name || '',
+          description: it.description || '',
+          quantity: Number(it.quantity || 1),
+          unit_price: Number(it.unit_price || 0),
+        }))
+        : [{ item_name: '', description: '', quantity: 1, unit_price: 0 }],
+      tax_percentage: Number(invoice.tax_percentage ?? 10),
+      discount_percentage: Number(invoice.discount_percentage ?? 0),
+      due_date: toDateInput(invoice.due_date),
+      notes: invoice.notes || '',
+      payment_terms: invoice.payment_terms || '',
+      status: invoice.status || 'draft',
+    });
+    setShowModal(true);
+  };
+
+  const handleDeleteInvoice = async (invoice) => {
+    if (!invoice?.id) return;
+    const ok = window.confirm(`Delete invoice ${invoice.invoice_number || ''}? This cannot be undone.`);
+    if (!ok) return;
+    try {
+      const resp = await api.delete(`/invoices/${encodeURIComponent(String(invoice.id))}`);
+      if (resp.data?.success) {
+        fetchInvoices();
+      } else {
+        alert(resp.data?.message || 'Failed to delete invoice');
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete invoice');
+    }
+  };
+
+  const handleWhatsAppSend = async (invoice) => {
+    if (!invoice?.id) return;
+    const defaultPhone = String(invoice.phone || '').trim();
+    const phone = window.prompt('Enter WhatsApp number (with country code, e.g. 919XXXXXXXXX):', defaultPhone) || '';
+    const clean = phone.replace(/[^\d]/g, '');
+    if (!clean) return;
+
+    // Open PDF for user to attach manually (WhatsApp web deep links cannot auto-attach files).
+    await openInvoicePdf(invoice, false);
+
+    const msg =
+      `Invoice: ${invoice.invoice_number || invoice.id}\\n` +
+      `Company: ${invoice.company_name || invoice.client_name || ''}\\n` +
+      `Amount: Rs. ${fmtMoney(invoice.total_amount || 0)}\\n\\n` +
+      `Please find the invoice PDF attached.`;
+
+    const waUrl = `https://wa.me/${clean}?text=${encodeURIComponent(msg)}`;
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+    alert('WhatsApp will open in a new tab. Please attach the PDF from the opened invoice PDF tab.');
   };
 
   const handleSubmit = async (e) => {

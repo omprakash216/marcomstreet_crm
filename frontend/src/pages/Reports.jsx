@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import ExcelJS from 'exceljs';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export default function Reports() {
   const [reports, setReports] = useState([]);
@@ -108,7 +108,31 @@ export default function Reports() {
         ? JSON.parse(report.report_data)
         : report.report_data;
 
-      const workbook = XLSX.utils.book_new();
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'MARCOM CRM';
+
+      const addObjectSheet = (name, rows) => {
+        if (!rows || rows.length === 0) return;
+
+        const sheet = workbook.addWorksheet(name);
+        const headers = Object.keys(rows[0]);
+
+        sheet.addRow(headers);
+        sheet.getRow(1).font = { bold: true };
+
+        rows.forEach((row) => {
+          sheet.addRow(headers.map((header) => row[header] ?? ''));
+        });
+
+        headers.forEach((header, idx) => {
+          const column = sheet.getColumn(idx + 1);
+          const longestCell = Math.max(
+            header.length,
+            ...rows.map((row) => String(row[header] ?? '').length)
+          );
+          column.width = Math.min(Math.max(longestCell + 2, 12), 40);
+        });
+      };
 
       // Add summary sheet
       const summaryData = [
@@ -126,8 +150,12 @@ export default function Reports() {
         ['Invoices', reportData.invoices?.length || 0],
         ['Quotations', reportData.quotations?.length || 0],
       ];
-      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+      const summarySheet = workbook.addWorksheet('Summary');
+      summaryData.forEach((row) => summarySheet.addRow(row));
+      summarySheet.getColumn(1).width = 24;
+      summarySheet.getColumn(2).width = 40;
+      summarySheet.getRow(1).font = { bold: true };
+      summarySheet.getRow(6).font = { bold: true };
 
       // Add Leads sheet
       if (reportData.leads && reportData.leads.length > 0) {
@@ -143,8 +171,7 @@ export default function Reports() {
           'Lead Score': lead.lead_score || 0,
           'Created Date': lead.created_at ? new Date(lead.created_at).toLocaleString() : '',
         }));
-        const leadsSheet = XLSX.utils.json_to_sheet(leadsData);
-        XLSX.utils.book_append_sheet(workbook, leadsSheet, 'Leads');
+        addObjectSheet('Leads', leadsData);
       }
 
       // Add Meetings sheet
@@ -159,8 +186,7 @@ export default function Reports() {
           'Status': meeting.status || '',
           'Type': meeting.meeting_type || '',
         }));
-        const meetingsSheet = XLSX.utils.json_to_sheet(meetingsData);
-        XLSX.utils.book_append_sheet(workbook, meetingsSheet, 'Meetings');
+        addObjectSheet('Meetings', meetingsData);
       }
 
       // Add Tasks sheet
@@ -173,8 +199,7 @@ export default function Reports() {
           'Due Date': task.due_date ? new Date(task.due_date).toLocaleString() : '',
           'Completed Date': task.completed_at ? new Date(task.completed_at).toLocaleString() : '',
         }));
-        const tasksSheet = XLSX.utils.json_to_sheet(tasksData);
-        XLSX.utils.book_append_sheet(workbook, tasksSheet, 'Tasks');
+        addObjectSheet('Tasks', tasksData);
       }
 
       // Add Invoices sheet
@@ -189,8 +214,7 @@ export default function Reports() {
           'Total Amount': invoice.total_amount || 0,
           'Status': invoice.status || '',
         }));
-        const invoicesSheet = XLSX.utils.json_to_sheet(invoicesData);
-        XLSX.utils.book_append_sheet(workbook, invoicesSheet, 'Invoices');
+        addObjectSheet('Invoices', invoicesData);
       }
 
       // Add Quotations sheet
@@ -204,13 +228,25 @@ export default function Reports() {
           'Total Amount': quotation.total_amount || 0,
           'Status': quotation.status || '',
         }));
-        const quotationsSheet = XLSX.utils.json_to_sheet(quotationsData);
-        XLSX.utils.book_append_sheet(workbook, quotationsSheet, 'Quotations');
+        addObjectSheet('Quotations', quotationsData);
       }
 
       // Generate filename
       const fileName = `${report.report_name.replace(/[^a-z0-9]/gi, '_')}_${new Date().getTime()}.xlsx`;
-      XLSX.writeFile(workbook, fileName);
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob(
+        [buffer],
+        { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+      );
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error exporting to Excel:', error);
       alert('Failed to export to Excel');
@@ -251,7 +287,7 @@ export default function Reports() {
         ['Invoices', reportData.invoices?.length || 0],
         ['Quotations', reportData.quotations?.length || 0],
       ];
-      doc.autoTable({
+      autoTable(doc, {
         startY: yPos,
         head: [['Category', 'Count']],
         body: summaryData,
@@ -278,7 +314,7 @@ export default function Reports() {
           `₹${lead.estimated_value || 0}`,
         ]);
 
-        doc.autoTable({
+        autoTable(doc, {
           startY: yPos,
           head: [['Code', 'Company', 'Contact', 'Status', 'Value']],
           body: leadsData,
@@ -305,7 +341,7 @@ export default function Reports() {
           meeting.status || '',
         ]);
 
-        doc.autoTable({
+        autoTable(doc, {
           startY: yPos,
           head: [['Title', 'Company', 'Date', 'Status']],
           body: meetingsData,
@@ -332,7 +368,7 @@ export default function Reports() {
           invoice.status || '',
         ]);
 
-        doc.autoTable({
+        autoTable(doc, {
           startY: yPos,
           head: [['Invoice #', 'Company', 'Amount', 'Status']],
           body: invoicesData,

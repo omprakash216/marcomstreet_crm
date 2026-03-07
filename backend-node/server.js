@@ -113,19 +113,13 @@ function startServer(port) {
   });
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      const basePort = Number(process.env.PORT) || 3000;
-      const nextPort = port + 1;
-      if (nextPort <= basePort + 10) {
-        console.warn('Port ' + port + ' is in use. Trying port ' + nextPort + '...');
-        startServer(nextPort);
-      } else {
-        console.error('');
-        console.error('Could not start: ports ' + basePort + ' to ' + port + ' are in use.');
-        console.error('  - Close the app using port ' + basePort + ', or');
-        console.error('  - Set PORT=' + (basePort + 11) + ' in backend-node/.env and run again.');
-        console.error('');
-        process.exit(1);
-      }
+      console.error('');
+      console.error('Port ' + port + ' is already in use.');
+      console.error('  - Stop the process using this port, or');
+      console.error('  - Set a free PORT in backend-node/.env, and');
+      console.error('  - Set same value in frontend/.env.local as VITE_API_PORT.');
+      console.error('');
+      process.exit(1);
     } else {
       console.error('Server error:', err);
       process.exit(1);

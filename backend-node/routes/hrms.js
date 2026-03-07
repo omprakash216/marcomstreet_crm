@@ -21,10 +21,22 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-const allowedRoles = ['admin', 'manager', 'human_resources'];
+// Accept common HR role variants stored in DB (some older records use spaces, underscores, or short codes).
+// Note: managers are intentionally excluded; only HR & admin get elevated access.
+const allowedRoles = [
+  'admin',
+  'human_resources',
+  'human resources',
+  'human resource',
+  'humanresources',
+  'humanresource',
+  'hr',
+  'hr_manager',
+  'hr manager',
+];
 
 function canAccessAll(employee) {
-  const role = (employee.role || '').toLowerCase();
+  const role = String(employee?.role || '').toLowerCase().trim();
   return allowedRoles.includes(role);
 }
 
@@ -37,6 +49,16 @@ function getMonthBounds(dateStr) {
   const last = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   return { first, last };
 }
+
+// Debug endpoint to verify correct backend/routes are running (no auth).
+router.get('/__ping', (req, res) => {
+  return res.json({
+    success: true,
+    service: 'hrms',
+    has_salary_pdf_route: true,
+    time: new Date().toISOString(),
+  });
+});
 
 // GET /hrms/documents - list documents
 router.get('/documents', verifyToken, async (req, res) => {
@@ -83,6 +105,43 @@ router.post('/documents', verifyToken, upload.single('file'), async (req, res) =
     );
     return res.json({ success: true, message: 'Document uploaded successfully' });
   } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /hrms/documents/:id - delete uploaded/generated document (DB + file)
+router.delete('/documents/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ success: false, message: 'Invalid document id' });
+  }
+
+  try {
+    const rows = await query('SELECT * FROM hr_documents WHERE id = ?', [id]);
+    const doc = Array.isArray(rows) ? rows[0] : null;
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Document not found' });
+    }
+
+    // Best-effort: delete file if it lives under uploads/hr_documents/
+    const filePath = String(doc.file_path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (filePath.startsWith('uploads/hr_documents/')) {
+      const fullPath = path.resolve(path.join(__dirname, '../../', filePath));
+      const uploadsRoot = path.resolve(path.join(__dirname, '../../uploads'));
+      if (fullPath.startsWith(uploadsRoot) && fs.existsSync(fullPath)) {
+        try {
+          fs.unlinkSync(fullPath);
+        } catch (_) {}
+      }
+    }
+
+    await query('DELETE FROM hr_documents WHERE id = ?', [id]);
+    return res.json({ success: true, message: 'Document deleted successfully' });
+  } catch (err) {
+    console.error('HR documents DELETE:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -191,7 +250,7 @@ router.post('/generate_document', verifyToken, async (req, res) => {
 // GET /hrms/salary - list salary slips
 router.get('/salary', verifyToken, async (req, res) => {
   try {
-    let sql = `SELECT s.*, e.name as employee_name, e.employee_code, e.designation, d.name as department
+    let sql = `SELECT s.*, e.name as employee_name, e.employee_code, e.designation, e.bank_account, e.pan_number, d.name as department
                FROM salary_slips s 
                JOIN employees e ON s.employee_id = e.id 
                LEFT JOIN departments d ON e.department_id = d.id
@@ -211,6 +270,287 @@ router.get('/salary', verifyToken, async (req, res) => {
       return res.json({ success: true, data: [] });
     }
     return res.status(500).json({ success: false, message: msg });
+  }
+});
+
+// GET /hrms/salary/:id/pdf - download/view salary slip (regenerates file if missing)
+router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid salary slip id' });
+    }
+
+    const rows = await query(
+      `SELECT s.*, e.name as employee_name, e.employee_code, e.designation, e.bank_account, e.pan_number, d.name as department
+       FROM salary_slips s
+       JOIN employees e ON s.employee_id = e.id
+       LEFT JOIN departments d ON e.department_id = d.id
+       WHERE s.id = ?`,
+      [id]
+    );
+    const slip = Array.isArray(rows) ? rows[0] : null;
+    if (!slip) {
+      return res.status(404).json({ success: false, message: 'Salary slip not found' });
+    }
+
+    // Access control: employees can only access their own slips.
+    if (!canAccessAll(req.employee) && Number(slip.employee_id) !== Number(req.employee.id)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const wantsDownload =
+      req.query.download === '1' || req.query.download === 'true' || req.query.disposition === 'attachment';
+    const forceRegen =
+      req.query.regen === '1' ||
+      req.query.regen === 'true' ||
+      req.query.force === '1' ||
+      req.query.force === 'true';
+
+    const ensureAndSend = (absPath) => {
+      const stat = fs.statSync(absPath);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Length', stat.size);
+      res.setHeader(
+        'Content-Disposition',
+        `${wantsDownload ? 'attachment' : 'inline'}; filename="${path.basename(absPath).replace(/[^a-zA-Z0-9._-]/g, '_')}"`
+      );
+      fs.createReadStream(absPath).pipe(res);
+    };
+
+    // If file exists on disk, stream it (unless forced regenerate).
+    const filePath = String(slip.file_path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!forceRegen && filePath.startsWith('uploads/salary_slips/')) {
+      const abs = path.resolve(path.join(__dirname, '../../', filePath));
+      const uploadsRoot = path.resolve(path.join(__dirname, '../../uploads'));
+      if (abs.startsWith(uploadsRoot) && fs.existsSync(abs)) {
+        return ensureAndSend(abs);
+      }
+    }
+
+    // Regenerate PDF if missing/bad path.
+    if (!fs.existsSync(UPLOADS_SALARY)) fs.mkdirSync(UPLOADS_SALARY, { recursive: true });
+    const monthStr = String(slip.month || '').trim(); // expected "YYYY-MM"
+    const monthSafe = monthStr ? monthStr.replace(/-/g, '') : 'UNKNOWN';
+    const code = String(slip.employee_code || 'EMP').replace(/[^\w\-]/g, '') || 'EMP';
+    const fileName = `${code}_${monthSafe}_${Date.now()}.pdf`;
+    const newRelPath = 'uploads/salary_slips/' + fileName;
+    const absOut = path.join(__dirname, '../../', newRelPath);
+
+    const employeeData = {
+      name: slip.employee_name || 'Employee',
+      employee_code: slip.employee_code || code,
+      designation: slip.designation || '',
+      department: slip.department || '',
+      bank_account: slip.bank_account || '',
+      pan_number: slip.pan_number || '',
+    };
+
+    const salaryData = {
+      pay_period_start: slip.pay_period_start,
+      pay_period_end: slip.pay_period_end,
+      basic_salary: slip.basic_salary,
+      hra: slip.hra,
+      conveyance_allowance: slip.conveyance_allowance,
+      medical_allowance: slip.medical_allowance,
+      special_allowance: slip.special_allowance,
+      other_allowances: slip.other_allowances,
+      gross_salary: slip.gross_salary,
+      pf_deduction: slip.pf_deduction,
+      esi_deduction: slip.esi_deduction,
+      tax_deduction: slip.tax_deduction,
+      professional_tax: slip.professional_tax,
+      other_deductions: slip.other_deductions,
+      total_deductions: slip.total_deductions,
+      net_salary: slip.net_salary,
+    };
+
+    const pdfBuffer = await documentGenerator.generateSalarySlip(employeeData, salaryData);
+    if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer) || pdfBuffer.length < 100) {
+      return res.status(500).json({ success: false, message: 'Failed to generate salary slip PDF' });
+    }
+    fs.writeFileSync(absOut, pdfBuffer);
+    try {
+      await query('UPDATE salary_slips SET file_path = ? WHERE id = ?', [newRelPath, id]);
+    } catch (_) {}
+
+    return ensureAndSend(absOut);
+  } catch (err) {
+    console.error('Salary PDF:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to serve salary slip PDF' });
+  }
+});
+
+// PUT /hrms/salary/:id - update salary slip (HR/Admin only) and regenerate PDF
+router.put('/salary/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ success: false, message: 'Invalid salary slip id' });
+  }
+  const d = req.body || {};
+  if (!d.month) {
+    return res.status(400).json({ success: false, message: 'Missing month' });
+  }
+
+  const basicSalary = parseFloat(d.basic_salary) || 0;
+  const hra = parseFloat(d.hra) || 0;
+  const conveyanceAllowance = parseFloat(d.conveyance_allowance) || 0;
+  const medicalAllowance = parseFloat(d.medical_allowance) || 0;
+  const specialAllowance = parseFloat(d.special_allowance) || 0;
+  const otherAllowances = parseFloat(d.other_allowances) || 0;
+  const pfDeduction = parseFloat(d.pf_deduction) || 0;
+  const esiDeduction = parseFloat(d.esi_deduction) || 0;
+  const taxDeduction = parseFloat(d.tax_deduction) || 0;
+  const professionalTax = parseFloat(d.professional_tax) || 0;
+  const otherDeductions = parseFloat(d.other_deductions) || 0;
+
+  const grossSalary = basicSalary + hra + conveyanceAllowance + medicalAllowance + specialAllowance + otherAllowances;
+  const totalDeductions = pfDeduction + esiDeduction + taxDeduction + professionalTax + otherDeductions;
+  const netSalary = grossSalary - totalDeductions;
+  if (grossSalary <= 0) {
+    return res.status(400).json({ success: false, message: 'Gross salary must be greater than zero' });
+  }
+
+  try {
+    const rows = await query(
+      `SELECT s.*, e.name as employee_name, e.employee_code, e.designation, e.bank_account, e.pan_number, d.name as department
+       FROM salary_slips s
+       JOIN employees e ON s.employee_id = e.id
+       LEFT JOIN departments d ON e.department_id = d.id
+       WHERE s.id = ?`,
+      [id]
+    );
+    const slip = Array.isArray(rows) ? rows[0] : null;
+    if (!slip) {
+      return res.status(404).json({ success: false, message: 'Salary slip not found' });
+    }
+
+    // Update DB first (file_path will be updated after regeneration)
+    await query(
+      `UPDATE salary_slips SET
+        month = ?, pay_period_start = ?, pay_period_end = ?,
+        basic_salary = ?, hra = ?, conveyance_allowance = ?, medical_allowance = ?, special_allowance = ?, other_allowances = ?,
+        pf_deduction = ?, esi_deduction = ?, tax_deduction = ?, professional_tax = ?, other_deductions = ?,
+        gross_salary = ?, total_deductions = ?, net_salary = ?, status = ?
+       WHERE id = ?`,
+      [
+        String(d.month).trim(),
+        d.pay_period_start || slip.pay_period_start || null,
+        d.pay_period_end || slip.pay_period_end || null,
+        basicSalary,
+        hra,
+        conveyanceAllowance,
+        medicalAllowance,
+        specialAllowance,
+        otherAllowances,
+        pfDeduction,
+        esiDeduction,
+        taxDeduction,
+        professionalTax,
+        otherDeductions,
+        grossSalary,
+        totalDeductions,
+        netSalary,
+        d.status || slip.status || 'generated',
+        id,
+      ]
+    );
+
+    // Regenerate PDF with latest template (letter-head.png)
+    if (!fs.existsSync(UPLOADS_SALARY)) fs.mkdirSync(UPLOADS_SALARY, { recursive: true });
+    const monthStr = String(d.month || slip.month || '').trim(); // "YYYY-MM"
+    const monthSafe = monthStr ? monthStr.replace(/-/g, '') : 'UNKNOWN';
+    const code = String(slip.employee_code || 'EMP').replace(/[^\w\-]/g, '') || 'EMP';
+    const fileName = `${code}_${monthSafe}_${Date.now()}.pdf`;
+    const newRelPath = 'uploads/salary_slips/' + fileName;
+    const absOut = path.join(__dirname, '../../', newRelPath);
+
+    const employeeData = {
+      name: slip.employee_name || 'Employee',
+      employee_code: slip.employee_code || code,
+      designation: slip.designation || '',
+      department: slip.department || '',
+      bank_account: slip.bank_account || '',
+      pan_number: slip.pan_number || '',
+    };
+    const salaryData = {
+      pay_period_start: d.pay_period_start || slip.pay_period_start,
+      pay_period_end: d.pay_period_end || slip.pay_period_end,
+      basic_salary: basicSalary,
+      hra,
+      conveyance_allowance: conveyanceAllowance,
+      medical_allowance: medicalAllowance,
+      special_allowance: specialAllowance,
+      other_allowances: otherAllowances,
+      gross_salary: grossSalary,
+      pf_deduction: pfDeduction,
+      esi_deduction: esiDeduction,
+      tax_deduction: taxDeduction,
+      professional_tax: professionalTax,
+      other_deductions: otherDeductions,
+      total_deductions: totalDeductions,
+      net_salary: netSalary,
+    };
+
+    const pdfBuffer = await documentGenerator.generateSalarySlip(employeeData, salaryData);
+    if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer) || pdfBuffer.length < 100) {
+      return res.status(500).json({ success: false, message: 'Failed to regenerate salary slip PDF' });
+    }
+    fs.writeFileSync(absOut, pdfBuffer);
+
+    // Best effort cleanup of old file
+    const oldPath = String(slip.file_path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (oldPath.startsWith('uploads/salary_slips/')) {
+      const absOld = path.resolve(path.join(__dirname, '../../', oldPath));
+      const uploadsRoot = path.resolve(path.join(__dirname, '../../uploads'));
+      if (absOld.startsWith(uploadsRoot) && fs.existsSync(absOld)) {
+        try { fs.unlinkSync(absOld); } catch (_) {}
+      }
+    }
+    try {
+      await query('UPDATE salary_slips SET file_path = ? WHERE id = ?', [newRelPath, id]);
+    } catch (_) {}
+
+    return res.json({ success: true, message: 'Salary slip updated successfully', data: { id, file_path: newRelPath } });
+  } catch (err) {
+    console.error('Salary PUT:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to update salary slip' });
+  }
+});
+
+// DELETE /hrms/salary/:id - delete salary slip (HR/Admin only)
+router.delete('/salary/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ success: false, message: 'Invalid salary slip id' });
+  }
+  try {
+    const rows = await query('SELECT id, file_path FROM salary_slips WHERE id = ?', [id]);
+    const slip = Array.isArray(rows) ? rows[0] : null;
+    if (!slip) {
+      return res.status(404).json({ success: false, message: 'Salary slip not found' });
+    }
+
+    await query('DELETE FROM salary_slips WHERE id = ?', [id]);
+
+    const rel = String(slip.file_path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (rel.startsWith('uploads/salary_slips/')) {
+      const abs = path.resolve(path.join(__dirname, '../../', rel));
+      const uploadsRoot = path.resolve(path.join(__dirname, '../../uploads'));
+      if (abs.startsWith(uploadsRoot) && fs.existsSync(abs)) {
+        try { fs.unlinkSync(abs); } catch (_) {}
+      }
+    }
+    return res.json({ success: true, message: 'Salary slip deleted successfully' });
+  } catch (err) {
+    console.error('Salary DELETE:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to delete salary slip' });
   }
 });
 
@@ -294,36 +634,35 @@ router.post('/salary', verifyToken, async (req, res) => {
     const fullPath = path.join(__dirname, '../../', filePath);
     fs.writeFileSync(fullPath, pdfBuffer);
 
+    const salaryInsert = {
+      employee_id: d.employee_id,
+      pay_period_start: salaryData.pay_period_start,
+      pay_period_end: salaryData.pay_period_end,
+      month: d.month,
+      basic_salary: basicSalary,
+      hra,
+      conveyance_allowance: conveyanceAllowance,
+      medical_allowance: medicalAllowance,
+      special_allowance: specialAllowance,
+      other_allowances: otherAllowances,
+      gross_salary: grossSalary,
+      pf_deduction: pfDeduction,
+      esi_deduction: esiDeduction,
+      tax_deduction: taxDeduction,
+      professional_tax: professionalTax,
+      other_deductions: otherDeductions,
+      total_deductions: totalDeductions,
+      net_salary: netSalary,
+      amount: grossSalary,
+      file_path: filePath,
+      status: d.status || 'generated',
+    };
+    const insertColumns = Object.keys(salaryInsert);
+    const insertValues = Object.values(salaryInsert);
+    const insertPlaceholders = insertColumns.map(() => '?').join(', ');
     await query(
-      `INSERT INTO salary_slips (
-        employee_id, pay_period_start, pay_period_end, month,
-        basic_salary, hra, conveyance_allowance, medical_allowance, special_allowance, other_allowances, gross_salary,
-        pf_deduction, esi_deduction, tax_deduction, professional_tax, other_deductions, total_deductions,
-        net_salary, amount, file_path, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        d.employee_id,
-        salaryData.pay_period_start,
-        salaryData.pay_period_end,
-        d.month,
-        basicSalary,
-        hra,
-        conveyanceAllowance,
-        medicalAllowance,
-        specialAllowance,
-        otherAllowances,
-        grossSalary,
-        pfDeduction,
-        esiDeduction,
-        taxDeduction,
-        professionalTax,
-        otherDeductions,
-        totalDeductions,
-        netSalary,
-        grossSalary,
-        filePath,
-        d.status || 'generated',
-      ]
+      `INSERT INTO salary_slips (${insertColumns.join(', ')}) VALUES (${insertPlaceholders})`,
+      insertValues
     );
 
     return res.json({
@@ -504,11 +843,35 @@ router.get('/attendance/report', verifyToken, async (req, res) => {
       reportParams.push(employeeId);
     }
     sql += ' ORDER BY e.name, c.date';
-    const rows = await query(sql, reportParams);
+    let rows;
+    let hasEditReason = true;
+    try {
+      rows = await query(sql, reportParams);
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e);
+      // Backward compatibility: some DBs don't have employee_checkins.edit_reason
+      if (msg.includes("Unknown column 'c.edit_reason'") || msg.includes("Unknown column 'edit_reason'")) {
+        hasEditReason = false;
+        sql = `SELECT c.id, c.employee_id, c.date, c.check_in_time, c.check_out_time, c.attendance_type, c.is_late,
+          c.check_in_location, c.check_out_location, c.status, c.total_hours,
+          e.name as employee_name, e.employee_code, d.name as department
+          FROM employee_checkins c
+          JOIN employees e ON c.employee_id = e.id
+          LEFT JOIN departments d ON e.department_id = d.id
+          WHERE c.date >= ? AND c.date <= ?`;
+        if (employeeId) sql += ' AND c.employee_id = ?';
+        sql += ' ORDER BY e.name, c.date';
+        rows = await query(sql, reportParams);
+      } else {
+        throw e;
+      }
+    }
     attendanceRules.applyAttendanceRulesToRows(rows);
     const format = (req.query.format || 'csv').toLowerCase();
     if (format === 'csv') {
-      const header = 'Employee Code,Employee Name,Department,Date,Check In,Check Out,Day Type,Total Hours,Status,Edit Reason\n';
+      const header = hasEditReason
+        ? 'Employee Code,Employee Name,Department,Date,Check In,Check Out,Day Type,Total Hours,Status,Edit Reason\n'
+        : 'Employee Code,Employee Name,Department,Date,Check In,Check Out,Day Type,Total Hours,Status\n';
       const csvRows = (rows || []).map(r => {
         const code = (r.employee_code || '').replace(/"/g, '""');
         const name = (r.employee_name || '').replace(/"/g, '""');
@@ -519,8 +882,11 @@ router.get('/attendance/report', verifyToken, async (req, res) => {
         const dayType = (r.attendance_type || '').toLowerCase() === 'half_day' ? 'Half day' : 'Full day';
         const hours = r.total_hours != null ? String(r.total_hours) : '';
         const status = r.attendance_status || (r.check_out_time ? 'completed' : 'checked_in');
-        const reason = (r.edit_reason || '').replace(/"/g, '""');
-        return `"${code}","${name}","${dept}","${date}","${ci}","${co}","${dayType}","${hours}","${status}","${reason}"`;
+        if (hasEditReason) {
+          const reason = (r.edit_reason || '').replace(/"/g, '""');
+          return `"${code}","${name}","${dept}","${date}","${ci}","${co}","${dayType}","${hours}","${status}","${reason}"`;
+        }
+        return `"${code}","${name}","${dept}","${date}","${ci}","${co}","${dayType}","${hours}","${status}"`;
       });
       const csv = header + csvRows.join('\n');
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');

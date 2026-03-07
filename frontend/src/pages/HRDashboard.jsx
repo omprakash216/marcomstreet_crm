@@ -159,19 +159,27 @@ export default function HRDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">HR Dashboard</h1>
-              <p className="mt-0.5 text-sm text-slate-500">Welcome back, {employee?.name || 'HR'}. Manage people and operations.</p>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Page Header */}
+        <section className="mb-8">
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+            <div className="h-1 bg-gradient-to-r from-blue-700 via-indigo-600 to-slate-200" />
+            <div className="px-6 py-5 sm:px-8 sm:py-6">
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">HR</p>
+                  <h1 className="mt-1 text-2xl sm:text-3xl font-semibold text-slate-900 tracking-tight">
+                    Dashboard
+                  </h1>
+                  <p className="mt-1 text-sm text-slate-600 max-w-2xl">
+                    Welcome back, {employee?.name || 'HR Manager'}. Manage people and operations.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </section>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Quick actions */}
         <section className="mb-8">
           <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Quick actions</h2>

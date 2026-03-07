@@ -61,7 +61,7 @@ export default function Login() {
       if (err.response) {
         // Server responded with error
         if (err.response.status === 404) {
-          errorMessage = 'API endpoint not found. Please check: 1) Vite dev server is running 2) Backend API is accessible 3) Folder name matches (SALES-CRM-NEW)';
+          errorMessage = 'API endpoint not found. Check: 1) Node backend is running 2) Vite proxy port matches backend port';
           console.error('404 Error Details:', {
             url: err.config?.url,
             baseURL: err.config?.baseURL,
@@ -70,13 +70,14 @@ export default function Login() {
         } else if (err.response.status === 401) {
           errorMessage = err.response.data?.message || err.response.data?.debug || 'Invalid email or password';
         } else if (err.response.status === 500) {
-          errorMessage = err.response.data?.message || 'Server error. Please check: 1) Database is running 2) Backend files are correct';
+          const backendMessage = err.response.data?.message;
+          errorMessage = backendMessage || 'Server error. Check Node backend logs for exact SQL/API error.';
         } else {
           errorMessage = err.response.data?.message || err.response.data?.debug || `Login failed (${err.response.status})`;
         }
       } else if (err.request) {
         // Request made but no response
-        errorMessage = 'Cannot connect to server. Please ensure: 1) Apache/XAMPP is running 2) Backend files are in correct location 3) Vite proxy is configured correctly';
+        errorMessage = 'Cannot connect to backend. Check: 1) Node backend is running 2) frontend/.env.local VITE_API_PORT matches backend PORT';
         console.error('Network Error:', err.message);
       } else {
         // Something else happened

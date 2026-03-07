@@ -22,6 +22,8 @@ export default function Layout() {
     (employee.role === "designer" ||
       employee.designation?.toLowerCase().includes("designer") ||
       employee.email?.includes(".designer"));
+  const role = (employee?.role || "").toLowerCase();
+  const isHRorAdmin = role === "human_resources" || role === "admin";
 
   useEffect(() => {
     if (isCompanyRoute) {
@@ -208,9 +210,10 @@ export default function Layout() {
   if (!isCompanyRoute && !employee) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50">
-      {/* Professional Header */}
-      <header className="bg-white shadow-lg border-b border-gray-200/50 backdrop-blur-sm relative z-40">
+    // Keep navbar + sidebar fixed; only the main content scrolls.
+    <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50">
+      {/* Professional Header (fixed) */}
+      <header className="fixed top-0 left-0 right-0 bg-white shadow-lg border-b border-gray-200/50 backdrop-blur-sm z-50">
         <div className="max-w-full">
           <div className="flex justify-between items-center h-24">
             <div className="flex items-center h-full">
@@ -470,9 +473,10 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* Professional Sidebar Navigation */}
-      <div className="flex">
-        <aside className="w-64 flex-shrink-0 bg-white border-r border-gray-200/50 shadow-sm min-h-[calc(100vh-6rem)] flex flex-col">
+      {/* Fixed Sidebar + Scrollable Main Content */}
+      <div className="pt-24 h-full">
+        {/* Sidebar (fixed) */}
+        <aside className="fixed top-24 left-0 bottom-0 w-64 bg-white border-r border-gray-200/50 shadow-sm flex flex-col z-40">
           <nav className="p-4 space-y-1 flex-1 overflow-y-auto">
             {isCompanyRoute ? (
               // Company-specific navigation
@@ -945,18 +949,20 @@ export default function Layout() {
                       </svg>
                       <span>Salary Slips</span>
                     </Link>
-                    <Link
-                      to="/hrms/documents"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/documents")
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
-                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
-                        }`}
-                    >
-                      <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/documents") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <span>HR Documents</span>
-                    </Link>
+                    {isHRorAdmin && (
+                      <Link
+                        to="/hrms/documents"
+                        className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/documents")
+                          ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                          : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                          }`}
+                      >
+                        <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/documents") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span>HR Documents</span>
+                      </Link>
+                    )}
                   </>
                 )}
 
@@ -1173,34 +1179,36 @@ export default function Layout() {
                       )}
                     </Link>
 
-                    <Link
-                      to="/hrms/documents"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/documents")
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
-                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
-                        }`}
-                    >
-                      <svg
-                        className={`w-5 h-5 mr-3 ${isActive("/hrms/documents")
-                          ? "text-white"
-                          : "text-gray-500 group-hover:text-blue-600"
+                    {isHRorAdmin && (
+                      <Link
+                        to="/hrms/documents"
+                        className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/documents")
+                          ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                          : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
                           }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                        />
-                      </svg>
-                      <span>HR Documents</span>
-                      {isActive("/hrms/documents") && (
-                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
-                      )}
-                    </Link>
+                        <svg
+                          className={`w-5 h-5 mr-3 ${isActive("/hrms/documents")
+                            ? "text-white"
+                            : "text-gray-500 group-hover:text-blue-600"
+                            }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                          />
+                        </svg>
+                        <span>HR Documents</span>
+                        {isActive("/hrms/documents") && (
+                          <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                        )}
+                      </Link>
+                    )}
 
                     <Link
                       to="/chat"
@@ -1243,11 +1251,11 @@ export default function Layout() {
                 {/* HR Users see only HR workflow options */}
                 {employee?.role === "human_resources" && (
                   <>
-                    <div className="pt-4 pb-2">
+                    {/* <div className="pt-4 pb-2">
                       <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                         HR Management
                       </p>
-                    </div>
+                    </div> */}
 
                     {/* Employee Management */}
                     <Link
@@ -1273,7 +1281,7 @@ export default function Layout() {
                           d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
                         />
                       </svg>
-                      <span>Employee Management</span>
+                      <span>Employee Details </span>
                       {isActive("/hr/employees") && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
@@ -1303,7 +1311,7 @@ export default function Layout() {
                           d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                         />
                       </svg>
-                      <span>Attendance Policy & Monitoring</span>
+                      <span>Attendance Policy </span>
                       {isActive("/hr/hrms/attendance") && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
@@ -1333,7 +1341,7 @@ export default function Layout() {
                           d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
                         />
                       </svg>
-                      <span>Leave Type & Rules Management</span>
+                      <span>Leave Type & Rules </span>
                       {isActive("/hr/hrms/leaves") && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
@@ -1363,7 +1371,7 @@ export default function Layout() {
                           d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                         />
                       </svg>
-                      <span>Salary Structure & Slips</span>
+                      <span>Salary Slip</span>
                       {isActive("/hr/hrms/salary") && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
@@ -1393,7 +1401,7 @@ export default function Layout() {
                           d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                         />
                       </svg>
-                      <span>Offer Letters & HR Documents</span>
+                      <span> HR Documents</span>
                       {isActive("/hr/hrms/documents") && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
@@ -1423,7 +1431,7 @@ export default function Layout() {
                           d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                         />
                       </svg>
-                      <span>HR Reports (Attendance, Leave, Salary)</span>
+                      <span>HR Reports</span>
                       {isActive("/reports") && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
@@ -1502,9 +1510,9 @@ export default function Layout() {
           </nav>
         </aside>
 
-        {/* Main Content Area */}
-        <div className="flex-1 min-w-0 overflow-x-hidden">
-          <main className="p-6 lg:p-8">
+        {/* Main Content Area (scroll only here) */}
+        <div className="ml-64 h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden">
+          <main className="p-6 lg:p-8 min-h-full">
             <div>
               <Outlet />
             </div>

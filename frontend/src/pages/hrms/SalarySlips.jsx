@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import api from '../../utils/api';
 import { getEmployee } from '../../utils/auth';
 
@@ -7,7 +7,10 @@ export default function SalarySlips() {
   const [loading, setLoading] = useState(true);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [selectedSlip, setSelectedSlip] = useState(null);
+  const [editSlipId, setEditSlipId] = useState(null);
+  const [editSlip, setEditSlip] = useState(null);
   const [allEmployees, setAllEmployees] = useState([]);
   const [filter, setFilter] = useState({
     month: '',
@@ -32,17 +35,99 @@ export default function SalarySlips() {
     status: 'generated'
   });
   const employee = getEmployee();
-  const isAdminOrManager = employee?.role === 'admin' || employee?.role === 'manager' || employee?.role === 'human_resources';
+  const role = String(employee?.role || '').toLowerCase().trim();
+  const isAdminOrManager =
+    role === 'admin' ||
+    role === 'manager' ||
+    role === 'human_resources' ||
+    role === 'human resources' ||
+    role === 'human resource' ||
+    role === 'humanresources' ||
+    role === 'humanresource' ||
+    role === 'hr' ||
+    role === 'hr_manager' ||
+    role === 'hr manager';
+
+  const IconEye = ({ className = 'w-4 h-4' }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+  const IconPencil = ({ className = 'w-4 h-4' }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+  const IconDownload = ({ className = 'w-4 h-4' }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 10l5 5m0 0l5-5m-5 5V4" />
+    </svg>
+  );
+  const IconTrash = ({ className = 'w-4 h-4' }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3m-4 0h14" />
+    </svg>
+  );
 
   // Node only: same origin, /serve-pdf from Node
   const BASE_URL = '';
+
+  const downloadSlipPdf = async (slip) => {
+    if (!slip) return;
+    const hasId = slip?.id !== undefined && slip?.id !== null && slip?.id !== '';
+    const filePath = slip?.file_path;
+    // Prefer authenticated API endpoint (auto-regenerates missing PDFs).
+    // `regen=1` ensures latest letter-head.png layout even if an old PDF file exists on disk.
+    const apiUrl = hasId ? `/hrms/salary/${encodeURIComponent(String(slip.id))}/pdf?download=1&regen=1` : null;
+    const fallbackUrl = `${BASE_URL}/serve-pdf?file=${encodeURIComponent(filePath)}&download=1`;
+    const safeName =
+      (String(filePath || '').split('/').pop()?.replace(/[^a-zA-Z0-9._-]/g, '_')) || 'salary-slip.pdf';
+
+    try {
+      let blob;
+      if (apiUrl) {
+        const resp = await api.get(apiUrl, { responseType: 'blob' });
+        blob = resp.data;
+      } else {
+        const resp = await fetch(fallbackUrl, { credentials: 'include' });
+        if (!resp.ok) throw new Error(`Download failed (${resp.status})`);
+        blob = await resp.blob();
+      }
+
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = safeName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000);
+    } catch (e) {
+      console.error(e);
+      const status = e?.response?.status;
+      const msg = e?.response?.data?.message || e?.message || 'Failed to download PDF';
+      // If backend returns 404/401/403, opening a new tab just shows an error page.
+      if (status === 401 || status === 403) {
+        alert('Session expired or unauthorized. Please login again.');
+        return;
+      }
+      if (status === 404) {
+        alert('PDF not found. Please regenerate the salary slip and try again.');
+        return;
+      }
+      alert(msg);
+    }
+  };
 
   useEffect(() => {
     fetchSlips();
     if (isAdminOrManager) {
       fetchEmployees();
     }
-  }, [filter]);
+  }, [filter, isAdminOrManager]);
 
   // Auto-set pay period when month changes
   useEffect(() => {
@@ -60,12 +145,23 @@ export default function SalarySlips() {
 
   const fetchEmployees = async () => {
     try {
-      const response = await api.get('/chat?action=users');
-      if (response.data.success) {
+      // Primary source for HR/Admin salary generation: active employee master list
+      const response = await api.get('/employees');
+      if (response.data?.success && Array.isArray(response.data.data)) {
         setAllEmployees(response.data.data);
+        return;
+      }
+
+      // Fallback for older deployments
+      const fallback = await api.get('/chat?action=users');
+      if (fallback.data?.success && Array.isArray(fallback.data.data)) {
+        setAllEmployees(fallback.data.data);
+      } else {
+        setAllEmployees([]);
       }
     } catch (error) {
       console.error('Error fetching employees:', error);
+      setAllEmployees([]);
     }
   };
 
@@ -82,7 +178,7 @@ export default function SalarySlips() {
     }
   };
 
-  const calculateTotals = () => {
+  const calculateTotalsFrom = (slipLike) => {
     const earnings = [
       'basic_salary', 'hra', 'conveyance_allowance',
       'medical_allowance', 'special_allowance', 'other_allowances'
@@ -93,14 +189,45 @@ export default function SalarySlips() {
     ];
 
     const grossSalary = earnings.reduce((sum, field) =>
-      sum + (parseFloat(newSlip[field]) || 0), 0
+      sum + (parseFloat(slipLike?.[field]) || 0), 0
     );
     const totalDeductions = deductions.reduce((sum, field) =>
-      sum + (parseFloat(newSlip[field]) || 0), 0
+      sum + (parseFloat(slipLike?.[field]) || 0), 0
     );
     const netSalary = grossSalary - totalDeductions;
 
     return { grossSalary, totalDeductions, netSalary };
+  };
+
+  const calculateTotals = () => calculateTotalsFrom(newSlip);
+
+  const fmtDate = (v) => {
+    if (!v) return '-';
+    const s = String(v);
+    if (/^\\d{4}-\\d{2}-\\d{2}/.test(s)) return s.slice(0, 10);
+    try {
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    } catch (_) {}
+    return s.slice(0, 10);
+  };
+
+  // For <input type="date" />, value must be exactly "YYYY-MM-DD" or "".
+  const toDateInput = (v) => {
+    if (!v) return '';
+    const s = String(v);
+    if (/^\\d{4}-\\d{2}-\\d{2}/.test(s)) return s.slice(0, 10);
+    try {
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    } catch (_) {}
+    return '';
+  };
+
+  const fmtMoney = (v) => {
+    const n = Number.parseFloat(v);
+    if (!Number.isFinite(n)) return '0';
+    return n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
   };
 
   const handleGenerateSlip = async (e) => {
@@ -172,6 +299,72 @@ export default function SalarySlips() {
 
   const { grossSalary, totalDeductions, netSalary } = calculateTotals();
 
+  const openEdit = (slip) => {
+    if (!slip) return;
+    setEditSlipId(slip.id);
+    setEditSlip({
+      month: slip.month || new Date().toISOString().slice(0, 7),
+      pay_period_start: toDateInput(slip.pay_period_start),
+      pay_period_end: toDateInput(slip.pay_period_end),
+      basic_salary: slip.basic_salary ?? '',
+      hra: slip.hra ?? '',
+      conveyance_allowance: slip.conveyance_allowance ?? '',
+      medical_allowance: slip.medical_allowance ?? '',
+      special_allowance: slip.special_allowance ?? '',
+      other_allowances: slip.other_allowances ?? '',
+      pf_deduction: slip.pf_deduction ?? '',
+      esi_deduction: slip.esi_deduction ?? '',
+      tax_deduction: slip.tax_deduction ?? '',
+      professional_tax: slip.professional_tax ?? '',
+      other_deductions: slip.other_deductions ?? '',
+      status: slip.status || 'generated',
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateSlip = async (e) => {
+    e.preventDefault();
+    if (!editSlipId || !editSlip) return;
+    const { grossSalary: g, totalDeductions: td, netSalary: ns } = calculateTotalsFrom(editSlip);
+    if (g <= 0) {
+      alert('Please enter valid salary components');
+      return;
+    }
+    try {
+      const payload = { ...editSlip, gross_salary: g, total_deductions: td, net_salary: ns };
+      const resp = await api.put(`/hrms/salary/${encodeURIComponent(String(editSlipId))}`, payload, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (resp.data?.success) {
+        alert('Salary slip updated successfully!');
+        setShowEditModal(false);
+        setEditSlipId(null);
+        setEditSlip(null);
+        fetchSlips();
+      } else {
+        alert(resp.data?.message || 'Failed to update slip');
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to update slip');
+    }
+  };
+
+  const handleDeleteSlip = async (slip) => {
+    if (!slip?.id) return;
+    const ok = window.confirm('Delete this salary slip? This cannot be undone.');
+    if (!ok) return;
+    try {
+      const resp = await api.delete(`/hrms/salary/${encodeURIComponent(String(slip.id))}`);
+      if (resp.data?.success) {
+        fetchSlips();
+      } else {
+        alert(resp.data?.message || 'Failed to delete slip');
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete slip');
+    }
+  };
+
   return (
     <div>
       {/* Header Section */}
@@ -237,7 +430,7 @@ export default function SalarySlips() {
         </div>
       </div>
 
-      {/* Salary Slips Grid */}
+      {/* Salary Slips List */}
       {loading ? (
         <div className="bg-white rounded-xl p-12 text-center border border-gray-100 shadow-md">
           <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
@@ -249,59 +442,256 @@ export default function SalarySlips() {
           <p className="text-gray-500">No salary slips found</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredSlips.map((slip) => (
-            <div key={slip.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all group">
-              <div className="flex justify-between items-start mb-4">
-                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all">
-                  <i className="fas fa-file-pdf text-xl"></i>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs font-semibold text-gray-400 uppercase block">{slip.month}</span>
-                  {isAdminOrManager && <span className="text-xs text-blue-500 font-medium">{slip.employee_name}</span>}
-                </div>
-              </div>
-              <h3 className="font-bold text-gray-900 mb-1">Salary Slip - {slip.month}</h3>
-              <div className="mb-3">
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600">Gross Salary:</span>
-                  <span className="font-semibold text-gray-900">₹{parseFloat(slip.gross_salary || slip.amount).toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600">Deductions:</span>
-                  <span className="font-semibold text-red-600">-₹{parseFloat(slip.total_deductions || 0).toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-lg font-bold border-t pt-2 mt-2">
-                  <span className="text-gray-900">Net Salary:</span>
-                  <span className="text-blue-600">₹{parseFloat(slip.net_salary || slip.amount).toLocaleString()}</span>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setSelectedSlip(slip);
-                    setShowDetailsModal(true);
-                  }}
-                  className="flex-1 inline-flex items-center justify-center px-4 py-2 bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 font-medium transition-all border border-gray-200 text-sm"
-                >
-                  <i className="fas fa-eye mr-2"></i>
-                  View Details
-                </button>
-                <a
-                  href={`${BASE_URL}/serve-pdf?file=${encodeURIComponent(slip.file_path)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-all text-sm"
-                >
-                  <i className="fas fa-download mr-2"></i>
-                  Download
-                </a>
-              </div>
-            </div>
-          ))}
+        <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
+          <div className="overflow-x-auto">
+            <table className="min-w-[1100px] w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Month</th>
+                  {isAdminOrManager && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Employee</th>
+                  )}
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Code</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Gross</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Deductions</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Net</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Created</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap sticky right-0 z-10 bg-gray-50 border-l border-gray-200">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredSlips.map((slip) => (
+                  <tr key={slip.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">{slip.month}</td>
+                    {isAdminOrManager && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{slip.employee_name || '-'}</td>
+                    )}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{slip.employee_code || '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900">Rs. {fmtMoney(slip.gross_salary || slip.amount)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-red-600">Rs. {fmtMoney(slip.total_deductions || 0)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-blue-700">Rs. {fmtMoney(slip.net_salary || slip.amount)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${slip.status === 'paid' ? 'bg-green-100 text-green-800' : slip.status === 'generated' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'}`}>
+                        {String(slip.status || 'generated')}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{fmtDate(slip.created_at)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 z-10 bg-white border-l border-gray-100">
+                      <div className="inline-flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedSlip(slip); setShowDetailsModal(true); }}
+                          className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                          title="View"
+                          aria-label="View"
+                        >
+                          <IconEye className="w-4 h-4" />
+                        </button>
+                        {isAdminOrManager && (
+                          <button
+                            type="button"
+                            onClick={() => openEdit(slip)}
+                            className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                            title="Edit"
+                            aria-label="Edit"
+                          >
+                            <IconPencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => downloadSlipPdf(slip)}
+                          className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                          title="Download PDF"
+                          aria-label="Download PDF"
+                        >
+                          <IconDownload className="w-4 h-4" />
+                        </button>
+                        {isAdminOrManager && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSlip(slip)}
+                            className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                            title="Delete"
+                            aria-label="Delete"
+                          >
+                            <IconTrash className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
+      {/* Edit Slip Modal */}
+      {showEditModal && editSlip && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center z-50 p-4 sm:p-6 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-300 max-h-[calc(100vh-3rem)] flex flex-col">
+            <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-5 py-3 flex justify-between items-start text-white sticky top-0 z-10">
+              <div>
+                <h2 className="text-lg font-bold tracking-tight leading-tight">Edit Salary Slip</h2>
+                <p className="text-slate-300 text-[11px] mt-0.5 leading-snug">Update values and regenerate the PDF</p>
+              </div>
+              <button
+                onClick={() => { setShowEditModal(false); setEditSlipId(null); setEditSlip(null); }}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors shrink-0"
+                aria-label="Close"
+                title="Close"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateSlip} className="p-5 sm:p-6 overflow-y-auto">
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Pay Period (Month)</label>
+                  <input
+                    type="month"
+                    required
+                    value={editSlip.month}
+                    onChange={(e) => setEditSlip({ ...editSlip, month: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Status</label>
+                  <select
+                    value={editSlip.status}
+                    onChange={(e) => setEditSlip({ ...editSlip, status: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                  >
+                    <option value="generated">generated</option>
+                    <option value="paid">paid</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Period Start</label>
+                  <input
+                    type="date"
+                    value={editSlip.pay_period_start}
+                    onChange={(e) => setEditSlip({ ...editSlip, pay_period_start: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Period End</label>
+                  <input
+                    type="date"
+                    value={editSlip.pay_period_end}
+                    onChange={(e) => setEditSlip({ ...editSlip, pay_period_end: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden mb-6">
+                <div className="bg-white p-4">
+                  <h3 className="text-sm font-bold text-green-700 mb-4 flex items-center">
+                    <span className="w-1.5 h-4 bg-green-500 rounded-full mr-2"></span>
+                    EARNINGS
+                  </h3>
+                  <div className="space-y-3">
+                    {[
+                      ['basic_salary', 'Basic Salary *'],
+                      ['hra', 'HRA'],
+                      ['conveyance_allowance', 'Conveyance'],
+                      ['medical_allowance', 'Medical'],
+                      ['special_allowance', 'Special'],
+                      ['other_allowances', 'Other'],
+                    ].map(([key, label]) => (
+                      <div key={key} className="flex flex-col">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">{label}</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required={key === 'basic_salary'}
+                          value={editSlip[key]}
+                          onChange={(e) => setEditSlip({ ...editSlip, [key]: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-sm focus:border-green-500 outline-none transition-colors"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="bg-white p-4">
+                  <h3 className="text-sm font-bold text-red-700 mb-4 flex items-center">
+                    <span className="w-1.5 h-4 bg-red-500 rounded-full mr-2"></span>
+                    DEDUCTIONS
+                  </h3>
+                  <div className="space-y-3">
+                    {[
+                      ['pf_deduction', 'PF'],
+                      ['esi_deduction', 'ESI'],
+                      ['tax_deduction', 'TDS'],
+                      ['professional_tax', 'Professional Tax'],
+                      ['other_deductions', 'Other'],
+                    ].map(([key, label]) => (
+                      <div key={key} className="flex flex-col">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">{label}</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editSlip[key]}
+                          onChange={(e) => setEditSlip({ ...editSlip, [key]: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-sm focus:border-red-500 outline-none transition-colors"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {(() => {
+                const t = calculateTotalsFrom(editSlip);
+                return (
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex flex-col md:flex-row justify-around items-center gap-4 text-center">
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Gross Earnings</div>
+                      <div className="text-xl font-bold text-slate-700">Rs. {fmtMoney(t.grossSalary)}</div>
+                    </div>
+                    <div className="w-px h-8 bg-blue-200 hidden md:block"></div>
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Total Deductions</div>
+                      <div className="text-xl font-bold text-red-600">Rs. {fmtMoney(t.totalDeductions)}</div>
+                    </div>
+                    <div className="w-px h-8 bg-blue-200 hidden md:block"></div>
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Net Payable</div>
+                      <div className="text-2xl font-bold text-blue-700">Rs. {fmtMoney(t.netSalary)}</div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="flex justify-end gap-3 mt-8">
+                <button
+                  type="button"
+                  onClick={() => { setShowEditModal(false); setEditSlipId(null); setEditSlip(null); }}
+                  className="px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl shadow-lg shadow-slate-900/20 font-bold text-sm flex items-center transition-all hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  <i className="fas fa-save mr-2"></i>
+                  Update Slip
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {/* Generate Slip Modal */}
       {showGenerateModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -331,10 +721,16 @@ export default function SalarySlips() {
                     onChange={(e) => setNewSlip({ ...newSlip, employee_id: e.target.value })}
                     className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
                   >
-                    <option value="">Choose Employee</option>
-                    {allEmployees.map(emp => (
-                      <option key={emp.id} value={emp.id}>{emp.name}</option>
-                    ))}
+                    <option value="">{allEmployees.length ? 'Choose Employee' : 'No employees found'}</option>
+                    {allEmployees.map((emp) => {
+                      const empName = emp.name || emp.employee_name || 'Unnamed Employee';
+                      const empCode = emp.employee_code ? ` (${emp.employee_code})` : '';
+                      return (
+                        <option key={emp.id} value={emp.id}>
+                          {empName}{empCode}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
                 <div>
@@ -474,17 +870,17 @@ export default function SalarySlips() {
               <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex flex-col md:flex-row justify-around items-center gap-4 text-center">
                 <div>
                   <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Gross Earnings</div>
-                  <div className="text-xl font-bold text-slate-700">₹{grossSalary.toLocaleString()}</div>
+                  <div className="text-xl font-bold text-slate-700">Rs. {fmtMoney(grossSalary)}</div>
                 </div>
                 <div className="w-px h-8 bg-blue-200 hidden md:block"></div>
                 <div>
                   <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Total Deductions</div>
-                  <div className="text-xl font-bold text-red-600">₹{totalDeductions.toLocaleString()}</div>
+                  <div className="text-xl font-bold text-red-600">Rs. {fmtMoney(totalDeductions)}</div>
                 </div>
                 <div className="w-px h-8 bg-blue-200 hidden md:block"></div>
                 <div>
                   <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Net Payable</div>
-                  <div className="text-2xl font-bold text-blue-700">₹{netSalary.toLocaleString()}</div>
+                  <div className="text-2xl font-bold text-blue-700">Rs. {fmtMoney(netSalary)}</div>
                 </div>
               </div>
 
@@ -547,6 +943,10 @@ export default function SalarySlips() {
                   <p className="text-sm text-gray-600">Pay Period</p>
                   <p className="font-semibold text-gray-900">{selectedSlip.month}</p>
                 </div>
+                <div>
+                  <p className="text-sm text-gray-600">Bank A/C</p>
+                  <p className="font-semibold text-gray-900">{selectedSlip.bank_account || '-'}</p>
+                </div>
               </div>
             </div>
 
@@ -561,31 +961,31 @@ export default function SalarySlips() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Basic Salary</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.basic_salary || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.basic_salary || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">HRA</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.hra || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.hra || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Conveyance</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.conveyance_allowance || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.conveyance_allowance || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Medical</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.medical_allowance || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.medical_allowance || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Special</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.special_allowance || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.special_allowance || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Other</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.other_allowances || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.other_allowances || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm font-bold border-t pt-2 mt-2">
                     <span className="text-green-600">Gross Salary</span>
-                    <span className="text-green-600">₹{parseFloat(selectedSlip.gross_salary || selectedSlip.amount).toLocaleString()}</span>
+                    <span className="text-green-600">Rs. {fmtMoney(selectedSlip.gross_salary || selectedSlip.amount)}</span>
                   </div>
                 </div>
               </div>
@@ -599,27 +999,27 @@ export default function SalarySlips() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">PF</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.pf_deduction || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.pf_deduction || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">ESI</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.esi_deduction || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.esi_deduction || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Tax (TDS)</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.tax_deduction || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.tax_deduction || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Professional Tax</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.professional_tax || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.professional_tax || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Other</span>
-                    <span className="font-medium">₹{parseFloat(selectedSlip.other_deductions || 0).toLocaleString()}</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.other_deductions || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm font-bold border-t pt-2 mt-2">
                     <span className="text-red-600">Total Deductions</span>
-                    <span className="text-red-600">₹{parseFloat(selectedSlip.total_deductions || 0).toLocaleString()}</span>
+                    <span className="text-red-600">Rs. {fmtMoney(selectedSlip.total_deductions || 0)}</span>
                   </div>
                 </div>
               </div>
@@ -629,21 +1029,20 @@ export default function SalarySlips() {
             <div className="bg-blue-600 text-white rounded-lg p-4 mb-6">
               <div className="flex justify-between items-center">
                 <span className="text-lg font-semibold">Net Salary</span>
-                <span className="text-3xl font-bold">₹{parseFloat(selectedSlip.net_salary || selectedSlip.amount).toLocaleString()}</span>
+                <span className="text-3xl font-bold">Rs. {fmtMoney(selectedSlip.net_salary || selectedSlip.amount)}</span>
               </div>
             </div>
 
             {/* Actions */}
             <div className="flex justify-end">
-              <a
-                href={`${BASE_URL}/serve-pdf?file=${encodeURIComponent(selectedSlip.file_path)}`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => downloadSlipPdf(selectedSlip)}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-all inline-flex items-center"
               >
                 <i className="fas fa-download mr-2"></i>
                 Download PDF
-              </a>
+              </button>
             </div>
           </div>
         </div>
@@ -651,3 +1050,4 @@ export default function SalarySlips() {
     </div>
   );
 }
+

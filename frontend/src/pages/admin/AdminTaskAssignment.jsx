@@ -50,7 +50,11 @@ export default function AdminTaskAssignment() {
       ]);
 
       if (tasksRes.data.success) {
-        setTasks(tasksRes.data.data);
+        const payload = tasksRes.data.data;
+        const list = Array.isArray(payload) ? payload : Array.isArray(payload?.tasks) ? payload.tasks : [];
+        setTasks(list);
+      } else {
+        setTasks([]);
       }
       if (employeesRes.data.success) {
         setEmployees(employeesRes.data.data);
@@ -67,12 +71,16 @@ export default function AdminTaskAssignment() {
       const params = new URLSearchParams();
       if (filter.status !== 'all') params.append('status', filter.status);
       if (filter.priority !== 'all') params.append('priority', filter.priority);
-      if (filter.assignee !== 'all') params.append('assignee', filter.assignee);
+      if (filter.assignee !== 'all') params.append('employee_id', filter.assignee);
       if (filter.search) params.append('search', filter.search);
 
       const response = await api.get(`/admin/tasks?${params.toString()}`);
       if (response.data.success) {
-        setTasks(response.data.data);
+        const payload = response.data.data;
+        const list = Array.isArray(payload) ? payload : Array.isArray(payload?.tasks) ? payload.tasks : [];
+        setTasks(list);
+      } else {
+        setTasks([]);
       }
     } catch (err) {
       console.error('Error fetching tasks:', err);
@@ -83,8 +91,15 @@ export default function AdminTaskAssignment() {
     e.preventDefault();
     try {
       const data = {
-        ...formData,
-        tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== '')
+        title: formData.title,
+        description: formData.description,
+        employee_id: formData.assignee_id || null,
+        priority: formData.priority,
+        due_date: formData.due_date || null,
+        lead_id: formData.lead_id || null,
+        status: formData.status || 'pending',
+        tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
+        notes: formData.notes
       };
 
       const response = editingTask
@@ -120,7 +135,7 @@ export default function AdminTaskAssignment() {
     setFormData({
       title: task.title,
       description: task.description || '',
-      assignee_id: task.assignee_id,
+      assignee_id: task.employee_id,
       priority: task.priority || 'medium',
       due_date: task.due_date,
       estimated_hours: task.estimated_hours || 1,
@@ -170,7 +185,7 @@ export default function AdminTaskAssignment() {
   };
 
   const getOverdueTasks = () => {
-    return tasks.filter(task => {
+    return (Array.isArray(tasks) ? tasks : []).filter(task => {
       if (task.status === 'completed') return false;
       const dueDate = new Date(task.due_date);
       const today = new Date();
@@ -179,7 +194,7 @@ export default function AdminTaskAssignment() {
   };
 
   const getUpcomingTasks = () => {
-    return tasks.filter(task => {
+    return (Array.isArray(tasks) ? tasks : []).filter(task => {
       if (task.status === 'completed') return false;
       const dueDate = new Date(task.due_date);
       const today = new Date();
@@ -328,7 +343,7 @@ export default function AdminTaskAssignment() {
         <div className="divide-y divide-gray-200">
           {tasks.length > 0 ? (
             tasks.map((task) => {
-              const assignee = employees.find(emp => emp.id === task.assignee_id);
+              const assignee = employees.find(emp => emp.id === task.employee_id);
               const isOverdue = task.status !== 'completed' && new Date(task.due_date) < new Date();
 
               return (
@@ -512,7 +527,11 @@ export default function AdminTaskAssignment() {
                     min="0.5"
                     step="0.5"
                     value={formData.estimated_hours}
-                    onChange={(e) => setFormData({ ...formData, estimated_hours: parseFloat(e.target.value) })}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const next = raw === '' ? '' : parseFloat(raw);
+                      setFormData({ ...formData, estimated_hours: Number.isNaN(next) ? '' : next });
+                    }}
                     className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
                 </div>

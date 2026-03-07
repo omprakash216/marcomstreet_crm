@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
   return {
   plugins: [react()],
   optimizeDeps: {
-    include: ['jspdf', 'jspdf-autotable', 'xlsx'],
+    include: ['jspdf', 'jspdf-autotable', 'exceljs'],
   },
   build: {
     outDir: 'dist',

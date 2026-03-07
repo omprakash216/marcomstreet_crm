@@ -139,7 +139,13 @@ export default function AdminInsights() {
     ]
   };
 
-  const dataToUse = data || mockData;
+  const dataToUse = data && data.overview ? data : mockData;
+  const overview = dataToUse.overview || {};
+  const leadQuality = Array.isArray(dataToUse.leadQuality) ? dataToUse.leadQuality : [];
+  const performanceTrends = Array.isArray(dataToUse.performanceTrends) ? dataToUse.performanceTrends : [];
+  const departmentEfficiency = Array.isArray(dataToUse.departmentEfficiency) ? dataToUse.departmentEfficiency : [];
+  const predictiveInsights = Array.isArray(dataToUse.predictiveInsights) ? dataToUse.predictiveInsights : [];
+  const competitiveAnalysis = Array.isArray(dataToUse.competitiveAnalysis) ? dataToUse.competitiveAnalysis : [];
 
   return (
     <div className="space-y-6">
@@ -199,7 +205,7 @@ export default function AdminInsights() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Lead Quality Score</p>
-                      <p className="text-3xl font-bold text-gray-900">{dataToUse.overview.avgLeadScore}</p>
+                      <p className="text-3xl font-bold text-gray-900">{overview.avgLeadScore || 0}</p>
                       <p className="text-xs text-blue-600 font-medium mt-1">Out of 100</p>
                     </div>
                     <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -211,7 +217,7 @@ export default function AdminInsights() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Customer Satisfaction</p>
-                      <p className="text-3xl font-bold text-gray-900">{dataToUse.overview.customerSatisfaction}</p>
+                      <p className="text-3xl font-bold text-gray-900">{overview.customerSatisfaction || 0}</p>
                       <p className="text-xs text-green-600 font-medium mt-1">Out of 5.0</p>
                     </div>
                     <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -223,7 +229,7 @@ export default function AdminInsights() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Employee Productivity</p>
-                      <p className="text-3xl font-bold text-gray-900">{dataToUse.overview.employeeProductivity}%</p>
+                      <p className="text-3xl font-bold text-gray-900">{overview.employeeProductivity || 0}%</p>
                       <p className="text-xs text-purple-600 font-medium mt-1">Efficiency rate</p>
                     </div>
                     <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -235,7 +241,7 @@ export default function AdminInsights() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Market Growth</p>
-                      <p className="text-3xl font-bold text-gray-900">{dataToUse.overview.marketGrowth}%</p>
+                      <p className="text-3xl font-bold text-gray-900">{overview.marketGrowth || 0}%</p>
                       <p className="text-xs text-orange-600 font-medium mt-1">Industry trend</p>
                     </div>
                     <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -250,7 +256,7 @@ export default function AdminInsights() {
                 <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Lead Quality Distribution</h3>
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={dataToUse.leadQuality}>
+                    <BarChart data={leadQuality}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="score" />
                       <YAxis />
@@ -265,20 +271,20 @@ export default function AdminInsights() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
                       <span className="text-sm font-medium text-gray-700">Active Leads</span>
-                      <span className="text-lg font-bold text-blue-600">{dataToUse.overview.activeLeads}</span>
+                      <span className="text-lg font-bold text-blue-600">{overview.activeLeads || 0}</span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
                       <span className="text-sm font-medium text-gray-700">Converted</span>
-                      <span className="text-lg font-bold text-green-600">{dataToUse.overview.convertedLeads}</span>
+                      <span className="text-lg font-bold text-green-600">{overview.convertedLeads || 0}</span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
                       <span className="text-sm font-medium text-gray-700">Lost</span>
-                      <span className="text-lg font-bold text-red-600">{dataToUse.overview.lostLeads}</span>
+                      <span className="text-lg font-bold text-red-600">{overview.lostLeads || 0}</span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
                       <span className="text-sm font-medium text-gray-700">Conversion Rate</span>
                       <span className="text-lg font-bold text-purple-600">
-                        {((dataToUse.overview.convertedLeads / dataToUse.overview.totalLeads) * 100).toFixed(1)}%
+                        {overview.totalLeads ? ((overview.convertedLeads / overview.totalLeads) * 100).toFixed(1) : '0.0'}%
                       </span>
                     </div>
                   </div>
@@ -294,7 +300,7 @@ export default function AdminInsights() {
               <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Performance Trends</h3>
                 <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={dataToUse.performanceTrends}>
+                  <LineChart data={performanceTrends}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="month" />
                     <YAxis yAxisId="left" />
@@ -322,7 +328,7 @@ export default function AdminInsights() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {dataToUse.departmentEfficiency.map((dept, index) => (
+                      {departmentEfficiency.map((dept, index) => (
                         <tr key={index} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{dept.department}</td>
                           <td className="px-6 py-4 whitespace-nowrap">
@@ -352,7 +358,7 @@ export default function AdminInsights() {
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-gray-900">Predictive Insights</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {dataToUse.predictiveInsights.map((insight, index) => (
+                {predictiveInsights.map((insight, index) => (
                   <div key={index} className={`bg-white rounded-xl shadow-lg border p-6 ${
                     insight.impact === 'high' ? 'border-red-200 bg-red-50/50' :
                     insight.impact === 'medium' ? 'border-yellow-200 bg-yellow-50/50' :
@@ -408,7 +414,7 @@ export default function AdminInsights() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {dataToUse.competitiveAnalysis.map((metric, index) => (
+                      {competitiveAnalysis.map((metric, index) => (
                         <tr key={index} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{metric.metric}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{metric.company}</td>

@@ -10,15 +10,17 @@ import {
     isSameMonth,
     isSameDay,
     addDays,
-    parseISO
+    parseISO,
+    parse,
+    isValid
 } from 'date-fns';
 import {
     MdChevronLeft,
     MdChevronRight,
     MdToday,
-    MdLocationOn,
     MdAccessTime,
-    MdFiberManualRecord
+    MdFiberManualRecord,
+    MdEventAvailable
 } from 'react-icons/md';
 import api from '../utils/api';
 
@@ -26,6 +28,7 @@ const MeetingCalendar = ({ onMeetingClick }) => {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
 
     useEffect(() => {
         fetchMeetings();
@@ -33,6 +36,7 @@ const MeetingCalendar = ({ onMeetingClick }) => {
 
     const fetchMeetings = async () => {
         setLoading(true);
+        setError('');
         try {
             const monthStart = startOfMonth(currentMonth);
             const monthEnd = endOfMonth(currentMonth);
@@ -50,36 +54,95 @@ const MeetingCalendar = ({ onMeetingClick }) => {
             }
         } catch (error) {
             console.error('Error fetching calendar meetings:', error);
+            setMeetings([]);
+            setError('Unable to load meetings for this month.');
         } finally {
             setLoading(false);
         }
     };
 
+    // Backends often return MySQL datetime: "YYYY-MM-DD HH:mm:ss" (not ISO). Make parsing resilient.
+    const parseMeetingDate = (v) => {
+        if (!v) return null;
+        if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+        const s = String(v).trim();
+
+        // ISO path
+        try {
+            const d = parseISO(s);
+            if (isValid(d)) return d;
+        } catch (_) { }
+
+        // MySQL datetime path
+        try {
+            const core = s.replace('T', ' ').slice(0, 19); // allow "YYYY-MM-DDTHH:mm:ss" too
+            const d = parse(core, 'yyyy-MM-dd HH:mm:ss', new Date());
+            if (isValid(d)) return d;
+        } catch (_) { }
+
+        // Date-only path
+        try {
+            const d = parse(s.slice(0, 10), 'yyyy-MM-dd', new Date());
+            if (isValid(d)) return d;
+        } catch (_) { }
+
+        // Last resort: Date constructor on "YYYY-MM-DDTHH:mm:ss"
+        try {
+            const d = new Date(s.includes(' ') ? s.replace(' ', 'T') : s);
+            if (!Number.isNaN(d.getTime())) return d;
+        } catch (_) { }
+
+        return null;
+    };
+
     const renderHeader = () => {
         return (
-            <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-100 rounded-t-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 sm:px-6 py-4 bg-white border-b border-gray-100 rounded-t-2xl">
                 <div className="flex items-center gap-4">
-                    <h2 className="text-2xl font-bold text-slate-800">
-                        {format(currentMonth, 'MMMM yyyy')}
-                    </h2>
-                    <button
-                        onClick={() => setCurrentMonth(new Date())}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-                    >
-                        <MdToday className="text-lg" />
-                        Today
-                    </button>
+                    <div>
+                        <h2 className="text-2xl font-bold text-slate-800 leading-tight">
+                            {format(currentMonth, 'MMMM yyyy')}
+                        </h2>
+                        <div className="mt-1 flex items-center gap-2 text-[11px] font-bold text-slate-500">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full border bg-blue-50 text-blue-700 border-blue-100">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                                Scheduled
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-100">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                                Completed
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full border bg-rose-50 text-rose-700 border-rose-100">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+                                Cancelled
+                            </span>
+                        </div>
+                    </div>
                 </div>
-                <div className="flex items-center gap-2">
+
+                <div className="flex items-center gap-2 justify-between sm:justify-end">
                     <button
                         onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
                         className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all"
+                        aria-label="Previous month"
+                        title="Previous month"
                     >
                         <MdChevronLeft className="text-2xl" />
                     </button>
                     <button
+                        onClick={() => setCurrentMonth(new Date())}
+                        className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-blue-700 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors border border-blue-100"
+                        aria-label="Go to today"
+                        title="Go to today"
+                    >
+                        <MdToday className="text-lg" />
+                        Today
+                    </button>
+                    <button
                         onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
                         className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all"
+                        aria-label="Next month"
+                        title="Next month"
                     >
                         <MdChevronRight className="text-2xl" />
                     </button>
@@ -123,12 +186,15 @@ const MeetingCalendar = ({ onMeetingClick }) => {
         while (day <= endDate) {
             for (let i = 0; i < 7; i++) {
                 const cloneDay = day;
-                const dayMeetings = meetings.filter(m => isSameDay(parseISO(m.meeting_date), cloneDay));
+                const dayMeetings = meetings
+                    .map((m) => ({ ...m, __dt: parseMeetingDate(m.meeting_date) }))
+                    .filter((m) => m.__dt && isSameDay(m.__dt, cloneDay))
+                    .sort((a, b) => (a.__dt?.getTime() || 0) - (b.__dt?.getTime() || 0));
 
                 days.push(
                     <div
                         key={day.toString()}
-                        className={`min-h-[140px] border-r border-b border-gray-100 p-2 transition-all hover:bg-slate-50/50 group ${!isSameMonth(day, monthStart) ? 'bg-gray-50/50' : 'bg-white'
+                        className={`min-h-[120px] sm:min-h-[140px] border-r border-b border-gray-100 p-2 transition-all hover:bg-slate-50/50 group ${!isSameMonth(day, monthStart) ? 'bg-gray-50/50' : 'bg-white'
                             } ${isSameDay(day, new Date()) ? 'relative' : ''}`}
                     >
                         {isSameDay(day, new Date()) && (
@@ -146,7 +212,7 @@ const MeetingCalendar = ({ onMeetingClick }) => {
                             </span>
                             {dayMeetings.length > 0 && (
                                 <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded uppercase">
-                                    {dayMeetings.length} Msg
+                                    {dayMeetings.length} Mtg
                                 </span>
                             )}
                         </div>
@@ -164,7 +230,7 @@ const MeetingCalendar = ({ onMeetingClick }) => {
                                     </div>
                                     <div className="flex items-center gap-1 text-[9px] opacity-80">
                                         <MdAccessTime />
-                                        {format(parseISO(meeting.meeting_date), 'hh:mm a')}
+                                        {meeting.__dt ? format(meeting.__dt, 'hh:mm a') : '-'}
                                     </div>
                                     {meeting.employee_name && (
                                         <div className="mt-1 text-[9px] font-bold border-t border-current/10 pt-1 opacity-70">
@@ -193,7 +259,7 @@ const MeetingCalendar = ({ onMeetingClick }) => {
         return <div className="bg-white">{rows}</div>;
     };
 
-    return (
+        return (
         <div className="w-full bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
             {renderHeader()}
             {renderDays()}
@@ -203,6 +269,24 @@ const MeetingCalendar = ({ onMeetingClick }) => {
                         <div className="flex flex-col items-center gap-3">
                             <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin shadow-lg" />
                             <span className="text-sm font-bold text-slate-600">Updating Meetings...</span>
+                        </div>
+                    </div>
+                )}
+                {!loading && error && (
+                    <div className="absolute inset-0 bg-white/90 z-10 flex items-center justify-center p-6">
+                        <div className="max-w-md w-full text-center bg-white border border-rose-100 rounded-2xl p-6 shadow-lg">
+                            <div className="mx-auto w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mb-3">
+                                <MdEventAvailable className="text-2xl" />
+                            </div>
+                            <div className="text-base font-black text-slate-800">Calendar Unavailable</div>
+                            <div className="text-sm text-slate-600 mt-1">{error}</div>
+                            <button
+                                type="button"
+                                onClick={fetchMeetings}
+                                className="mt-4 inline-flex items-center justify-center px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-sm hover:bg-slate-800"
+                            >
+                                Retry
+                            </button>
                         </div>
                     </div>
                 )}

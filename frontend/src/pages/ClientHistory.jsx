@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 export default function ClientHistory() {
     const [loading, setLoading] = useState(false);
@@ -169,7 +169,7 @@ export default function ClientHistory() {
     };
 
     // Export to Excel
-    const handleExportExcel = () => {
+    const handleExportExcel = async () => {
         const exportData = filteredHistory.map(item => ({
             'Client Name': item.client,
             'Company': item.company,
@@ -186,12 +186,44 @@ export default function ClientHistory() {
             'Outcome': item.outcome
         }));
 
-        const ws = XLSX.utils.json_to_sheet(exportData);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Client History');
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'MARCOM CRM';
+        const sheet = workbook.addWorksheet('Client History');
+
+        if (exportData.length > 0) {
+            const headers = Object.keys(exportData[0]);
+            sheet.addRow(headers);
+            sheet.getRow(1).font = { bold: true };
+
+            exportData.forEach((row) => {
+                sheet.addRow(headers.map((header) => row[header] ?? ''));
+            });
+
+            headers.forEach((header, idx) => {
+                const column = sheet.getColumn(idx + 1);
+                const longestCell = Math.max(
+                    header.length,
+                    ...exportData.map((row) => String(row[header] ?? '').length)
+                );
+                column.width = Math.min(Math.max(longestCell + 2, 12), 40);
+            });
+        }
 
         const timestamp = new Date().toISOString().split('T')[0];
-        XLSX.writeFile(wb, `Client_History_${timestamp}.xlsx`);
+        const fileName = `Client_History_${timestamp}.xlsx`;
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob(
+            [buffer],
+            { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+        );
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     // Share via team chat

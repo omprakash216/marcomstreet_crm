@@ -68,29 +68,31 @@ export default function AdminDashboard() {
   if (!data) return null;
 
   // Chart data for Company Sales
-  const companySalesData = data.companySales.slice(0, 8).map(c => ({
+  const companySalesData = (data.companySales || []).slice(0, 8).map(c => ({
     name: c.company_name.length > 15 ? c.company_name.substring(0, 15) + '...' : c.company_name,
     sales: parseFloat(c.sales)
   }));
 
   // Chart data for Leads Status
-  const leadsStatusData = data.leadsByStatus.map(l => ({
+  const leadsStatusData = (data.leadsByStatus || []).map(l => ({
     name: l.status.charAt(0).toUpperCase() + l.status.slice(1),
     count: l.count
   }));
 
   // Chart data for Monthly Revenue Trend
-  const monthlyRevenueData = data.monthlyRevenueTrend.map(m => ({
+  const monthlyRevenueData = (data.monthlyRevenueTrend || []).map(m => ({
     month: m.month_label,
     revenue: parseFloat(m.revenue)
   }));
 
   // Chart data for Employee Performance
-  const employeePerformanceData = data.employeePerformance.slice(0, 8).map(e => ({
+  const employeePerformanceData = (data.employeePerformance || []).slice(0, 8).map(e => ({
     name: e.name.length > 10 ? e.name.substring(0, 10) + '...' : e.name,
     revenue: parseFloat(e.total_revenue),
     leads: e.total_leads
   }));
+
+  const safeEmployeeAgentOutputs = data.employeeAgentOutputs || {};
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
@@ -291,7 +293,7 @@ export default function AdminDashboard() {
           </div>
           <div className="p-4">
             <div className="space-y-3">
-              {data.recentCompanies.slice(0, 5).map((company) => (
+              {(data.recentCompanies || []).slice(0, 5).map((company) => (
                 <div key={company.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-900">{company.company_name}</p>
@@ -318,15 +320,15 @@ export default function AdminDashboard() {
           <div className="p-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <p className="text-2xl font-bold text-blue-700">{data.employeeAgentOutputs.total_leads}</p>
+                <p className="text-2xl font-bold text-blue-700">{safeEmployeeAgentOutputs.total_leads || 0}</p>
                 <p className="text-xs text-gray-600 mt-1">Total Leads</p>
               </div>
               <div className="text-center p-4 bg-green-50 rounded-lg">
-                <p className="text-2xl font-bold text-green-700">{data.employeeAgentOutputs.total_meetings}</p>
+                <p className="text-2xl font-bold text-green-700">{safeEmployeeAgentOutputs.total_meetings || 0}</p>
                 <p className="text-xs text-gray-600 mt-1">Meetings</p>
               </div>
               <div className="text-center p-4 bg-purple-50 rounded-lg">
-                <p className="text-2xl font-bold text-purple-700">{data.employeeAgentOutputs.total_attendance_logs}</p>
+                <p className="text-2xl font-bold text-purple-700">{safeEmployeeAgentOutputs.total_attendance_logs || 0}</p>
                 <p className="text-xs text-gray-600 mt-1">Attendance</p>
               </div>
             </div>

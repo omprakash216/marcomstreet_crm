@@ -121,7 +121,19 @@ export default function AdminRevenue() {
     ]
   };
 
-  const dataToUse = data || mockData;
+  const dataToUse = data && data.summary ? data : mockData;
+  const summary = dataToUse.summary || {
+    totalRevenue: 0,
+    totalLeads: 0,
+    totalDeals: 0,
+    averageDealSize: 0,
+    conversionRate: 0,
+    monthlyGrowth: 0,
+  };
+  const monthlyRevenue = Array.isArray(dataToUse.monthlyRevenue) ? dataToUse.monthlyRevenue : [];
+  const revenueBySource = Array.isArray(dataToUse.revenueBySource) ? dataToUse.revenueBySource : [];
+  const topPerformers = Array.isArray(dataToUse.topPerformers) ? dataToUse.topPerformers : [];
+  const dealSizeDistribution = Array.isArray(dataToUse.dealSizeDistribution) ? dataToUse.dealSizeDistribution : [];
 
   return (
     <div className="space-y-6">
@@ -158,10 +170,10 @@ export default function AdminRevenue() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Total Revenue</p>
-              <p className="text-3xl font-bold text-gray-900">₹{(dataToUse.summary.totalRevenue / 100000).toFixed(1)}L</p>
+              <p className="text-3xl font-bold text-gray-900">₹{(summary.totalRevenue / 100000).toFixed(1)}L</p>
               <p className="text-xs text-green-600 font-medium mt-1">
                 <i className="fas fa-arrow-up mr-1"></i>
-                +{dataToUse.summary.monthlyGrowth}% from last month
+                +{summary.monthlyGrowth || 0}% from last month
               </p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -173,7 +185,7 @@ export default function AdminRevenue() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Total Leads</p>
-              <p className="text-3xl font-bold text-gray-900">{dataToUse.summary.totalLeads}</p>
+              <p className="text-3xl font-bold text-gray-900">{summary.totalLeads}</p>
               <p className="text-xs text-blue-600 font-medium mt-1">Active opportunities</p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -185,7 +197,7 @@ export default function AdminRevenue() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Conversion Rate</p>
-              <p className="text-3xl font-bold text-gray-900">{dataToUse.summary.conversionRate}%</p>
+              <p className="text-3xl font-bold text-gray-900">{summary.conversionRate}%</p>
               <p className="text-xs text-purple-600 font-medium mt-1">Lead to deal conversion</p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -197,7 +209,7 @@ export default function AdminRevenue() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Avg Deal Size</p>
-              <p className="text-3xl font-bold text-gray-900">₹{(dataToUse.summary.averageDealSize / 1000).toFixed(0)}K</p>
+              <p className="text-3xl font-bold text-gray-900">₹{(summary.averageDealSize / 1000).toFixed(0)}K</p>
               <p className="text-xs text-orange-600 font-medium mt-1">Per successful deal</p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -213,7 +225,7 @@ export default function AdminRevenue() {
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Revenue Trend</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={dataToUse.monthlyRevenue}>
+            <AreaChart data={monthlyRevenue}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
               <YAxis tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}K`} />
@@ -229,7 +241,7 @@ export default function AdminRevenue() {
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
-                data={dataToUse.revenueBySource}
+                data={revenueBySource}
                 cx="50%"
                 cy="50%"
                 labelLine={false}
@@ -238,7 +250,7 @@ export default function AdminRevenue() {
                 fill="#8884d8"
                 dataKey="value"
               >
-                {dataToUse.revenueBySource.map((entry, index) => (
+                {revenueBySource.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
@@ -254,7 +266,7 @@ export default function AdminRevenue() {
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Performers</h3>
           <div className="space-y-4">
-            {dataToUse.topPerformers.map((performer, index) => (
+            {topPerformers.map((performer, index) => (
               <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center space-x-3">
                   <div className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-bold text-sm">
@@ -277,7 +289,7 @@ export default function AdminRevenue() {
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Deal Size Distribution</h3>
           <div className="space-y-3">
-            {dataToUse.dealSizeDistribution.map((range, index) => (
+            {dealSizeDistribution.map((range, index) => (
               <div key={index} className="flex items-center justify-between">
                 <span className="text-sm text-gray-700">{range.range}</span>
                 <div className="flex items-center space-x-2">
@@ -322,7 +334,7 @@ export default function AdminRevenue() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {dataToUse.monthlyRevenue.map((month, index) => (
+              {monthlyRevenue.map((month, index) => (
                 <tr key={index} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{month.month}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-600">₹{month.revenue.toLocaleString()}</td>

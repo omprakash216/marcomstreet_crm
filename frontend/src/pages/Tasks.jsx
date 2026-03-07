@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
+import { getEmployee } from '../utils/auth';
 
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedTaskId, setSelectedUploadTaskId] = useState(null);
   const [workFile, setWorkFile] = useState(null);
+  const [employee, setEmployee] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -16,12 +19,29 @@ export default function Tasks() {
     due_date: '',
     lead_id: '',
   });
+  const [assignForm, setAssignForm] = useState({
+    employee_id: '',
+    title: '',
+    description: '',
+    task_type: 'other',
+    priority: 'medium',
+    due_date: '',
+    lead_id: '',
+  });
+  const [assignees, setAssignees] = useState([]);
+  const [assignLoading, setAssignLoading] = useState(false);
   const [leads, setLeads] = useState([]);
 
   useEffect(() => {
+    setEmployee(getEmployee());
     fetchTasks();
     fetchLeads();
   }, []);
+
+  const isManagerOrAdmin = () => {
+    const role = (employee?.role || '').toLowerCase();
+    return role === 'manager' || role === 'admin';
+  };
 
   const fetchTasks = async () => {
     // Check if user is logged in
@@ -77,7 +97,7 @@ export default function Tasks() {
         task_type: 'other',
         priority: 'medium',
         due_date: '',
-        lead_id: null,
+        lead_id: '',
       });
       fetchTasks();
     } catch (error) {
@@ -121,6 +141,59 @@ export default function Tasks() {
       }
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to upload work');
+    }
+  };
+
+  const fetchAssignees = async () => {
+    try {
+      const response = await api.get('/tasks/assignees');
+      if (response.data.success) {
+        setAssignees(Array.isArray(response.data.data) ? response.data.data : []);
+      }
+    } catch (error) {
+      if (error.response?.status !== 403) {
+        console.error('Error fetching assignees:', error);
+      }
+      setAssignees([]);
+    }
+  };
+
+  useEffect(() => {
+    if (showAssignModal && isManagerOrAdmin()) {
+      fetchAssignees();
+    }
+  }, [showAssignModal, employee]);
+
+  const handleAssignTask = async (e) => {
+    e.preventDefault();
+    if (!assignForm.employee_id) {
+      alert('Please select an employee');
+      return;
+    }
+    setAssignLoading(true);
+    try {
+      const payload = {
+        ...assignForm,
+        employee_id: Number(assignForm.employee_id),
+        lead_id: assignForm.lead_id || null,
+        due_date: assignForm.due_date || null,
+      };
+      await api.post('/tasks/assign', payload);
+      alert('Task assigned successfully');
+      setShowAssignModal(false);
+      setAssignForm({
+        employee_id: '',
+        title: '',
+        description: '',
+        task_type: 'other',
+        priority: 'medium',
+        due_date: '',
+        lead_id: '',
+      });
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to assign task');
+    } finally {
+      setAssignLoading(false);
     }
   };
 
@@ -174,16 +247,27 @@ export default function Tasks() {
               </div>
             </div>
 
-            {/* Right Side - Action Button */}
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center space-x-2 px-6 py-3 bg-white text-slate-700 rounded-xl shadow-lg font-semibold transition-all duration-200 transform hover:-translate-y-0.5 hover:shadow-xl hover:bg-slate-50"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              <span>Create Task</span>
-            </button>
+            {/* Right Side - Action Buttons */}
+            <div className="flex flex-wrap items-center gap-3 justify-end">
+              {isManagerOrAdmin() && (
+                <button
+                  onClick={() => setShowAssignModal(true)}
+                  className="flex items-center space-x-2 px-5 py-3 bg-emerald-500 text-white rounded-xl shadow-lg font-semibold transition-all duration-200 transform hover:-translate-y-0.5 hover:shadow-xl hover:bg-emerald-600"
+                >
+                  <i className="fas fa-user-check text-sm"></i>
+                  <span>Assign Team Task</span>
+                </button>
+              )}
+              <button
+                onClick={() => setShowModal(true)}
+                className="flex items-center space-x-2 px-6 py-3 bg-white text-slate-700 rounded-xl shadow-lg font-semibold transition-all duration-200 transform hover:-translate-y-0.5 hover:shadow-xl hover:bg-slate-50"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Create Task</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -301,6 +385,180 @@ export default function Tasks() {
           </table>
         </div>
       </div>
+
+      {showAssignModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-[1.5rem] w-full max-w-4xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200">
+            <div className="bg-emerald-600 p-4 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center shadow-inner">
+                  <i className="fas fa-briefcase text-xl"></i>
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold leading-tight">Assign Task to Team</h2>
+                  <p className="text-[10px] opacity-80 uppercase tracking-widest font-black">Department-limited assignment</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAssignModal(false)}
+                className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"
+              >
+                <i className="fas fa-times text-xl"></i>
+              </button>
+            </div>
+
+            <form onSubmit={handleAssignTask} className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-y-1 gap-x-8">
+                <div className="space-y-4">
+                  <div>
+                    <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                      <i className="fas fa-user-friends text-emerald-500 w-4 text-center"></i>
+                      <span>Select Team Member *</span>
+                    </label>
+                    <select
+                      required
+                      value={assignForm.employee_id}
+                      onChange={(e) => setAssignForm({ ...assignForm, employee_id: e.target.value })}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-medium text-sm"
+                    >
+                      <option value="">Choose employee</option>
+                      {assignees.length === 0 && (
+                        <option disabled value="">
+                          {assignLoading ? 'Loading team...' : 'No team members found'}
+                        </option>
+                      )}
+                      {assignees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name} {emp.designation ? `· ${emp.designation}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-slate-400 mt-1">Only employees from your department are listed.</p>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                      <i className="fas fa-heading text-emerald-500 w-4 text-center"></i>
+                      <span>Task Title *</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={assignForm.title}
+                      onChange={(e) => setAssignForm({ ...assignForm, title: e.target.value })}
+                      placeholder="e.g. Client Follow-up, Project Proposal"
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-medium text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                      <i className="fas fa-align-left text-emerald-500 w-4 text-center"></i>
+                      <span>Task Description</span>
+                    </label>
+                    <textarea
+                      value={assignForm.description}
+                      onChange={(e) => setAssignForm({ ...assignForm, description: e.target.value })}
+                      rows={4}
+                      placeholder="Detail the task objectives and steps..."
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-medium text-sm min-h-[118px] resize-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                        <i className="fas fa-tags text-emerald-500 w-4 text-center"></i>
+                        <span>Task Type</span>
+                      </label>
+                      <select
+                        value={assignForm.task_type}
+                        onChange={(e) => setAssignForm({ ...assignForm, task_type: e.target.value })}
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-medium text-sm"
+                      >
+                        <option value="follow_up">Follow-up</option>
+                        <option value="meeting">Meeting</option>
+                        <option value="call">Call</option>
+                        <option value="email">Email</option>
+                        <option value="document">Document</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                        <i className="fas fa-flag text-emerald-500 w-4 text-center"></i>
+                        <span>Priority</span>
+                      </label>
+                      <select
+                        value={assignForm.priority}
+                        onChange={(e) => setAssignForm({ ...assignForm, priority: e.target.value })}
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-medium text-sm"
+                      >
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                      <i className="fas fa-user-tie text-emerald-500 w-4 text-center"></i>
+                      <span>Associate Lead (Optional)</span>
+                    </label>
+                    <select
+                      value={assignForm.lead_id}
+                      onChange={(e) => setAssignForm({ ...assignForm, lead_id: e.target.value })}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-medium text-sm"
+                    >
+                      <option value="">Independent Task</option>
+                      {leads.map((lead) => (
+                        <option key={lead.id} value={lead.id}>
+                          {lead.company_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                      <i className="fas fa-calendar-alt text-emerald-500 w-4 text-center"></i>
+                      <span>Due Date & Time</span>
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={assignForm.due_date}
+                      onChange={(e) => setAssignForm({ ...assignForm, due_date: e.target.value })}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all font-medium text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setShowAssignModal(false)}
+                  className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={assignLoading}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center space-x-2 shadow-lg shadow-emerald-500/20 transition-all active:scale-95"
+                >
+                  <i className="fas fa-paper-plane mr-2 text-[10px]"></i>
+                  <span>{assignLoading ? 'Assigning...' : 'Assign Task'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showUploadModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">

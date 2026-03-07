@@ -3,10 +3,11 @@ const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 
 const router = express.Router();
-const allowedRoles = ['admin', 'manager', 'human_resources'];
+// Accept common role variants stored in DB.
+const allowedRoles = ['admin', 'manager', 'human_resources', 'human resources', 'human resource', 'hr', 'hr manager', 'hr_manager'];
 
 function canSeeAll(emp) {
-  return allowedRoles.includes((emp.role || '').toLowerCase());
+  return allowedRoles.includes(String(emp?.role || '').toLowerCase().trim());
 }
 
 router.get('/', verifyToken, async (req, res) => {
@@ -43,11 +44,47 @@ router.post('/', verifyToken, async (req, res) => {
 router.put('/:id', verifyToken, async (req, res) => {
   try {
     const b = req.body || {};
-    await query(
-      'UPDATE meetings SET title=?, description=?, meeting_date=?, location=?, status=?, notes=?, updated_at=NOW() WHERE id=? AND employee_id=?',
-      [b.title, b.description, b.meeting_date, b.location, b.status, b.notes, req.params.id, req.employee.id]
-    );
+    // HR/Admin/Manager can update any meeting; others only their own.
+    const canAll = canSeeAll(req.employee);
+    const params = [b.title, b.description, b.meeting_date, b.location, b.status, b.notes, req.params.id];
+    let sql = 'UPDATE meetings SET title=?, description=?, meeting_date=?, location=?, status=?, notes=?, updated_at=NOW() WHERE id=?';
+    if (!canAll) {
+      sql += ' AND employee_id=?';
+      params.push(req.employee.id);
+    }
+    await query(sql, params);
     return res.json({ success: true, message: 'Meeting updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PATCH /group-meetings/:id/status - update meeting status (used by UI)
+router.patch('/:id/status', verifyToken, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid meeting id' });
+    }
+    const status = String(req.body?.status || '').toLowerCase().trim();
+    const allowed = ['scheduled', 'completed', 'cancelled'];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status' });
+    }
+
+    const canAll = canSeeAll(req.employee);
+    const params = [status, id];
+    let sql = 'UPDATE meetings SET status=?, updated_at=NOW() WHERE id=?';
+    if (!canAll) {
+      sql += ' AND employee_id=?';
+      params.push(req.employee.id);
+    }
+    const r = await query(sql, params);
+    // Best-effort "not found" check (mysql2 returns affectedRows via result object in some wrappers)
+    if (r && typeof r.affectedRows === 'number' && r.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Meeting not found' });
+    }
+    return res.json({ success: true, message: 'Status updated' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -55,7 +92,14 @@ router.put('/:id', verifyToken, async (req, res) => {
 
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
-    await query('DELETE FROM meetings WHERE id = ? AND employee_id = ?', [req.params.id, req.employee.id]);
+    const canAll = canSeeAll(req.employee);
+    const params = [req.params.id];
+    let sql = 'DELETE FROM meetings WHERE id = ?';
+    if (!canAll) {
+      sql += ' AND employee_id=?';
+      params.push(req.employee.id);
+    }
+    await query(sql, params);
     return res.json({ success: true, message: 'Meeting deleted' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

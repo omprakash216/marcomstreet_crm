@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import '../../styles/public-joining-form.css';
+import letterHeadBg from '../../assets/letter-head.png';
 
 export default function PublicJoiningForm() {
     const [searchParams] = useSearchParams();
@@ -43,13 +45,12 @@ export default function PublicJoiningForm() {
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
-        setFormData(prev => ({
+        setFormData((prev) => ({
             ...prev,
             [name]: type === 'checkbox' ? checked : value
         }));
     };
 
-    // Dynamic Row Handlers for Education
     const handleEducationChange = (index, field, value) => {
         const updated = [...education];
         updated[index][field] = value;
@@ -66,7 +67,6 @@ export default function PublicJoiningForm() {
         }
     };
 
-    // Dynamic Row Handlers for Employment
     const handleEmploymentChange = (index, field, value) => {
         const updated = [...employment];
         updated[index][field] = value;
@@ -94,376 +94,221 @@ export default function PublicJoiningForm() {
         alert('Form data logged to console (Simulation). In production, this would POST to the backend.');
     };
 
+    const pageStyle = {
+        '--letterhead-url': `url(${letterHeadBg})`
+    };
+
     return (
-        <div className="bg-gray-100 p-6 min-h-screen font-sans">
-            <div className="max-w-4xl mx-auto bg-white p-8 border border-gray-400 shadow-md">
+        <div className="joining-public-page">
+            <div className="joining-public-actions no-print">
+                <button
+                    type="button"
+                    className="joining-public-btn joining-public-btn-secondary"
+                    onClick={() => window.print()}
+                >
+                    Print A4 Form
+                </button>
+            </div>
 
-                {/* Header */}
-                <div className="border-b border-gray-300 pb-3 mb-6">
-                    <h1 className="text-2xl font-bold uppercase text-gray-800">Vanya Group</h1>
-                </div>
+            <div className="joining-public-sheet" style={pageStyle}>
+                <form onSubmit={handleSubmit} className="joining-public-form">
+                    <header className="joining-public-header">
+                        <h1>Employee Joining Form</h1>
+                        <p>Candidate Information and Document Checklist</p>
+                    </header>
 
-                <h2 className="text-lg font-semibold mb-4 uppercase text-gray-700">Employee Joining Form</h2>
+                    <section className="joining-public-section">
+                        <h2>Official Details</h2>
+                        <div className="joining-public-grid">
+                            <label>
+                                <span>Company Name</span>
+                                <input type="text" name="company_name" value={formData.company_name} readOnly />
+                            </label>
+                            <label>
+                                <span>Department</span>
+                                <input type="text" name="department" value={formData.department} onChange={handleChange} required />
+                            </label>
+                            <label>
+                                <span>Designation</span>
+                                <input type="text" name="designation" value={formData.designation} onChange={handleChange} required />
+                            </label>
+                            <label>
+                                <span>Date of Joining</span>
+                                <input type="date" name="joining_date" value={formData.joining_date} onChange={handleChange} required />
+                            </label>
+                        </div>
+                    </section>
 
-                <form onSubmit={handleSubmit}>
-                    {/* Company Details */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        <div>
-                            <label className="font-semibold block text-sm text-gray-700">Company Name:</label>
-                            <input
-                                type="text"
-                                name="company_name"
-                                value={formData.company_name}
-                                readOnly
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent"
-                            />
+                    <section className="joining-public-section">
+                        <h2>Personal Details</h2>
+                        <div className="joining-public-grid">
+                            <label>
+                                <span>Full Name</span>
+                                <input type="text" name="full_name" value={formData.full_name} onChange={handleChange} required />
+                            </label>
+                            <label>
+                                <span>Father&apos;s / Mother&apos;s Name</span>
+                                <input type="text" name="father_mother_name" value={formData.father_mother_name} onChange={handleChange} />
+                            </label>
+                            <label>
+                                <span>Date of Birth</span>
+                                <input type="date" name="dob" value={formData.dob} onChange={handleChange} />
+                            </label>
+                            <label>
+                                <span>Gender</span>
+                                <select name="gender" value={formData.gender} onChange={handleChange}>
+                                    <option value="">Select</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Marital Status</span>
+                                <select name="marital_status" value={formData.marital_status} onChange={handleChange}>
+                                    <option value="">Select</option>
+                                    <option value="Single">Single</option>
+                                    <option value="Married">Married</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Contact Number</span>
+                                <input type="tel" name="contact_number" value={formData.contact_number} onChange={handleChange} required />
+                            </label>
+                            <label className="joining-public-span-2">
+                                <span>Email ID</span>
+                                <input type="email" name="email" value={formData.email} onChange={handleChange} required />
+                            </label>
+                            <label className="joining-public-span-2">
+                                <span>Permanent Address</span>
+                                <input type="text" name="permanent_address" value={formData.permanent_address} onChange={handleChange} />
+                            </label>
+                            <label className="joining-public-span-2">
+                                <span>Current Address</span>
+                                <input type="text" name="current_address" value={formData.current_address} onChange={handleChange} />
+                            </label>
                         </div>
-                        <div>
-                            <label className="font-semibold block text-sm text-gray-700">Department:</label>
-                            <input
-                                type="text"
-                                name="department"
-                                value={formData.department}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                                required
-                            />
-                        </div>
-                        <div>
-                            <label className="font-semibold block text-sm text-gray-700">Designation:</label>
-                            <input
-                                type="text"
-                                name="designation"
-                                value={formData.designation}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                                required
-                            />
-                        </div>
-                        <div>
-                            <label className="font-semibold block text-sm text-gray-700">Date of Joining:</label>
-                            <input
-                                type="date"
-                                name="joining_date"
-                                value={formData.joining_date}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                                required
-                            />
-                        </div>
-                    </div>
+                    </section>
 
-                    {/* Personal Details */}
-                    <h3 className="font-semibold text-md mb-3 uppercase border-b border-gray-300 pb-1 text-gray-700">Personal Details</h3>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        <div>
-                            <label className="block text-sm text-gray-600">Full Name:</label>
-                            <input
-                                type="text"
-                                name="full_name"
-                                value={formData.full_name}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                                required
-                            />
+                    <section className="joining-public-section">
+                        <div className="joining-public-section-head">
+                            <h2>Educational Details</h2>
+                            <button type="button" className="joining-public-link-btn no-print" onClick={addEducationRow}>+ Add Row</button>
                         </div>
-                        <div>
-                            <label className="block text-sm text-gray-600">Father’s / Mother’s Name:</label>
-                            <input
-                                type="text"
-                                name="father_mother_name"
-                                value={formData.father_mother_name}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm text-gray-600">Date of Birth:</label>
-                            <input
-                                type="date"
-                                name="dob"
-                                value={formData.dob}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm text-gray-600">Gender:</label>
-                            <select
-                                name="gender"
-                                value={formData.gender}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors appearance-none"
-                            >
-                                <option value="">Select</option>
-                                <option value="Male">Male</option>
-                                <option value="Female">Female</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm text-gray-600">Marital Status:</label>
-                            <select
-                                name="marital_status"
-                                value={formData.marital_status}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors appearance-none"
-                            >
-                                <option value="">Select</option>
-                                <option value="Single">Single</option>
-                                <option value="Married">Married</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm text-gray-600">Contact Number:</label>
-                            <input
-                                type="tel"
-                                name="contact_number"
-                                value={formData.contact_number}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                                required
-                            />
-                        </div>
-                        <div className="md:col-span-2">
-                            <label className="block text-sm text-gray-600">Email ID:</label>
-                            <input
-                                type="email"
-                                name="email"
-                                value={formData.email}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                                required
-                            />
-                        </div>
-                        <div className="md:col-span-2">
-                            <label className="block text-sm text-gray-600">Permanent Address:</label>
-                            <input
-                                type="text"
-                                name="permanent_address"
-                                value={formData.permanent_address}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                            />
-                        </div>
-                        <div className="md:col-span-2">
-                            <label className="block text-sm text-gray-600">Current Address:</label>
-                            <input
-                                type="text"
-                                name="current_address"
-                                value={formData.current_address}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 text-gray-900 bg-transparent focus:border-black transition-colors"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Educational Details */}
-                    <div className="flex justify-between items-center border-b border-gray-300 pb-1 mb-3">
-                        <h3 className="font-semibold text-md uppercase text-gray-700">Educational Details</h3>
-                        <button type="button" onClick={addEducationRow} className="text-blue-600 text-xs font-bold hover:underline">+ Add Row</button>
-                    </div>
-
-                    <table className="w-full border border-gray-400 mb-6 text-sm">
-                        <thead className="bg-gray-200">
-                            <tr>
-                                <th className="border border-gray-400 p-2 text-left font-semibold text-gray-700">Qualification</th>
-                                <th className="border border-gray-400 p-2 text-left font-semibold text-gray-700">University / Board</th>
-                                <th className="border border-gray-400 p-2 text-left font-semibold text-gray-700">Year of Passing</th>
-                                <th className="border border-gray-400 p-2 text-left font-semibold text-gray-700">Percentage / Grade</th>
-                                <th className="border border-gray-400 p-2 w-10"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {education.map((row, index) => (
-                                <tr key={index}>
-                                    <td className="border border-gray-400 p-2">
-                                        <input
-                                            className="w-full outline-none bg-transparent"
-                                            value={row.degree}
-                                            onChange={(e) => handleEducationChange(index, 'degree', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="border border-gray-400 p-2">
-                                        <input
-                                            className="w-full outline-none bg-transparent"
-                                            value={row.institution}
-                                            onChange={(e) => handleEducationChange(index, 'institution', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="border border-gray-400 p-2">
-                                        <input
-                                            className="w-full outline-none bg-transparent"
-                                            value={row.year}
-                                            onChange={(e) => handleEducationChange(index, 'year', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="border border-gray-400 p-2">
-                                        <input
-                                            className="w-full outline-none bg-transparent"
-                                            value={row.percentage}
-                                            onChange={(e) => handleEducationChange(index, 'percentage', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="border border-gray-400 p-2 text-center">
-                                        {education.length > 1 && (
-                                            <button type="button" onClick={() => removeEducationRow(index)} className="text-red-500 hover:text-red-700 font-bold">×</button>
-                                        )}
-                                    </td>
+                        <table className="joining-public-table">
+                            <thead>
+                                <tr>
+                                    <th>Qualification</th>
+                                    <th>University / Board</th>
+                                    <th>Year of Passing</th>
+                                    <th>Percentage / Grade</th>
+                                    <th className="no-print">Remove</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {education.map((row, index) => (
+                                    <tr key={index}>
+                                        <td><input value={row.degree} onChange={(e) => handleEducationChange(index, 'degree', e.target.value)} /></td>
+                                        <td><input value={row.institution} onChange={(e) => handleEducationChange(index, 'institution', e.target.value)} /></td>
+                                        <td><input value={row.year} onChange={(e) => handleEducationChange(index, 'year', e.target.value)} /></td>
+                                        <td><input value={row.percentage} onChange={(e) => handleEducationChange(index, 'percentage', e.target.value)} /></td>
+                                        <td className="joining-public-cell-center no-print">
+                                            {education.length > 1 && (
+                                                <button type="button" className="joining-public-remove-btn" onClick={() => removeEducationRow(index)}>X</button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </section>
 
-                    {/* Employment History */}
-                    <div className="flex justify-between items-center border-b border-gray-300 pb-1 mb-3">
-                        <h3 className="font-semibold text-md uppercase text-gray-700">Employment History (If Any)</h3>
-                        <button type="button" onClick={addEmploymentRow} className="text-blue-600 text-xs font-bold hover:underline">+ Add Row</button>
-                    </div>
-
-                    <table className="w-full border border-gray-400 mb-6 text-sm">
-                        <thead className="bg-gray-200">
-                            <tr>
-                                <th className="border border-gray-400 p-2 text-left font-semibold text-gray-700">Company Name</th>
-                                <th className="border border-gray-400 p-2 text-left font-semibold text-gray-700">Designation</th>
-                                <th className="border border-gray-400 p-2 text-left font-semibold text-gray-700 w-24">From</th>
-                                <th className="border border-gray-400 p-2 text-left font-semibold text-gray-700 w-24">To</th>
-                                <th className="border border-gray-400 p-2 text-left font-semibold text-gray-700">Reason for Leaving</th>
-                                <th className="border border-gray-400 p-2 w-10"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {employment.map((row, index) => (
-                                <tr key={index}>
-                                    <td className="border border-gray-400 p-2">
-                                        <input
-                                            className="w-full outline-none bg-transparent"
-                                            value={row.company}
-                                            onChange={(e) => handleEmploymentChange(index, 'company', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="border border-gray-400 p-2">
-                                        <input
-                                            className="w-full outline-none bg-transparent"
-                                            value={row.designation}
-                                            onChange={(e) => handleEmploymentChange(index, 'designation', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="border border-gray-400 p-2">
-                                        <input
-                                            type="date"
-                                            className="w-full outline-none bg-transparent text-xs"
-                                            value={row.from_date}
-                                            onChange={(e) => handleEmploymentChange(index, 'from_date', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="border border-gray-400 p-2">
-                                        <input
-                                            type="date"
-                                            className="w-full outline-none bg-transparent text-xs"
-                                            value={row.to_date}
-                                            onChange={(e) => handleEmploymentChange(index, 'to_date', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="border border-gray-400 p-2">
-                                        <input
-                                            className="w-full outline-none bg-transparent"
-                                            value={row.reason}
-                                            onChange={(e) => handleEmploymentChange(index, 'reason', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="border border-gray-400 p-2 text-center">
-                                        {employment.length > 1 && (
-                                            <button type="button" onClick={() => removeEmploymentRow(index)} className="text-red-500 hover:text-red-700 font-bold">×</button>
-                                        )}
-                                    </td>
+                    <section className="joining-public-section">
+                        <div className="joining-public-section-head">
+                            <h2>Employment History (If Any)</h2>
+                            <button type="button" className="joining-public-link-btn no-print" onClick={addEmploymentRow}>+ Add Row</button>
+                        </div>
+                        <table className="joining-public-table">
+                            <thead>
+                                <tr>
+                                    <th>Company Name</th>
+                                    <th>Designation</th>
+                                    <th>From</th>
+                                    <th>To</th>
+                                    <th>Reason for Leaving</th>
+                                    <th className="no-print">Remove</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {employment.map((row, index) => (
+                                    <tr key={index}>
+                                        <td><input value={row.company} onChange={(e) => handleEmploymentChange(index, 'company', e.target.value)} /></td>
+                                        <td><input value={row.designation} onChange={(e) => handleEmploymentChange(index, 'designation', e.target.value)} /></td>
+                                        <td><input type="date" value={row.from_date} onChange={(e) => handleEmploymentChange(index, 'from_date', e.target.value)} /></td>
+                                        <td><input type="date" value={row.to_date} onChange={(e) => handleEmploymentChange(index, 'to_date', e.target.value)} /></td>
+                                        <td><input value={row.reason} onChange={(e) => handleEmploymentChange(index, 'reason', e.target.value)} /></td>
+                                        <td className="joining-public-cell-center no-print">
+                                            {employment.length > 1 && (
+                                                <button type="button" className="joining-public-remove-btn" onClick={() => removeEmploymentRow(index)}>X</button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </section>
 
-                    {/* Documents Submitted */}
-                    <h3 className="font-semibold text-md mb-3 uppercase border-b border-gray-300 pb-1 text-gray-700">Documents Submitted</h3>
-
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6 text-sm text-gray-700">
-                        <label className="flex items-center space-x-2">
-                            <input type="checkbox" name="docs_resume" checked={formData.docs_resume} onChange={handleChange} className="accent-black" />
-                            <span>Resume</span>
-                        </label>
-                        <label className="flex items-center space-x-2">
-                            <input type="checkbox" name="docs_id" checked={formData.docs_id} onChange={handleChange} className="accent-black" />
-                            <span>ID Proof</span>
-                        </label>
-                        <label className="flex items-center space-x-2">
-                            <input type="checkbox" name="docs_address" checked={formData.docs_address} onChange={handleChange} className="accent-black" />
-                            <span>Address Proof</span>
-                        </label>
-                        <label className="flex items-center space-x-2">
-                            <input type="checkbox" name="docs_certificates" checked={formData.docs_certificates} onChange={handleChange} className="accent-black" />
-                            <span>Certificates</span>
-                        </label>
-                        <label className="flex items-center space-x-2">
-                            <input type="checkbox" name="docs_photos" checked={formData.docs_photos} onChange={handleChange} className="accent-black" />
-                            <span>Photos (2)</span>
-                        </label>
-                        <label className="col-span-1 md:col-span-3 flex items-center space-x-2">
-                            <span className="whitespace-nowrap">Others:</span>
-                            <input
-                                type="text"
-                                name="docs_others"
-                                value={formData.docs_others}
-                                onChange={handleChange}
-                                className="border-b border-gray-400 outline-none w-full bg-transparent focus:border-black transition-colors"
-                            />
-                        </label>
-                    </div>
-
-                    {/* Declaration */}
-                    <h3 className="font-semibold text-md mb-3 uppercase border-b border-gray-300 pb-1 text-gray-700">Declaration</h3>
-
-                    <p className="text-sm mb-6 text-gray-700 leading-relaxed text-justify">
-                        I hereby declare that the above information is true to the best of my knowledge and belief.
-                        I understand that any false information may lead to termination of employment.
-                    </p>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-10 text-sm">
-                        <div>
-                            <label className="block text-gray-600 mb-1">Signature of Candidate:</label>
-                            <input type="text" className="w-full border-b border-gray-400 outline-none py-1 bg-transparent" placeholder="(Digital Signature Placeholder)" readOnly />
-
-                            <label className="block mt-4 text-gray-600 mb-1">Date:</label>
-                            <input
-                                type="date"
-                                name="candidate_signature_date"
-                                value={formData.candidate_signature_date}
-                                onChange={handleChange}
-                                className="w-full border-b border-gray-400 outline-none py-1 bg-transparent"
-                            />
+                    <section className="joining-public-section">
+                        <h2>Documents Submitted</h2>
+                        <div className="joining-public-docs-grid">
+                            <label><input type="checkbox" name="docs_resume" checked={formData.docs_resume} onChange={handleChange} /> Resume</label>
+                            <label><input type="checkbox" name="docs_id" checked={formData.docs_id} onChange={handleChange} /> ID Proof</label>
+                            <label><input type="checkbox" name="docs_address" checked={formData.docs_address} onChange={handleChange} /> Address Proof</label>
+                            <label><input type="checkbox" name="docs_certificates" checked={formData.docs_certificates} onChange={handleChange} /> Certificates</label>
+                            <label><input type="checkbox" name="docs_photos" checked={formData.docs_photos} onChange={handleChange} /> Photos (2)</label>
+                            <label className="joining-public-span-2">
+                                <span>Others</span>
+                                <input type="text" name="docs_others" value={formData.docs_others} onChange={handleChange} />
+                            </label>
                         </div>
-                        <div>
-                            <label className="block text-gray-600 mb-1">Verified by (HR):</label>
-                            <input type="text" className="w-full border-b border-gray-400 outline-none py-1 bg-transparent" disabled placeholder="For Office Use Only" />
+                    </section>
 
-                            <label className="block mt-4 text-gray-600 mb-1">Signature:</label>
-                            <input type="text" className="w-full border-b border-gray-400 outline-none py-1 bg-transparent" disabled />
+                    <section className="joining-public-section">
+                        <h2>Declaration</h2>
+                        <p className="joining-public-declaration">
+                            I hereby declare that all the information provided in this form is true and complete to the best of my knowledge.
+                            I understand that any false information may result in rejection or termination of employment.
+                        </p>
 
-                            <label className="block mt-4 text-gray-600 mb-1">Date:</label>
-                            <input type="date" className="w-full border-b border-gray-400 outline-none py-1 bg-transparent" disabled />
+                        <div className="joining-public-grid">
+                            <label>
+                                <span>Candidate Signature</span>
+                                <input type="text" placeholder="Digital Signature Placeholder" readOnly />
+                            </label>
+                            <label>
+                                <span>Candidate Signature Date</span>
+                                <input
+                                    type="date"
+                                    name="candidate_signature_date"
+                                    value={formData.candidate_signature_date}
+                                    onChange={handleChange}
+                                />
+                            </label>
+                            <label>
+                                <span>Verified By (HR)</span>
+                                <input type="text" disabled placeholder="For office use only" />
+                            </label>
+                            <label>
+                                <span>HR Signature Date</span>
+                                <input type="date" name="hr_signature_date" value={formData.hr_signature_date} onChange={handleChange} />
+                            </label>
                         </div>
-                    </div>
+                    </section>
 
-                    <div className="mt-8 text-center">
-                        <button
-                            type="submit"
-                            className="bg-black text-white px-8 py-3 uppercase font-bold tracking-widest hover:bg-gray-800 transition-colors shadow-lg"
-                        >
-                            Submit Form
-                        </button>
+                    <div className="joining-public-actions no-print">
+                        <button type="submit" className="joining-public-btn">Submit Form</button>
                     </div>
-
                 </form>
-
             </div>
         </div>
     );

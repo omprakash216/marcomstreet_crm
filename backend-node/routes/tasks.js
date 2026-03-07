@@ -17,6 +17,36 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+function roleOf(emp) {
+  return String(emp?.role || '').toLowerCase().trim();
+}
+function isAdmin(emp) {
+  return roleOf(emp) === 'admin';
+}
+function isManager(emp) {
+  return roleOf(emp) === 'manager';
+}
+
+async function getDepartmentEmployees(departmentId) {
+  if (!departmentId) return [];
+  return query(
+    `SELECT e.id,
+            e.employee_code,
+            e.name,
+            e.email,
+            e.phone,
+            e.role,
+            e.department_id,
+            e.designation,
+            d.name AS department_name
+     FROM employees e
+     LEFT JOIN departments d ON d.id = e.department_id
+     WHERE e.status = 'active' AND e.department_id = ? AND e.role != 'admin'
+     ORDER BY e.name ASC`,
+    [departmentId]
+  );
+}
+
 router.get('/', verifyToken, async (req, res) => {
   try {
     const rows = await query(
@@ -36,11 +66,96 @@ router.post('/', verifyToken, async (req, res) => {
     const b = req.body || {};
     await query(
       'INSERT INTO tasks (employee_id, lead_id, title, description, task_type, priority, due_date, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [req.employee.id, b.lead_id || null, b.title, b.description || '', b.task_type || 'general', b.priority || 'medium', b.due_date || null, b.status || 'pending']
+      // task_type enum differs across deployments; "other" is safe default.
+      [req.employee.id, b.lead_id || null, b.title, b.description || '', b.task_type || 'other', b.priority || 'medium', b.due_date || null, b.status || 'pending']
     );
     return res.json({ success: true, message: 'Task created' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /tasks/assignees - manager can assign tasks to employees in their department only
+router.get('/assignees', verifyToken, async (req, res) => {
+  try {
+    const emp = req.employee;
+    if (!isAdmin(emp) && !isManager(emp)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    if (isAdmin(emp)) {
+      const rows = await query(
+        `SELECT e.id,
+                e.employee_code,
+                e.name,
+                e.email,
+                e.phone,
+                e.role,
+                e.department_id,
+                e.designation,
+                d.name AS department_name
+         FROM employees e
+         LEFT JOIN departments d ON d.id = e.department_id
+         WHERE e.status = 'active' AND e.role != 'admin'
+         ORDER BY e.name ASC`
+      ).catch(() => []);
+      return res.json({ success: true, data: rows || [] });
+    }
+
+    const deptId = emp.department_id;
+    if (!deptId) return res.json({ success: true, data: [] });
+    const rows = await getDepartmentEmployees(deptId);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message || 'Failed to load assignees' });
+  }
+});
+
+// POST /tasks/assign - manager assigns a task to an employee in same department (admin can assign to any)
+router.post('/assign', verifyToken, async (req, res) => {
+  try {
+    const emp = req.employee;
+    if (!isAdmin(emp) && !isManager(emp)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const b = req.body || {};
+    const employeeId = Number(b.employee_id);
+    if (!Number.isFinite(employeeId) || employeeId <= 0) {
+      return res.status(400).json({ success: false, message: 'employee_id is required' });
+    }
+    if (!b.title) {
+      return res.status(400).json({ success: false, message: 'title is required' });
+    }
+
+    const targetRows = await query(
+      'SELECT id, department_id, status FROM employees WHERE id = ?',
+      [employeeId]
+    );
+    const target = Array.isArray(targetRows) ? targetRows[0] : null;
+    if (!target || target.status !== 'active') {
+      return res.status(404).json({ success: false, message: 'Employee not found or inactive' });
+    }
+
+    if (isManager(emp)) {
+      const deptId = emp.department_id;
+      if (!deptId) {
+        return res.status(400).json({ success: false, message: 'Manager has no department assigned' });
+      }
+      if (Number(target.department_id) !== Number(deptId)) {
+        return res.status(403).json({ success: false, message: 'You can only assign tasks within your department' });
+      }
+    }
+
+    await query(
+      'INSERT INTO tasks (employee_id, lead_id, title, description, task_type, priority, due_date, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [employeeId, b.lead_id || null, b.title, b.description || '', b.task_type || 'other', b.priority || 'medium', b.due_date || null, b.status || 'pending']
+    );
+
+    await logActivity(emp.id, 'task_assigned', 'task', null, `Task assigned to employee_id=${employeeId}`, req);
+    return res.json({ success: true, message: 'Task assigned' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message || 'Failed to assign task' });
   }
 });
 

@@ -21,7 +21,40 @@ export default function Leaves() {
   const [currentLeaveId, setCurrentLeaveId] = useState(null);
   const [adminReason, setAdminReason] = useState('');
   const employee = getEmployee();
-  const isAdminOrManager = employee?.role === 'admin' || employee?.role === 'manager' || employee?.role === 'human_resources';
+  const role = String(employee?.role || '').toLowerCase().trim();
+  const isAdminOrManager =
+    role === 'admin' ||
+    role === 'manager' ||
+    role === 'human_resources' ||
+    role === 'human resources' ||
+    role === 'human resource' ||
+    role === 'humanresources' ||
+    role === 'humanresource' ||
+    role === 'hr' ||
+    role === 'hr_manager' ||
+    role === 'hr manager';
+
+  const IconCheck = ({ className = 'w-4 h-4' }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+    </svg>
+  );
+  const IconX = ({ className = 'w-4 h-4' }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+
+  const fmtDate = (v) => {
+    if (!v) return '-';
+    const s = String(v);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    try {
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    } catch (_) {}
+    return s.slice(0, 10);
+  };
 
   useEffect(() => {
     fetchLeaves();
@@ -174,16 +207,18 @@ export default function Leaves() {
 
       {/* Standardized Table Section */}
       <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200">
+        <div className="overflow-x-auto">
+          <table className="min-w-[1100px] w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Leave Type</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Employee</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Role</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Leave Type</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Range</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Date Range</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+              {/* Keep Actions always visible even when table scrolls horizontally */}
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap sticky right-0 z-10 bg-gray-50 border-l border-gray-200">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -241,9 +276,9 @@ export default function Leaves() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-700">
-                      <span className="font-medium">{leave.start_date}</span>
+                      <span className="font-medium">{fmtDate(leave.start_date)}</span>
                       <span className="mx-2 text-gray-400">to</span>
-                      <span className="font-medium">{leave.end_date}</span>
+                      <span className="font-medium">{fmtDate(leave.end_date)}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -264,25 +299,27 @@ export default function Leaves() {
                       </div>
                     )}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 z-10 bg-white border-l border-gray-100">
                     {isAdminOrManager && leave.status === 'pending' ? (
                       <div className="flex items-center justify-end space-x-2">
                         <button
                           onClick={() => handleStatusUpdate(leave.id, 'approved')}
-                          className="text-green-600 hover:text-green-900 bg-green-50 p-2 rounded-lg hover:bg-green-100 transition-all shadow-sm border border-green-100"
+                          className="inline-flex items-center justify-center text-green-700 hover:text-green-900 bg-green-50 w-10 h-10 rounded-lg hover:bg-green-100 transition-all shadow-sm border border-green-100"
                           title="Approve"
+                          aria-label="Approve"
                         >
-                          <i className="fas fa-check-circle"></i>
+                          <IconCheck className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => {
                             setCurrentLeaveId(leave.id);
                             setShowReasonModal(true);
                           }}
-                          className="text-red-600 hover:text-red-900 bg-red-50 p-2 rounded-lg hover:bg-red-100 transition-all shadow-sm border border-red-100"
+                          className="inline-flex items-center justify-center text-red-700 hover:text-red-900 bg-red-50 w-10 h-10 rounded-lg hover:bg-red-100 transition-all shadow-sm border border-red-100"
                           title="Reject"
+                          aria-label="Reject"
                         >
-                          <i className="fas fa-times-circle"></i>
+                          <IconX className="w-4 h-4" />
                         </button>
                       </div>
                     ) : (
@@ -293,7 +330,8 @@ export default function Leaves() {
               ))
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       {/* Professional Apply Leave Modal */}

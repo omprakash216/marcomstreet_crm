@@ -10,22 +10,45 @@ router.get('/', verifyToken, async (req, res) => {
     const employeeId = req.employee.id;
 
     if (action === 'users') {
-      const users = await query(
-        `SELECT e.id, e.name, e.email, e.role, d.name as department
-         FROM employees e 
-         LEFT JOIN departments d ON e.department_id = d.id 
-         WHERE e.id != ? AND e.status = 'active'
-         ORDER BY e.name ASC`,
-        [employeeId]
-      );
+      let users = [];
+      try {
+        users = await query(
+          `SELECT e.id, e.name, e.email, e.role, d.name as department
+           FROM employees e 
+           LEFT JOIN departments d ON e.department_id = d.id 
+           WHERE e.id != ? AND e.status = 'active'
+           ORDER BY e.name ASC`,
+          [employeeId]
+        );
+      } catch (qErr) {
+        const msg = (qErr && qErr.message) ? String(qErr.message) : '';
+        if (!(msg.includes("doesn't exist") || msg.includes('Unknown column'))) throw qErr;
+        // Fallback for older schema without departments/role columns
+        users = await query(
+          `SELECT id, name, email, 'employee' as role, 'General' as department
+           FROM employees
+           WHERE id != ?
+           ORDER BY name ASC`,
+          [employeeId]
+        );
+      }
       return res.json({ success: true, data: users });
     }
 
     if (action === 'unread_count') {
-      const rows = await query(
-        'SELECT COUNT(*) as count FROM chat_messages WHERE to_employee_id = ? AND is_read = 0',
-        [employeeId]
-      );
+      let rows = [];
+      try {
+        rows = await query(
+          'SELECT COUNT(*) as count FROM chat_messages WHERE to_employee_id = ? AND is_read = 0',
+          [employeeId]
+        );
+      } catch (qErr) {
+        const msg = (qErr && qErr.message) ? String(qErr.message) : '';
+        if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+          return res.json({ success: true, count: 0 });
+        }
+        throw qErr;
+      }
       return res.json({ success: true, count: Number(rows[0]?.count || 0) });
     }
 

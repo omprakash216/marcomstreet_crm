@@ -17,7 +17,26 @@ export default function Attendance() {
     dayType: '' // '' | 'full_day' | 'half_day'
   });
   const employee = getEmployee();
-  const isHRManager = employee?.role === 'admin' || employee?.role === 'manager' || employee?.role === 'human_resources';
+  const empRole = (employee?.role || '').toLowerCase();
+  const isHRManager = empRole === 'admin' || empRole === 'human_resources';
+
+  const fmtDate = (v) => {
+    if (!v) return '-';
+    const s = String(v);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    try {
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    } catch (_) {}
+    return s.slice(0, 10);
+  };
+
+  const fmtTime = (v) => {
+    if (!v) return '-';
+    const s = String(v);
+    if (/^\d{2}:\d{2}:\d{2}/.test(s)) return s.slice(0, 8);
+    return s;
+  };
 
   const [editModal, setEditModal] = useState({ open: false, record: null });
   const [editForm, setEditForm] = useState({ check_in_time: '', check_out_time: '', attendance_type: 'full_day', reason: '' });
@@ -508,24 +527,26 @@ export default function Attendance() {
             Showing {filteredAttendance.length} record(s) — {filter.dayType === 'full_day' ? 'Full day only' : 'Half day only'}.
           </div>
         )}
-        <table className="w-full text-left">
+        <div className="overflow-x-auto">
+          <table className="min-w-[1320px] w-full text-left">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              {isHRManager && <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>}
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Check In</th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Check Out</th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Day Type</th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Hours</th>
-              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-              {isHRManager && <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>}
+              {isHRManager && <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Employee</th>}
+              {isHRManager && <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Department</th>}
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Check In</th>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Check Out</th>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Day Type</th>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Total Hours</th>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+              {isHRManager && <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={isHRManager ? 8 : 6} className="px-6 py-4 text-center">Loading...</td></tr>
+              <tr><td colSpan={isHRManager ? 9 : 6} className="px-6 py-4 text-center">Loading...</td></tr>
             ) : filteredAttendance.length === 0 ? (
-              <tr><td colSpan={isHRManager ? 8 : 6} className="px-6 py-4 text-center text-gray-500">No attendance records found</td></tr>
+              <tr><td colSpan={isHRManager ? 9 : 6} className="px-6 py-4 text-center text-gray-500">No attendance records found</td></tr>
             ) : (
               filteredAttendance.map((record) => (
                 <tr
@@ -534,24 +555,25 @@ export default function Attendance() {
                 >
                   {isHRManager && (
                     <td className="px-6 py-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">
-                          {record.employee_name?.charAt(0) || 'E'}
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{record.employee_name}</div>
-                          <div className="text-xs text-gray-500">{record.department || 'Staff'}</div>
-                        </div>
+                      <div className="text-sm font-medium text-gray-900 whitespace-nowrap truncate max-w-[220px]" title={record.employee_name || ''}>
+                        {record.employee_name || '-'}
                       </div>
                     </td>
                   )}
-                  <td className="px-6 py-4 font-medium">{record.date}</td>
+                  {isHRManager && (
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-700 whitespace-nowrap truncate max-w-[180px]" title={record.department || ''}>
+                        {record.department || 'Staff'}
+                      </div>
+                    </td>
+                  )}
+                  <td className="px-6 py-4 font-medium whitespace-nowrap">{fmtDate(record.date)}</td>
                   <td className="px-6 py-4 text-gray-600">
                     {record.check_in_time ? (
                       <div>
-                        <div className="font-medium">{record.check_in_time}</div>
+                        <div className="font-medium whitespace-nowrap">{fmtTime(record.check_in_time)}</div>
                         {record.check_in_location && (
-                          <div className="text-xs mt-1">
+                          <div className="text-xs mt-1 max-w-[280px] truncate whitespace-nowrap" title={getLocationName(record.check_in_location)}>
                             {getMapUrl(record.check_in_location) ? (
                               <a
                                 href={getMapUrl(record.check_in_location)}
@@ -575,9 +597,9 @@ export default function Attendance() {
                   <td className="px-6 py-4 text-gray-600">
                     {record.check_out_time ? (
                       <div>
-                        <div className="font-medium">{record.check_out_time}</div>
+                        <div className="font-medium whitespace-nowrap">{fmtTime(record.check_out_time)}</div>
                         {record.check_out_location && (
-                          <div className="text-xs mt-1">
+                          <div className="text-xs mt-1 max-w-[280px] truncate whitespace-nowrap" title={getLocationName(record.check_out_location)}>
                             {getMapUrl(record.check_out_location) ? (
                               <a
                                 href={getMapUrl(record.check_out_location)}
@@ -598,24 +620,24 @@ export default function Attendance() {
                       <span className="text-gray-400">-</span>
                     )}
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 whitespace-nowrap">
                     {(() => {
                       const dt = (record.attendance_type || '').toLowerCase();
                       return (
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${dt === 'full_day' ? 'bg-green-100 text-green-700' : dt === 'half_day' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${dt === 'full_day' ? 'bg-green-100 text-green-700' : dt === 'half_day' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
                           {dt === 'full_day' ? 'Full day' : dt === 'half_day' ? 'Half day' : '-'}
                         </span>
                       );
                     })()}
                   </td>
-                  <td className="px-6 py-4 text-gray-600">
+                  <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
                     {record.total_hours ? (
                       <span className="font-medium text-blue-600">{record.total_hours}h</span>
                     ) : (
                       <span className="text-gray-400">-</span>
                     )}
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${record.attendance_status === 'completed' ? 'bg-green-100 text-green-700' :
                       record.attendance_status === 'checked_in' ? 'bg-blue-100 text-blue-700' :
                         'bg-gray-100 text-gray-700'
@@ -626,7 +648,7 @@ export default function Attendance() {
                     </span>
                   </td>
                   {isHRManager && (
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -660,7 +682,8 @@ export default function Attendance() {
               ))
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       {/* Edit Attendance Modal – HR only */}
