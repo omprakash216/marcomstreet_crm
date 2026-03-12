@@ -1,122 +1,134 @@
 const express = require('express');
-const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const { logActivity } = require('../middleware/activityLog');
-const attendanceRules = require('../services/attendanceRules');
+const {
+  getTodaySummary,
+  clockIn,
+  startBreak,
+  endBreak,
+  clockOut,
+  getAttendanceHistory,
+} = require('../services/workTimer');
 
 const router = express.Router();
 
-/** Get first and last date of month for a given date string YYYY-MM-DD */
-function getMonthBounds(dateStr) {
-  const [y, m] = dateStr.split('-').map(Number);
-  const first = `${y}-${String(m).padStart(2, '0')}-01`;
-  const lastDay = new Date(y, m, 0).getDate();
-  const last = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-  return { first, last };
+function getErrorMessage(err, fallback) {
+  const message = String(err?.message || fallback || 'Request failed');
+  if (message.includes("doesn't exist") || message.includes('Unknown column')) {
+    return 'Attendance schema is outdated. Run: node backend-node/scripts/ensure-demo-schema.js';
+  }
+  return message;
+}
+
+async function sendTodaySummary(req, res) {
+  const data = await getTodaySummary(req.employee.id);
+  return res.json({ success: true, data });
+}
+
+function buildSafeTodaySummary() {
+  return {
+    checked_in: false,
+    checked_out: false,
+    on_break: false,
+    attendance: null,
+    goal_seconds: 28800,
+    goal_time: '08:00:00',
+  };
 }
 
 router.get('/status', verifyToken, async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const rows = await query(
-      'SELECT * FROM employee_checkins WHERE employee_id = ? AND date = ? ORDER BY id DESC LIMIT 1',
-      [req.employee.id, today]
-    );
-    const checkin = rows[0] || null;
-    const checkedIn = checkin && (checkin.status === 'checked_in' || checkin.status === 'completed');
-    const checkedOut = checkin && (checkin.status === 'checked_out' || checkin.status === 'completed');
-    return res.json({
-      success: true,
-      data: {
-        checked_in: checkedIn,
-        checked_out: checkedOut,
-        checkin: checkin ? { ...checkin, checked_in: checkedIn, checked_out: checkedOut } : null,
-      },
-    });
+    return await sendTodaySummary(req, res);
   } catch (err) {
-    const msg = (err && err.message) ? String(err.message) : '';
-    // Keep UI stable when attendance table/columns are not available yet.
-    if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+    const msg = getErrorMessage(err, 'Failed to load attendance status');
+    if (msg.includes('schema is outdated')) {
       return res.json({
         success: true,
-        data: { checked_in: false, checked_out: false, checkin: null },
+        data: buildSafeTodaySummary(),
       });
     }
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: msg });
   }
 });
 
-router.post('/checkin', verifyToken, async (req, res) => {
+router.get('/today', verifyToken, async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const time = new Date().toTimeString().slice(0, 8);
-    const { location = 'Office', latitude = null, longitude = null } = req.body || {};
-    const existing = await query('SELECT id, status FROM employee_checkins WHERE employee_id = ? AND date = ?', [req.employee.id, today]);
-    const row = existing[0];
-    if (row && (row.status === 'checked_in' || row.status === 'completed')) {
-      return res.status(400).json({ success: false, message: 'Already checked in today' });
-    }
-
-    const { first: monthFirst, last: monthLast } = getMonthBounds(today);
-    let existingLateCount = 0;
-    try {
-      const lateRows = await query(
-        'SELECT COUNT(*) as cnt FROM employee_checkins WHERE employee_id = ? AND date >= ? AND date <= ? AND is_late = 1',
-        [req.employee.id, monthFirst, monthLast]
-      );
-      existingLateCount = (lateRows && lateRows[0] && lateRows[0].cnt) || 0;
-    } catch (_) {
-      // is_late column may not exist yet
-    }
-
-    const { attendance_type: attendanceType, is_late: isLate } = attendanceRules.getAttendanceForPunchIn(time, existingLateCount);
-
-    let checkinId;
-    if (row) {
-      try {
-        await query(
-          `UPDATE employee_checkins SET check_in_time=?, check_in_location=?, time=?, location=?, latitude=?, longitude=?, status='checked_in', attendance_type=?, is_late=? WHERE id=?`,
-          [time, location, time, location, latitude, longitude, attendanceType, isLate, row.id]
-        );
-      } catch (updErr) {
-        const msg = (updErr.message || '').toString();
-        if (msg.includes("Unknown column 'is_late'")) {
-          await query(
-            `UPDATE employee_checkins SET check_in_time=?, check_in_location=?, time=?, location=?, latitude=?, longitude=?, status='checked_in', attendance_type=? WHERE id=?`,
-            [time, location, time, location, latitude, longitude, attendanceType, row.id]
-          );
-        } else throw updErr;
-      }
-      checkinId = row.id;
-    } else {
-      const conn = await getConnection();
-      try {
-        const [r] = await conn.execute(
-          `INSERT INTO employee_checkins (employee_id, date, check_in_time, check_in_location, time, location, latitude, longitude, status, attendance_type, is_late) VALUES (?,?,?,?,?,?,?,?,'checked_in',?,?)`,
-          [req.employee.id, today, time, location, time, location, latitude, longitude, attendanceType, isLate]
-        );
-        checkinId = r && r.insertId;
-      } catch (insErr) {
-        const msg = (insErr.message || '').toString();
-        if (msg.includes("Unknown column 'is_late'")) {
-          const [r] = await conn.execute(
-            `INSERT INTO employee_checkins (employee_id, date, check_in_time, check_in_location, time, location, latitude, longitude, status, attendance_type) VALUES (?,?,?,?,?,?,?,?,'checked_in',?)`,
-            [req.employee.id, today, time, location, time, location, latitude, longitude, attendanceType]
-          );
-          checkinId = r && r.insertId;
-        } else throw insErr;
-      }
-      conn.release();
-    }
-    await logActivity(req.employee.id, 'checkin', 'checkin', checkinId, 'Employee checked in', req);
-    const dayLabel = attendanceType === 'full_day' ? 'Full day' : 'Half day';
+    return await sendTodaySummary(req, res);
+  } catch (err) {
+    const msg = getErrorMessage(err, 'Failed to load today summary');
+    console.error('[Attendance] /today failed:', err?.message || err);
     return res.json({
       success: true,
-      message: `Check-in successful. ${dayLabel} attendance.`,
-      data: { id: checkinId, date: today, time, location, attendance_type: attendanceType },
+      degraded: true,
+      message: msg,
+      data: buildSafeTodaySummary(),
     });
+  }
+});
+
+router.get('/history', verifyToken, async (req, res) => {
+  try {
+    const data = await getAttendanceHistory(req.employee, req.query || {});
+    return res.json({ success: true, data });
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: getErrorMessage(err, 'Failed to load attendance history') });
+  }
+});
+
+router.post('/clock-in', verifyToken, async (req, res) => {
+  try {
+    const attendance = await clockIn(req.employee, req.body || {});
+    await logActivity(req.employee.id, 'attendance_clock_in', 'employee_checkins', attendance.id, 'Employee clocked in', req);
+    return res.json({ success: true, message: 'Clock in recorded successfully.', data: attendance });
+  } catch (err) {
+    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Clock in failed') });
+  }
+});
+
+router.post('/start-break', verifyToken, async (req, res) => {
+  try {
+    const attendance = await startBreak(req.employee.id);
+    await logActivity(req.employee.id, 'attendance_break_start', 'employee_checkins', attendance.id, 'Employee started a break', req);
+    return res.json({ success: true, message: 'Break started.', data: attendance });
+  } catch (err) {
+    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Break start failed') });
+  }
+});
+
+router.post('/end-break', verifyToken, async (req, res) => {
+  try {
+    const attendance = await endBreak(req.employee.id);
+    await logActivity(req.employee.id, 'attendance_break_end', 'employee_checkins', attendance.id, 'Employee resumed work', req);
+    return res.json({ success: true, message: 'Break ended.', data: attendance });
+  } catch (err) {
+    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Break resume failed') });
+  }
+});
+
+router.post('/clock-out', verifyToken, async (req, res) => {
+  try {
+    const attendance = await clockOut(req.employee.id, req.body || {});
+    await logActivity(req.employee.id, 'attendance_clock_out', 'employee_checkins', attendance.id, 'Employee clocked out', req);
+    return res.json({ success: true, message: 'Clock out recorded successfully.', data: attendance });
+  } catch (err) {
+    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Clock out failed') });
+  }
+});
+
+// Backward-compatible legacy endpoint used by existing UI.
+router.post('/checkin', verifyToken, async (req, res) => {
+  const action = String(req.body?.action || 'check_in').toLowerCase();
+  try {
+    if (action === 'check_out' || action === 'clock_out') {
+      const attendance = await clockOut(req.employee.id, req.body || {});
+      await logActivity(req.employee.id, 'attendance_clock_out', 'employee_checkins', attendance.id, 'Employee clocked out', req);
+      return res.json({ success: true, message: 'Checked out. Attendance complete.', data: attendance });
+    }
+    const attendance = await clockIn(req.employee, req.body || {});
+    await logActivity(req.employee.id, 'attendance_clock_in', 'employee_checkins', attendance.id, 'Employee checked in', req);
+    return res.json({ success: true, message: 'Checked in successfully.', data: attendance });
+  } catch (err) {
+    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Attendance update failed') });
   }
 });
 

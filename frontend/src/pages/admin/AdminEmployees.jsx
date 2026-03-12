@@ -63,6 +63,10 @@ function AdminEmployees() {
     previous_designation: '',
     qualification: '',
     bank_account: '',
+    bank_name: '',
+    ifsc_code: '',
+    branch_name: '',
+    account_holder_name: '',
     pan_number: '',
     aadhar_number: ''
   });
@@ -187,6 +191,10 @@ function AdminEmployees() {
       previous_designation: '',
       qualification: '',
       bank_account: '',
+      bank_name: '',
+      ifsc_code: '',
+      branch_name: '',
+      account_holder_name: '',
       pan_number: '',
       aadhar_number: ''
     });
@@ -238,6 +246,10 @@ function AdminEmployees() {
       previous_designation: emp.previous_designation || '',
       qualification: emp.qualification || '',
       bank_account: emp.bank_account || '',
+      bank_name: emp.bank_name || '',
+      ifsc_code: emp.ifsc_code || '',
+      branch_name: emp.branch_name || '',
+      account_holder_name: emp.account_holder_name || '',
       pan_number: emp.pan_number || '',
       aadhar_number: emp.aadhar_number || ''
     });
@@ -245,8 +257,17 @@ function AdminEmployees() {
   };
 
   const handleView = async (emp) => {
-    setSelectedEmployee(emp);
     setShowViewModal(true);
+    setSelectedEmployee(emp);
+
+    try {
+      const detailRes = await api.get(`/admin/employees?id=${emp.id}`);
+      if (detailRes.data.success && detailRes.data.employee) {
+        setSelectedEmployee(detailRes.data.employee);
+      }
+    } catch (error) {
+      console.error('Error fetching employee details:', error);
+    }
 
     // Fetch employee documents
     try {
@@ -469,16 +490,16 @@ function AdminEmployees() {
                       {(index + 1).toString().padStart(2, '0')}
                     </td>
                     <td className="px-4 py-4">
-                          <p className="font-bold text-gray-900 text-sm leading-tight">{emp.name}</p>
+                      <p className="font-bold text-gray-900 text-sm leading-tight">{emp.name}</p>
                     </td>
                     <td className="px-4 py-4">
                       <p className="text-xs text-gray-600">{emp.email}</p>
                     </td>
                     <td className="px-4 py-4">
-                          <p className="text-[10px] text-blue-500 font-mono font-semibold">{emp.employee_code}</p>
+                      <p className="text-[10px] text-blue-500 font-mono font-semibold">{emp.employee_code}</p>
                     </td>
                     <td className="px-4 py-4">
-                        <span className="text-sm font-semibold text-gray-700 capitalize">{emp.role?.replace('_', ' ')}</span>
+                      <span className="text-sm font-semibold text-gray-700 capitalize">{emp.role?.replace('_', ' ')}</span>
                     </td>
                     <td className="px-4 py-4">
                       <span className="text-xs text-gray-600">{emp.department_name || 'General'}</span>
@@ -566,54 +587,58 @@ function AdminEmployees() {
                   <div className="flex items-center space-x-3 mb-6">
                     <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
                       <i className="fas fa-user"></i>
-                        </div>
-                        <div>
+                    </div>
+                    <div>
                       <h3 className="text-lg font-bold text-gray-900">Personal Information</h3>
                       <p className="text-sm text-gray-500">Basic details required for official documents</p>
-                      </div>
                     </div>
+                  </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
                         Full Name <span className="text-red-500">*</span>
                       </label>
-                        <input
-                          type="text"
-                          required
-                          value={formData.name}
-                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      <input
+                        type="text"
+                        required
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
                         placeholder="Enter employee's full legal name"
-                        />
+                      />
                     </div>
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
                         Email <span className="text-red-500">*</span>
                       </label>
-                        <input
-                          type="email"
-                          required
-                          value={formData.email}
-                          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      <input
+                        type="email"
+                        required
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
                         placeholder="email@company.com"
-                        />
+                      />
                     </div>
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
                         Phone
                       </label>
-                        <input
-                          type="text"
-                          value={formData.phone}
-                          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      <input
+                        type="text"
+                        value={formData.phone}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                          setFormData({ ...formData, phone: value });
+                        }}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
-                          placeholder="+91 XXXXX XXXXX"
-                        />
-                      </div>
+                        placeholder="10-digit mobile number"
+                        maxLength="10"
+                      />
+                    </div>
 
                     {!editingEmployee && (
                       <div>
@@ -628,7 +653,7 @@ function AdminEmployees() {
                           className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
                           placeholder="••••••••"
                         />
-                    </div>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -679,16 +704,160 @@ function AdminEmployees() {
                       </select>
                     </div>
 
-                      <div className="md:col-span-2">
+                    <div className="md:col-span-2">
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
                         Job Designation
                       </label>
-                          <input
+                      <input
                         type="text"
                         value={formData.designation}
                         onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
                         placeholder="e.g. Senior Developer"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Account Details Section */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                  <div className="flex items-center space-x-3 mb-6">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                      <i className="fas fa-university"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">Account Details</h3>
+                      <p className="text-sm text-gray-500">Bank information for salary disbursement</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Account Holder Name</label>
+                      <input
+                        type="text"
+                        value={formData.account_holder_name}
+                        onChange={(e) => setFormData({ ...formData, account_holder_name: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="Name as per bank records"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Bank Name</label>
+                      <input
+                        type="text"
+                        value={formData.bank_name}
+                        onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="e.g. HDFC Bank"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Account Number</label>
+                      <input
+                        type="text"
+                        value={formData.bank_account}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 18);
+                          setFormData({ ...formData, bank_account: value });
+                        }}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="Enter account number"
+                        maxLength="18"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">IFSC Code</label>
+                      <input
+                        type="text"
+                        value={formData.ifsc_code}
+                        onChange={(e) => setFormData({ ...formData, ifsc_code: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="e.g. HDFC0001234"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Branch Name</label>
+                      <input
+                        type="text"
+                        value={formData.branch_name}
+                        onChange={(e) => setFormData({ ...formData, branch_name: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="Branch location"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">PAN Number</label>
+                      <input
+                        type="text"
+                        value={formData.pan_number}
+                        onChange={(e) => {
+                          const value = e.target.value.toUpperCase().slice(0, 10);
+                          setFormData({ ...formData, pan_number: value });
+                        }}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="ABCDE1234F"
+                        maxLength="10"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Additional Information Section */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                  <div className="flex items-center space-x-3 mb-6">
+                    <div className="w-10 h-10 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center">
+                      <i className="fas fa-info-circle"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">Additional Information</h3>
+                      <p className="text-sm text-gray-500">Other relevant official details</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Aadhar Number</label>
+                      <input
+                        type="text"
+                        value={formData.aadhar_number}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 12);
+                          setFormData({ ...formData, aadhar_number: value });
+                        }}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="12-digit Aadhar number"
+                        maxLength="12"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Qualification</label>
+                      <input
+                        type="text"
+                        value={formData.qualification}
+                        onChange={(e) => setFormData({ ...formData, qualification: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="Highest degree"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Previous Company</label>
+                      <input
+                        type="text"
+                        value={formData.previous_company}
+                        onChange={(e) => setFormData({ ...formData, previous_company: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="Last workplace"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Experience (Years)</label>
+                      <input
+                        type="number"
+                        value={formData.experience_years}
+                        onChange={(e) => setFormData({ ...formData, experience_years: e.target.value })}
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        placeholder="Total years"
                       />
                     </div>
                   </div>
@@ -722,221 +891,151 @@ function AdminEmployees() {
                 </button>
               </div>
             </div>
-                        </div>
-                      </div>
-                    )}
+          </div>
+        </div>
+      )}
 
       {/* View Modal - Compact Professional Design */}
       {showViewModal && selectedEmployee && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl animate-in fade-in zoom-in duration-300 overflow-hidden flex flex-col border border-gray-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl animate-in fade-in zoom-in duration-300 overflow-hidden flex flex-col border border-gray-200">
             {/* Compact Header */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 px-4 py-3 flex-shrink-0">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 px-4 py-2 flex-shrink-0">
               <div className="flex items-center justify-between">
-                {/* Employee Info */}
-                <div className="flex items-center space-x-4">
-                  {/* Stylish Circular Avatar */}
+                <div className="flex items-center space-x-3">
                   <div className="relative">
-                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-lg font-bold text-white shadow-lg border-2 border-white">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-base font-bold text-white shadow-md border-2 border-white">
                       {selectedEmployee.name.charAt(0).toUpperCase()}
                     </div>
-                    <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-white shadow-md flex items-center justify-center ${selectedEmployee.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}>
-                      <i className={`fas ${selectedEmployee.status === 'active' ? 'fa-check' : 'fa-times'} text-[6px] text-white`}></i>
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white shadow-sm flex items-center justify-center ${selectedEmployee.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}>
+                      <i className={`fas ${selectedEmployee.status === 'active' ? 'fa-check' : 'fa-times'} text-[5px] text-white`}></i>
                     </div>
                   </div>
-
-                  {/* Employee Details */}
-                    <div>
-                    <h2 className="text-lg font-bold text-gray-900 mb-0.5">{selectedEmployee.name}</h2>
-                    <p className="text-sm text-gray-600 mb-1">ID: {selectedEmployee.employee_code || 'EMP-001'}</p>
-                    <div className="flex items-center space-x-2">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
-                        <i className="fas fa-briefcase mr-1"></i>
-                        {selectedEmployee.designation || 'Staff'}
-                      </span>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                        <i className="fas fa-building mr-1"></i>
-                        {selectedEmployee.department_name || 'General'}
-                      </span>
-                    </div>
+                  <div>
+                    <h2 className="text-base font-bold text-gray-900 leading-tight">{selectedEmployee.name}</h2>
+                    <p className="text-[10px] text-blue-600 font-semibold uppercase tracking-wider">{selectedEmployee.employee_code || 'EMP-001'}</p>
                   </div>
                 </div>
-
-                {/* Actions */}
                 <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => { setShowViewModal(false); handleEdit(selectedEmployee); }}
-                    className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                    title="Edit Profile"
-                  >
-                    <i className="fas fa-edit mr-1.5"></i>
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => setShowViewModal(false)}
-                    className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                  >
-                    <i className="fas fa-times mr-1.5"></i>
-                    Close
-                  </button>
+                  <button onClick={() => { setShowViewModal(false); handleEdit(selectedEmployee); }} className="px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 border border-blue-200 rounded-lg transition-colors"><i className="fas fa-edit mr-1"></i>Edit</button>
+                  <button onClick={() => setShowViewModal(false)} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"><i className="fas fa-times"></i></button>
                 </div>
               </div>
             </div>
 
-            {/* Compact Content Area */}
-            <div className="bg-gray-50 p-4">
+            <div className="bg-gray-50 p-3 overflow-y-auto max-h-[75vh] custom-scrollbar">
               <div className="space-y-3">
-
-                {/* Contact Information Section - Full Row */}
-                <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                  <div className="px-3 py-2 border-b border-gray-200">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center">
-                      <i className="fas fa-address-book mr-2 text-blue-600"></i>
-                      Contact Information
+                {/* Contact & Professional Info Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Basic Info */}
+                  <div className="bg-white rounded-lg border border-gray-200 p-2.5 shadow-sm">
+                    <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center">
+                      <i className="fas fa-address-book mr-1.5 text-blue-500"></i> Contact Details
                     </h3>
-                  </div>
-                  <div className="p-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0">
-                          <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
-                            <i className="fas fa-envelope text-blue-600 text-sm"></i>
-                          </div>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Email</p>
-                          <p className="text-sm text-gray-900 font-medium">{selectedEmployee.email}</p>
-                        </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-500 font-medium">Email Address</span>
+                        <span className="text-xs text-gray-900 font-semibold">{selectedEmployee.email}</span>
                       </div>
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0">
-                          <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center">
-                            <i className="fas fa-phone text-green-600 text-sm"></i>
-                          </div>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Phone</p>
-                          <p className="text-sm text-gray-900 font-medium">{selectedEmployee.phone || 'Not provided'}</p>
-                        </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-500 font-medium">Phone Number</span>
+                        <span className="text-xs text-gray-900 font-semibold">{selectedEmployee.phone || 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Career Info */}
+                  <div className="bg-white rounded-lg border border-gray-200 p-2.5 shadow-sm">
+                    <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center">
+                      <i className="fas fa-briefcase mr-1.5 text-indigo-500"></i> Employment
+                    </h3>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-500 font-medium">Department</span>
+                        <span className="text-xs text-gray-900 font-semibold">{selectedEmployee.department_name || 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-500 font-medium">Designation</span>
+                        <span className="text-xs text-gray-900 font-semibold">{selectedEmployee.designation || 'N/A'}</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Employment Details Section - Full Row */}
-                <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                  <div className="px-3 py-2 border-b border-gray-200">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center">
-                      <i className="fas fa-briefcase mr-2 text-indigo-600"></i>
-                      Employment Details
-                    </h3>
-                  </div>
-                  <div className="p-3">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0">
-                          <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
-                            <i className="fas fa-user-shield text-indigo-600 text-sm"></i>
-                          </div>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Role</p>
-                          <p className="text-sm text-gray-900 font-medium capitalize">{selectedEmployee.role?.replace('_', ' ') || 'Employee'}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0">
-                          <div className="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center">
-                            <i className="fas fa-calendar text-amber-600 text-sm"></i>
-                          </div>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Joined</p>
-                          <p className="text-sm text-gray-900 font-medium">
-                            {new Date(selectedEmployee.created_at).toLocaleDateString('en-IN', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric'
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0">
-                          <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center">
-                            <i className="fas fa-building text-purple-600 text-sm"></i>
-                          </div>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Dept</p>
-                          <p className="text-sm text-gray-900 font-medium">{selectedEmployee.department_name || 'Not assigned'}</p>
-                        </div>
-                      </div>
+                {/* Bank Details Section - Compact 3-Column Grid */}
+                <div className="bg-white rounded-lg border border-gray-200 p-2.5 shadow-sm">
+                  <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center">
+                    <i className="fas fa-university mr-1.5 text-emerald-500"></i> Financial Information
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-y-3 gap-x-4">
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">A/C Holder</p>
+                      <p className="text-xs text-gray-900 font-semibold truncate">{selectedEmployee.account_holder_name || selectedEmployee.name}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Bank Name</p>
+                      <p className="text-xs text-gray-900 font-semibold truncate">{selectedEmployee.bank_name || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">A/C Number</p>
+                      <p className="text-xs text-gray-900 font-mono font-bold tracking-tight">{selectedEmployee.bank_account || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">IFSC Code</p>
+                      <p className="text-xs text-gray-900 font-mono font-bold">{selectedEmployee.ifsc_code || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Branch Name</p>
+                      <p className="text-xs text-gray-900 font-semibold truncate">{selectedEmployee.branch_name || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">PAN Number</p>
+                      <p className="text-xs text-gray-900 font-mono font-bold">{selectedEmployee.pan_number || 'N/A'}</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Compact Documents Section */}
-                <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                  <div className="px-3 py-2 border-b border-gray-200">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center">
-                      <i className="fas fa-file-alt mr-2 text-gray-600"></i>
-                      Documents
-                    </h3>
+                {/* Verification Section */}
+                <div className="bg-white rounded-lg border border-gray-200 p-2.5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <i className="fas fa-id-card text-gray-400 mr-2 text-sm"></i>
+                      <span className="text-[10px] text-gray-500 font-bold uppercase">Aadhar Verification</span>
+                    </div>
+                    <span className="text-xs text-gray-900 font-mono font-bold">{selectedEmployee.aadhar_number || 'N/A'}</span>
                   </div>
-                  <div className="p-3">
-                    <div className="text-center py-4">
-                      <div className="w-8 h-8 bg-gray-50 rounded-lg flex items-center justify-center mx-auto mb-2 border border-dashed border-gray-300">
-                        <i className="fas fa-folder-open text-gray-400 text-sm"></i>
-                      </div>
-                      <p className="text-xs font-medium text-gray-900 mb-1">No documents yet</p>
-                      <p className="text-xs text-gray-500">HR docs will appear here</p>
+                </div>
+
+                {/* Additional Details */}
+                <div className="bg-white rounded-lg border border-gray-200 p-2.5 shadow-sm">
+                  <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center">
+                    <i className="fas fa-info-circle mr-1.5 text-blue-500"></i> Additional Details
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-y-3 gap-x-4">
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Qualification</p>
+                      <p className="text-xs text-gray-900 font-semibold truncate">{selectedEmployee.qualification || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Previous Company</p>
+                      <p className="text-xs text-gray-900 font-semibold truncate">{selectedEmployee.previous_company || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Experience (Years)</p>
+                      <p className="text-xs text-gray-900 font-semibold">{selectedEmployee.experience_years || '0'}</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Security & Actions Section */}
-                <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                  <div className="px-3 py-2 border-b border-gray-200">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center">
-                      <i className="fas fa-shield-alt mr-2 text-gray-600"></i>
-                      Security & Actions
-                    </h3>
+                {/* Footer Actions */}
+                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <div className={`inline-flex items-center px-2 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider ${selectedEmployee.status === 'active' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${selectedEmployee.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                    {selectedEmployee.status}
                   </div>
-                  <div className="p-3">
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-                      <div className="flex items-center">
-                        <div className={`w-3 h-3 rounded-full mr-2 ${selectedEmployee.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Status</p>
-                          <p className="text-sm text-gray-900 flex items-center">
-                            {selectedEmployee.status === 'active' ? 'Active' : 'Inactive'}
-                            {selectedEmployee.status === 'active' && (
-                              <i className="fas fa-check-circle ml-1 text-green-600 text-sm"></i>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => handleOffer(selectedEmployee)}
-                          className="inline-flex items-center px-3 py-2 border border-blue-600 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
-                        >
-                          <i className="fas fa-file-contract mr-1.5"></i>
-                          Generate Offer
-                        </button>
-                        <button
-                          onClick={() => {
-                            alert('Employee approved successfully!');
-                          }}
-                          className="inline-flex items-center px-3 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-green-600 hover:bg-green-700 transition-colors"
-                        >
-                          <i className="fas fa-check mr-1.5"></i>
-                          Approve
-                        </button>
-                      </div>
-                    </div>
+                  <div className="flex space-x-2">
+                    <button onClick={() => handleOffer(selectedEmployee)} className="px-3 py-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all"><i className="fas fa-file-contract mr-1.5"></i>Offer</button>
+                    <button onClick={() => alert('Approved')} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-all"><i className="fas fa-check mr-1.5"></i>Approve</button>
                   </div>
                 </div>
               </div>
@@ -945,226 +1044,9 @@ function AdminEmployees() {
         </div>
       )}
 
-      {/* View Modal - Compact Professional Design */}
-    {showViewModal && selectedEmployee && (
-      <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl animate-in fade-in zoom-in duration-300 overflow-hidden flex flex-col border border-gray-200">
-          {/* Compact Header */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 px-4 py-3 flex-shrink-0">
-            <div className="flex items-center justify-between">
-              {/* Employee Info */}
-              <div className="flex items-center space-x-4">
-                {/* Stylish Circular Avatar */}
-                <div className="relative">
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center text-lg font-bold text-white shadow-lg border-2 border-white">
-                    {selectedEmployee.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-white shadow-md flex items-center justify-center ${selectedEmployee.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}>
-                    <i className={`fas ${selectedEmployee.status === 'active' ? 'fa-check' : 'fa-times'} text-[6px] text-white`}></i>
-                  </div>
-                </div>
 
-                {/* Employee Details */}
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900 mb-0.5">{selectedEmployee.name}</h2>
-                  <p className="text-sm text-gray-600 mb-1">ID: {selectedEmployee.employee_code || 'EMP-001'}</p>
-                  <div className="flex items-center space-x-2">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
-                      <i className="fas fa-briefcase mr-1"></i>
-                      {selectedEmployee.designation || 'Staff'}
-                    </span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                      <i className="fas fa-building mr-1"></i>
-                      {selectedEmployee.department_name || 'General'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => { setShowViewModal(false); handleEdit(selectedEmployee); }}
-                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                  title="Edit Profile"
-                >
-                  <i className="fas fa-edit mr-1.5"></i>
-                  Edit
-                </button>
-                <button
-                  onClick={() => setShowViewModal(false)}
-                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                >
-                  <i className="fas fa-times mr-1.5"></i>
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Compact Content Area */}
-          <div className="bg-gray-50 p-4">
-            <div className="space-y-3">
-              {/* Contact Information Section - Full Row */}
-              <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                <div className="px-3 py-2 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-900 flex items-center">
-                    <i className="fas fa-address-book mr-2 text-blue-600"></i>
-                    Contact Information
-                  </h3>
-                </div>
-                <div className="p-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
-                          <i className="fas fa-envelope text-blue-600 text-sm"></i>
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Email</p>
-                        <p className="text-sm text-gray-900 font-medium">{selectedEmployee.email}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center">
-                          <i className="fas fa-phone text-green-600 text-sm"></i>
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Phone</p>
-                        <p className="text-sm text-gray-900 font-medium">{selectedEmployee.phone || 'Not provided'}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Employment Details Section - Full Row */}
-              <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                <div className="px-3 py-2 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-900 flex items-center">
-                    <i className="fas fa-briefcase mr-2 text-indigo-600"></i>
-                    Employment Details
-                  </h3>
-                </div>
-                <div className="p-3">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
-                          <i className="fas fa-user-shield text-indigo-600 text-sm"></i>
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Role</p>
-                        <p className="text-sm text-gray-900 font-medium capitalize">{selectedEmployee.role?.replace('_', ' ') || 'Employee'}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <div className="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center">
-                          <i className="fas fa-calendar text-amber-600 text-sm"></i>
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Joined</p>
-                        <p className="text-sm text-gray-900 font-medium">
-                          {new Date(selectedEmployee.created_at).toLocaleDateString('en-IN', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric'
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center">
-                          <i className="fas fa-building text-purple-600 text-sm"></i>
-                        </div>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Dept</p>
-                        <p className="text-sm text-gray-900 font-medium">{selectedEmployee.department_name || 'Not assigned'}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Compact Documents Section */}
-              <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                <div className="px-3 py-2 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-900 flex items-center">
-                    <i className="fas fa-file-alt mr-2 text-gray-600"></i>
-                    Documents
-                  </h3>
-                </div>
-                <div className="p-3">
-                  <div className="text-center py-4">
-                    <div className="w-8 h-8 bg-gray-50 rounded-lg flex items-center justify-center mx-auto mb-2 border border-dashed border-gray-300">
-                      <i className="fas fa-folder-open text-gray-400 text-sm"></i>
-                    </div>
-                    <p className="text-xs font-medium text-gray-900 mb-1">No documents yet</p>
-                    <p className="text-xs text-gray-500">HR docs will appear here</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Security & Actions Section */}
-              <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-                <div className="px-3 py-2 border-b border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-900 flex items-center">
-                    <i className="fas fa-shield-alt mr-2 text-gray-600"></i>
-                    Security & Actions
-                  </h3>
-                </div>
-                <div className="p-3">
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-                    <div className="flex items-center">
-                      <div className={`w-3 h-3 rounded-full mr-2 ${selectedEmployee.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Status</p>
-                        <p className="text-sm text-gray-900 flex items-center">
-                          {selectedEmployee.status === 'active' ? 'Active' : 'Inactive'}
-                          {selectedEmployee.status === 'active' && (
-                            <i className="fas fa-check-circle ml-1 text-green-600 text-sm"></i>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleOffer(selectedEmployee)}
-                        className="inline-flex items-center px-3 py-2 border border-blue-600 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
-                      >
-                        <i className="fas fa-file-contract mr-1.5"></i>
-                        Generate Offer
-                      </button>
-                      <button
-                        onClick={() => {
-                          alert('Employee approved successfully!');
-                        }}
-                        className="inline-flex items-center px-3 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-green-600 hover:bg-green-700 transition-colors"
-                      >
-                        <i className="fas fa-check mr-1.5"></i>
-                        Approve
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )}
-
-  </div>
-);
+    </div>
+  );
 
 }
 export default AdminEmployees;

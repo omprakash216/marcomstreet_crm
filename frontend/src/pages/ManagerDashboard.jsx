@@ -4,6 +4,7 @@ import api from '../utils/api';
 
 import { getEmployee } from '../utils/auth';
 import MeetingCalendar from '../components/MeetingCalendar';
+import WorkingHoursCard from '../components/WorkingHoursCard';
 import {
   BarChart,
   Bar,
@@ -199,6 +200,8 @@ export default function ManagerDashboard() {
           </button>
         </div>
       </div>
+
+      <WorkingHoursCard className="mb-8" />
 
 
 

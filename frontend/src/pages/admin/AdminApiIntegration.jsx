@@ -2,14 +2,40 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { getEmployee } from '../../utils/auth';
+import ExcelJS from 'exceljs';
+
+const defaultApiPayload = {
+  company_name: 'New Lead Corp',
+  contact_person: 'John Doe',
+  email: 'john@example.com',
+  phone: '9876543210',
+  priority: 'high',
+  notes: 'Imported via API test',
+};
 
 export default function AdminApiIntegration() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
+  const [integrationStats, setIntegrationStats] = useState({
+    total_api_calls: 0,
+    successful_requests: 0,
+    failed_requests: 0,
+    total_imported_leads: 0,
+  });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [webhookUrl, setWebhookUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importPreview, setImportPreview] = useState([]);
+  const [importFileName, setImportFileName] = useState('');
+  const [importResult, setImportResult] = useState(null);
+  const [preparedLeads, setPreparedLeads] = useState([]);
+  const [fileImportError, setFileImportError] = useState('');
+  const [apiTestCompany, setApiTestCompany] = useState(null);
+  const [apiTestPayload, setApiTestPayload] = useState(JSON.stringify(defaultApiPayload, null, 2));
+  const [apiTestResponse, setApiTestResponse] = useState(null);
+  const [apiTestError, setApiTestError] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -27,6 +53,12 @@ export default function AdminApiIntegration() {
       const response = await api.get('/admin/api-keys');
       if (response.data.success) {
         setData(response.data.data);
+        setIntegrationStats(response.data.data.integrationStats || integrationStats);
+        const firstWithKey = (response.data.data.companies || []).find((company) => company.api_key);
+        setApiTestCompany(firstWithKey || (response.data.data.companies || [])[0] || null);
+        if (!selectedCompany) {
+          setSelectedCompany(firstWithKey || (response.data.data.companies || [])[0] || null);
+        }
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load API data');
@@ -69,6 +101,150 @@ export default function AdminApiIntegration() {
   const copyApiKey = (apiKey) => {
     navigator.clipboard.writeText(apiKey);
     setSuccess('API Key copied to clipboard!');
+  };
+
+  const normalizeColumns = (row = {}) => {
+    const normalized = {};
+    Object.entries(row).forEach(([key, value]) => {
+      const normalizedKey = String(key || '').trim().toLowerCase().replace(/\s+/g, '_');
+      normalized[normalizedKey] = value;
+    });
+    return normalized;
+  };
+
+  const mapToLeadPayload = (row) => {
+    const normalized = normalizeColumns(row);
+    return {
+      company_name: normalized.company_name || normalized.company || '',
+      contact_person: normalized.contact_person || normalized.contact || '',
+      email: normalized.email || normalized.contact_email || '',
+      phone: normalized.phone || normalized.mobile || '',
+      priority: normalized.priority || 'medium',
+      notes: normalized.notes || normalized.remark || '',
+    };
+  };
+
+  const parseCsv = (text) => {
+    const lines = text.split(/\r?\n/).filter((ln) => ln.trim());
+    if (!lines.length) return [];
+    const headers = lines[0].split(',').map((cell) => cell.trim());
+    return lines.slice(1).map((line) => {
+      const parts = line.split(',');
+      const row = {};
+      headers.forEach((header, idx) => {
+        row[header] = parts[idx] ? parts[idx].trim() : '';
+      });
+      return row;
+    });
+  };
+
+  const parseExcelFile = async (file) => {
+    const buffer = await file.arrayBuffer();
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.worksheets[0];
+    const headerRow = sheet.getRow(1);
+    const headers = headerRow.values.slice(1).map((val) => String(val || '').trim());
+    const rows = [];
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const values = row.values.slice(1);
+      const rowObj = {};
+      headers.forEach((header, idx) => {
+        rowObj[header || `col_${idx}`] = values[idx] ? String(values[idx]).trim() : '';
+      });
+      if (Object.values(rowObj).some((val) => val && val !== '')) rows.push(rowObj);
+    });
+    return rows;
+  };
+
+  const parseFileLeads = async (file) => {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext === 'json') {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      if (Array.isArray(payload)) return payload;
+      if (payload.leads) return payload.leads;
+      return [payload];
+    }
+    if (ext === 'csv') {
+      const text = await file.text();
+      return parseCsv(text);
+    }
+    if (ext === 'xls' || ext === 'xlsx') {
+      return parseExcelFile(file);
+    }
+    throw new Error('Unsupported file format');
+  };
+
+  const handleFileSelection = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setImportResult(null);
+    setImportPreview([]);
+    setPreparedLeads([]);
+    setFileImportError('');
+    setImportFileName(file.name);
+    setImporting(true);
+    try {
+      const rows = await parseFileLeads(file);
+      const leads = rows.map(mapToLeadPayload);
+      setImportPreview(leads.slice(0, 10));
+      setPreparedLeads(leads);
+      setImportResult({ prepared: leads.length });
+      setImportFileName(file.name);
+    } catch (err) {
+      setFileImportError(err.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!apiTestCompany?.api_key) {
+      setFileImportError('Select a company with an API key before importing.');
+      return;
+    }
+    if (!preparedLeads.length) {
+      setFileImportError('No parsed leads found. Upload a valid file.');
+      return;
+    }
+    setImporting(true);
+    setFileImportError('');
+    try {
+      const response = await api.post('/external/leads/batch', { leads: preparedLeads, file_name: importFileName }, {
+        headers: { 'X-API-KEY': apiTestCompany.api_key },
+      });
+      setImportResult(response.data.data);
+      setSuccess('Import completed. Refreshing stats...');
+      await fetchData();
+      setImportPreview([]);
+      setPreparedLeads([]);
+      setImportFileName('');
+    } catch (err) {
+      setFileImportError(err.response?.data?.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleApiTest = async () => {
+    if (!apiTestCompany?.api_key) {
+      setApiTestError('Select a company with an API key to test.');
+      return;
+    }
+    setApiTestError('');
+    setApiTestResponse(null);
+    try {
+      const payload = JSON.parse(apiTestPayload);
+      const response = await api.post('/external/leads', payload, {
+        headers: { 'X-API-KEY': apiTestCompany.api_key },
+      });
+      setApiTestResponse(JSON.stringify(response.data, null, 2));
+      setApiTestError('');
+    } catch (err) {
+      setApiTestError(err.response?.data?.message || 'Test request failed');
+    }
   };
 
   if (loading) {
@@ -136,6 +312,26 @@ export default function AdminApiIntegration() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Integration Monitoring */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Total API Requests', value: integrationStats.total_api_calls, icon: 'fas fa-bolt' },
+          { label: 'Successful Requests', value: integrationStats.successful_requests, icon: 'fas fa-check-circle' },
+          { label: 'Failed Requests', value: integrationStats.failed_requests, icon: 'fas fa-times-circle' },
+          { label: 'Imported Leads', value: integrationStats.total_imported_leads, icon: 'fas fa-file-import' },
+        ].map((card) => (
+          <div key={card.label} className="bg-white p-5 rounded-xl shadow-lg border border-gray-200 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{card.label}</p>
+              <p className="text-3xl font-bold text-gray-900">{card.value}</p>
+            </div>
+            <div className="text-gray-400 text-2xl">
+              <i className={card.icon}></i>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Messages */}
@@ -230,6 +426,166 @@ export default function AdminApiIntegration() {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* API Endpoint & Logic Information */}
+      <div className="bg-white rounded-xl shadow-lg border border-blue-200 overflow-hidden">
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 px-6 py-4">
+          <h3 className="text-lg font-bold text-white flex items-center">
+            <i className="fas fa-plug mr-3"></i>
+            API Documentation & Endpoint
+          </h3>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="bg-gray-50 border rounded-lg p-4 font-mono text-sm overflow-x-auto">
+            <p className="text-blue-700 font-bold mb-1 uppercase text-xs">Primary Endpoint (POST):</p>
+            <p className="text-gray-900 break-all select-all">
+              {window.location.origin.replace('5175', '3000')}/api/external/leads
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <h4 className="font-bold text-gray-800 flex items-center">
+                <i className="fas fa-shield-alt mr-2 text-blue-500"></i> Authentication
+              </h4>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Include the header <code className="bg-gray-100 px-1.5 py-0.5 rounded text-red-600">X-API-KEY</code> with your generated company key in all requests.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <h4 className="font-bold text-gray-800 flex items-center">
+                <i className="fas fa-database mr-2 text-indigo-500"></i> Request Body (JSON)
+              </h4>
+              <pre className="text-[10px] bg-gray-900 text-green-400 p-3 rounded-lg overflow-x-auto">
+                {`{
+  "company_name": "New Lead Corp",
+  "contact_person": "John Doe",
+  "email": "john@example.com",
+  "phone": "9876543210",
+  "priority": "high",
+  "notes": "Interested in CRM"
+}`}
+              </pre>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-amber-600">
+              <i className="fas fa-exclamation-triangle text-xs"></i>
+              <span className="text-[10px] font-bold uppercase">Note: Replace localhost:3000 with your server IP for production.</span>
+            </div>
+            <button
+              onClick={() => navigate('/admin/leads')}
+              className="text-xs font-bold text-blue-600 hover:underline"
+            >
+              View Incoming Leads <i className="fas fa-arrow-right ml-1"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* File Import */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+        <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 px-6 py-4">
+          <h3 className="text-lg font-bold text-white flex items-center">
+            <i className="fas fa-file-upload mr-3"></i>
+            Import Leads (CSV, JSON, Excel)
+          </h3>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center gap-4">
+            <input
+              type="file"
+              accept=".csv,.json,.xls,.xlsx"
+              onChange={handleFileSelection}
+              className="border border-dashed border-gray-300 rounded-xl px-4 py-3 text-sm w-full md:w-auto cursor-pointer"
+            />
+            <button
+              onClick={handleImport}
+              disabled={importing || !preparedLeads.length || !apiTestCompany?.api_key}
+              className="px-5 py-3 bg-green-600 text-white rounded-xl shadow hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {importing ? 'Importing...' : 'Import Leads'}
+            </button>
+            {importFileName && <span className="text-sm text-gray-500 truncate">{importFileName}</span>}
+          </div>
+          {fileImportError && <p className="text-sm text-red-600">{fileImportError}</p>}
+          {importResult && (
+            <div className="text-sm text-gray-700">
+              Imported: {importResult.success_count ?? preparedLeads.length} / {preparedLeads.length} leads
+              {importResult.failure_count ? `, failed: ${importResult.failure_count}` : ''}
+            </div>
+          )}
+          {importPreview.length > 0 && (
+            <div className="border border-gray-100 rounded-xl p-4 bg-gray-50">
+              <p className="text-xs font-semibold text-gray-500 mb-2">Preview (max 10 rows):</p>
+              <div className="text-[10px] font-mono max-h-40 overflow-y-auto">
+                {importPreview.map((row, idx) => (
+                  <div key={idx} className="flex gap-2">
+                    <span className="text-gray-500">{idx + 1}.</span>
+                    <span>{row.company_name || row.company || '—'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* API Test */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+        <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 px-6 py-4">
+          <h3 className="text-lg font-bold text-white flex items-center">
+            <i className="fas fa-terminal mr-3"></i>
+            API Testing Tool
+          </h3>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="grid md:grid-cols-3 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase">Company</label>
+              <select
+                value={apiTestCompany?.id || ''}
+                onChange={(e) => {
+                  const company = data.companies.find((c) => String(c.id) === e.target.value);
+                  setApiTestCompany(company || null);
+                }}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 text-sm"
+              >
+                <option value="">Select company (requires API key)</option>
+                {data.companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.company_name} {company.api_key ? '• API key ready' : '• no key'}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-xs font-semibold text-gray-500 uppercase">JSON payload</label>
+              <textarea
+                rows={6}
+                value={apiTestPayload}
+                onChange={(e) => setApiTestPayload(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 text-xs font-mono"
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={handleApiTest}
+              className="px-5 py-3 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700 disabled:opacity-50"
+            >
+              Send Test Request
+            </button>
+            {apiTestError && <p className="text-sm text-red-600">{apiTestError}</p>}
+          </div>
+          {apiTestResponse && (
+            <pre className="bg-gray-900 text-green-200 text-[10px] rounded-xl p-4 overflow-x-auto whitespace-pre-wrap">
+              {apiTestResponse}
+            </pre>
+          )}
         </div>
       </div>
 

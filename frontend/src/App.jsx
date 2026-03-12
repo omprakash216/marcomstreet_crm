@@ -1,5 +1,4 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
 import Login from './pages/Login';
 import CompanyManagement from './pages/CompanyManagement';
 import CompanyDetails from './pages/CompanyDetails';
@@ -20,6 +19,14 @@ import Leaves from './pages/hrms/Leaves';
 import Attendance from './pages/hrms/Attendance';
 import SalarySlips from './pages/hrms/SalarySlips';
 import HRDocuments from './pages/hrms/HRDocuments';
+import Departments from './pages/hrms/Departments';
+import Designations from './pages/hrms/Designations';
+import Shifts from './pages/hrms/Shifts';
+import Holidays from './pages/hrms/Holidays';
+import Announcements from './pages/hrms/Announcements';
+import Performance from './pages/hrms/Performance';
+import Settings from './pages/hrms/Settings';
+import HRReports from './pages/hrms/HRReports';
 import Chat from './pages/chat/Chat';
 import Notifications from './pages/Notifications';
 import Layout from './components/Layout';
@@ -35,15 +42,22 @@ import AdminAILeadScore from './pages/admin/AdminAILeadScore';
 import AdminTaskAssignment from './pages/admin/AdminTaskAssignment';
 import AdminDepartments from './pages/admin/AdminDepartments';
 import AdminAuditLogs from './pages/admin/AdminAuditLogs';
+import AdminInventory from './pages/admin/AdminInventory';
+import AdminAccounts from './pages/admin/AdminAccounts';
+import AdminExpenses from './pages/admin/AdminExpenses';
 import DocumentGenerator from './pages/admin/DocumentGenerator';
 import ManagerDashboard from './pages/ManagerDashboard';
 import HRDashboard from './pages/HRDashboard';
 import Dashboard from './pages/Dashboard';
 import Calendar from './pages/Calendar';
 import { isAuthenticated, getEmployee } from './utils/auth';
+import LandingPage from './pages/LandingPage';
+import Subscription from './pages/Subscription';
+import Payment from './pages/Payment';
+import SetPassword from './pages/SetPassword';
 
 function PrivateRoute({ children }) {
-  return isAuthenticated() ? children : <Navigate to="/login" />;
+  return isAuthenticated() ? children : <LandingPage />;
 }
 
 function AdminRoute({ children }) {
@@ -101,6 +115,9 @@ function App() {
     >
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/subscribe" element={<Subscription />} />
+        <Route path="/pay" element={<Payment />} />
+        <Route path="/set-password" element={<SetPassword />} />
 
         {/* Company Routes - Separate from Employee Routes */}
         <Route
@@ -158,6 +175,14 @@ function App() {
           <Route path="hrms/leaves" element={<Leaves />} />
           <Route path="hrms/documents" element={<HRDocuments />} />
           <Route path="hrms/salary" element={<SalarySlips />} />
+          <Route path="hrms/departments" element={<Departments />} />
+          <Route path="hrms/designations" element={<Designations />} />
+          <Route path="hrms/shifts" element={<Shifts />} />
+          <Route path="hrms/holidays" element={<Holidays />} />
+          <Route path="hrms/announcements" element={<Announcements />} />
+          <Route path="hrms/performance" element={<Performance />} />
+          <Route path="hrms/settings" element={<Settings />} />
+          <Route path="hrms/reports" element={<HRReports />} />
           <Route path="calendar" element={<Calendar />} />
         </Route>
 
@@ -218,6 +243,9 @@ function App() {
           <Route path="task-assignment" element={<AdminTaskAssignment />} />
           <Route path="departments" element={<AdminDepartments />} />
           <Route path="audit-logs" element={<AdminAuditLogs />} />
+          <Route path="inventory" element={<AdminInventory />} />
+          <Route path="accounts" element={<AdminAccounts />} />
+          <Route path="expenses" element={<AdminExpenses />} />
           <Route path="reports" element={<Reports />} />
           <Route path="generate-document/:employeeId" element={<DocumentGenerator />} />
           <Route path="calendar" element={<Calendar />} />

@@ -14,30 +14,59 @@ export default function Chat() {
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const selectedUserRef = useRef(null);
+  const lastAutoSelectedUserIdRef = useRef(null);
+  const isFetchingMessagesRef = useRef(false);
+  const isFetchingUsersRef = useRef(false);
+  const lastUsersFetchAtRef = useRef(0);
+  const lastMessagesFetchAtRef = useRef(0);
+  const POLL_INTERVAL_MS = 10000;
   const currentUser = getEmployee();
 
   const location = useLocation();
 
   useEffect(() => {
-    // If navigating from notification, auto-select the user
-    if (location.state?.selectedUserId && users.length > 0) {
-      const userToSelect = users.find(u => u.id === parseInt(location.state.selectedUserId));
-      if (userToSelect) {
-        selectUser(userToSelect);
-        // Optional: Clear state to avoid persistent selection on reload (needs history manipulation or just leave it)
-      }
-    }
-  }, [location.state, users]); // Run when users are loaded or location changes
+    selectedUserRef.current = selectedUser;
+  }, [selectedUser]);
 
   useEffect(() => {
     fetchUsers();
-    // Poll for new messages every 3 seconds for a more responsive feel
+  }, []);
+
+  useEffect(() => {
+    const queryUserId = Number(new URLSearchParams(location.search).get('user_id'));
+    const stateUserId = Number(location.state?.selectedUserId);
+    const incomingId = queryUserId || stateUserId;
+    if (!incomingId || users.length === 0) return;
+
+    if (lastAutoSelectedUserIdRef.current === incomingId && selectedUserRef.current?.id === incomingId) {
+      return;
+    }
+
+    const userToSelect = users.find((u) => u.id === incomingId);
+    if (userToSelect) {
+      lastAutoSelectedUserIdRef.current = incomingId;
+      setSelectedUser(userToSelect);
+    }
+  }, [location.search, location.state?.selectedUserId, users]);
+
+  useEffect(() => {
+    if (!selectedUser?.id) return;
+    setMessages([]);
+    fetchMessages(selectedUser.id, true);
+  }, [selectedUser?.id]);
+
+  useEffect(() => {
+    // Keep polling stable (single interval) to prevent duplicate request loops.
     const interval = setInterval(() => {
-      if (selectedUser) fetchMessages(selectedUser.id);
-      fetchUsers(); // Also update user status/unread counts
-    }, 3000);
+      if (document.hidden) return;
+      fetchUsers();
+      if (selectedUserRef.current?.id) {
+        fetchMessages(selectedUserRef.current.id);
+      }
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [selectedUser]);
+  }, []);
 
   useEffect(() => {
     // Only scroll if we are near bottom or it's the first load
@@ -60,7 +89,12 @@ export default function Chat() {
     }
   };
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastUsersFetchAtRef.current < POLL_INTERVAL_MS - 500) return;
+    if (isFetchingUsersRef.current) return;
+    isFetchingUsersRef.current = true;
+    lastUsersFetchAtRef.current = now;
     try {
       const response = await api.get('/chat?action=users');
       if (response.data.success) {
@@ -69,11 +103,17 @@ export default function Chat() {
     } catch (error) {
       console.error('Error fetching users:', error);
     } finally {
+      isFetchingUsersRef.current = false;
       setLoading(false);
     }
   };
 
-  const fetchMessages = async (userId) => {
+  const fetchMessages = async (userId, force = false) => {
+    if (!userId || isFetchingMessagesRef.current) return;
+    const now = Date.now();
+    if (!force && now - lastMessagesFetchAtRef.current < POLL_INTERVAL_MS - 500) return;
+    isFetchingMessagesRef.current = true;
+    lastMessagesFetchAtRef.current = now;
     try {
       const response = await api.get(`/chat?user_id=${userId}`);
       if (response.data.success) {
@@ -81,6 +121,8 @@ export default function Chat() {
       }
     } catch (error) {
       console.error('Error fetching messages:', error);
+    } finally {
+      isFetchingMessagesRef.current = false;
     }
   };
 
@@ -95,7 +137,7 @@ export default function Chat() {
       });
       if (response.data.success) {
         setNewMessage('');
-        fetchMessages(selectedUser.id);
+        fetchMessages(selectedUser.id, true);
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -113,13 +155,9 @@ export default function Chat() {
 
     setUploading(true);
     try {
-      const response = await api.post('/chat', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await api.post('/chat', formData);
       if (response.data.success) {
-        fetchMessages(selectedUser.id);
+        fetchMessages(selectedUser.id, true);
       }
     } catch (error) {
       console.error('Error uploading file:', error);
@@ -131,9 +169,9 @@ export default function Chat() {
   };
 
   const selectUser = (user) => {
+    if (!user?.id) return;
+    if (selectedUserRef.current?.id === user.id) return;
     setSelectedUser(user);
-    setMessages([]);
-    fetchMessages(user.id);
   };
 
   const filteredUsers = users.filter(user =>

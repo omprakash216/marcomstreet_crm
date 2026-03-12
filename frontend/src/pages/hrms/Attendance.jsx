@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import api from '../../utils/api';
 import { getEmployee } from '../../utils/auth';
+import WorkingHoursCard from '../../components/WorkingHoursCard';
 
 export default function Attendance() {
   const location = useLocation();
@@ -9,7 +10,6 @@ export default function Attendance() {
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
   const [punching, setPunching] = useState(false); // true while getting location + saving punch
-  const [stats, setStats] = useState({ present: 0, absent: 0, late: 0 });
   const [filter, setFilter] = useState({
     date_from: '',
     date_to: '',
@@ -51,6 +51,7 @@ export default function Attendance() {
   const [loadingView, setLoadingView] = useState(false);
   const [downloadingEmployeeReport, setDownloadingEmployeeReport] = useState(false);
   const [downloadingRowKey, setDownloadingRowKey] = useState(null); // 'employeeId-month' when downloading from row
+  const [workingTimerRefresh, setWorkingTimerRefresh] = useState(0);
 
   useEffect(() => {
     fetchAttendance();
@@ -134,6 +135,7 @@ export default function Attendance() {
         const msg = response.data.message || (action === 'check_in' ? 'Checked in' : 'Checked out');
         alert(msg);
         fetchAttendance();
+        setWorkingTimerRefresh((prev) => prev + 1);
       }
     } catch (error) {
       const msg =
@@ -347,7 +349,12 @@ export default function Attendance() {
   const targetCheckInTime = '09:30 AM';
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="relative min-h-screen w-full bg-gradient-to-b from-slate-50 via-white to-slate-100 text-slate-900">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-36 left-12 h-80 w-80 rounded-full bg-blue-200/60 blur-[140px]" />
+        <div className="absolute -bottom-20 right-10 h-96 w-96 rounded-full bg-emerald-200/50 blur-[160px]" />
+      </div>
+      <div className="relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4 py-10 sm:px-6 lg:px-10">
       {/* Breadcrumb when under /hr */}
       {isHRRoute && (
         <nav className="flex text-sm text-gray-500 mb-4" aria-label="Breadcrumb">
@@ -357,7 +364,7 @@ export default function Attendance() {
         </nav>
       )}
       {/* Standardized Header Section */}
-      <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-gray-900 rounded-xl shadow-lg mb-6 p-6 relative overflow-hidden">
+        <div className="bg-gradient-to-r from-white via-slate-100 to-white border border-slate-200 rounded-2xl shadow-2xl mb-6 p-6 relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
@@ -370,18 +377,18 @@ export default function Attendance() {
               <i className="fas fa-clock text-2xl"></i>
             </div>
             <div className="flex-1">
-              <h1 className="text-3xl font-bold text-white mb-1">
+              <h1 className="text-3xl font-bold text-slate-900 mb-1">
                 {isHRManager ? 'Employee Attendance Tracker' : 'My Attendance Tracker'}
               </h1>
-              <p className="text-slate-300 text-sm">
+              <p className="text-slate-500 text-sm">
                 {isHRManager ? 'Monitor and manage employee daily attendance' : 'Record and view your daily attendance'}
               </p>
             </div>
             <div className="flex space-x-3">
-              <button
+                <button
                 onClick={() => handlePunch('check_in')}
                 disabled={punching}
-                className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-semibold transition-all duration-200 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl shadow-lg font-semibold transition-all duration-200 hover:from-blue-700 hover:to-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <i className={`fas ${punching ? 'fa-spinner fa-spin' : 'fa-sign-in-alt'}`}></i>
                 <span>{punching ? 'Getting location...' : 'Punch In'}</span>
@@ -389,7 +396,7 @@ export default function Attendance() {
               <button
                 onClick={() => handlePunch('check_out')}
                 disabled={punching}
-                className="flex items-center space-x-2 px-6 py-3 bg-red-600 text-white rounded-xl shadow-lg font-semibold transition-all duration-200 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-red-500  to-rose-500 text-white rounded-xl shadow-lg font-semibold transition-all duration-200 hover:from-red-600 hover:to-rose-500 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <i className={`fas ${punching ? 'fa-spinner fa-spin' : 'fa-sign-out-alt'}`}></i>
                 <span>{punching ? 'Getting location...' : 'Punch Out'}</span>
@@ -398,6 +405,8 @@ export default function Attendance() {
           </div>
         </div>
       </div>
+
+      <WorkingHoursCard className="mb-6" showActions={false} refreshKey={workingTimerRefresh} />
 
       {/* Stats Cards - icon center, text centered, professional */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 mb-6">
@@ -685,14 +694,16 @@ export default function Attendance() {
           </table>
         </div>
       </div>
+      </div>
 
-      {/* Edit Attendance Modal – HR only */}
+      {/* Modals */}
+      {/* Edit Attendance Modal - HR only */}
       {editModal.open && editModal.record && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={closeEditModal}>
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Attendance</h3>
             <p className="text-sm text-gray-500 mb-4">
-              {editModal.record.employee_name} – {String(editModal.record.date).slice(0, 10)}
+              {editModal.record.employee_name} - {String(editModal.record.date).slice(0, 10)}
             </p>
             <div className="space-y-4">
               <div>
@@ -761,9 +772,11 @@ export default function Attendance() {
         </div>
       )}
 
-      {/* View Attendance Modal – employee month details + download */}
       {viewModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={closeViewModal}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={closeViewModal}
+        >
           <div
             className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
@@ -774,10 +787,8 @@ export default function Attendance() {
                   <i className="fas fa-user-clock text-white text-lg"></i>
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-white">Attendance – {viewModal.employeeName}</h3>
-                  <p className="text-indigo-200 text-sm">
-                    Month: {viewModal.month}
-                  </p>
+                  <h3 className="text-lg font-semibold text-white">Attendance - {viewModal.employeeName}</h3>
+                  <p className="text-indigo-200 text-sm">Month: {viewModal.month}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -837,10 +848,10 @@ export default function Attendance() {
                             <td className="px-4 py-3 text-gray-600">{r.check_out_time || '–'}</td>
                             <td className="px-4 py-3">
                               <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${dt === 'full_day' ? 'bg-green-100 text-green-700' : dt === 'half_day' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
-                                {dt === 'full_day' ? 'Full day' : dt === 'half_day' ? 'Half day' : '–'}
+                                {dt === 'full_day' ? 'Full day' : dt === 'half_day' ? 'Half day' : '-'}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-gray-600">{r.total_hours != null ? `${r.total_hours}h` : '–'}</td>
+                            <td className="px-4 py-3 text-gray-600">{r.total_hours != null ? `${r.total_hours}h` : '-'}</td>
                             <td className="px-4 py-3">
                               <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${status === 'completed' ? 'bg-green-100 text-green-700' : status === 'checked_in' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
                                 {status === 'completed' ? 'Completed' : status === 'checked_in' ? 'Checked In' : 'Not Checked In'}

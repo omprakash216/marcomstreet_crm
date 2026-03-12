@@ -41,6 +41,7 @@ function canAccessAll(employee) {
 }
 
 const attendanceRules = require('../services/attendanceRules');
+const workTimer = require('../services/workTimer');
 
 function getMonthBounds(dateStr) {
   const [y, m] = dateStr.split('-').map(Number);
@@ -57,6 +58,35 @@ router.get('/__ping', (req, res) => {
     service: 'hrms',
     has_salary_pdf_route: true,
     time: new Date().toISOString(),
+  });
+});
+
+// Debug route list (no auth) to confirm this file is loaded by the running server.
+router.get('/__routes', (req, res) => {
+  return res.json({
+    success: true,
+    routes: [
+      '/documents',
+      '/generate_document',
+      '/salary',
+      '/attendance',
+      '/attendance/report',
+      '/leaves',
+      '/stats',
+      '/designations',
+      '/shifts',
+      '/shifts/assignments',
+      '/shifts/assign',
+      '/holidays',
+      '/announcements',
+      '/settings',
+      '/leave-types',
+      '/leave-balances',
+      '/performance',
+      '/reports/employees',
+      '/reports/leaves',
+      '/reports/payroll',
+    ],
   });
 });
 
@@ -134,7 +164,7 @@ router.delete('/documents/:id', verifyToken, async (req, res) => {
       if (fullPath.startsWith(uploadsRoot) && fs.existsSync(fullPath)) {
         try {
           fs.unlinkSync(fullPath);
-        } catch (_) {}
+        } catch (_) { }
       }
     }
 
@@ -217,7 +247,7 @@ router.post('/generate_document', verifyToken, async (req, res) => {
     } catch (insertErr) {
       const imsg = (insertErr && insertErr.message) ? String(insertErr.message) : '';
       if (fullPathWritten && fs.existsSync(fullPathWritten)) {
-        try { fs.unlinkSync(fullPathWritten); } catch (_) {}
+        try { fs.unlinkSync(fullPathWritten); } catch (_) { }
       }
       return res.status(500).json({
         success: false,
@@ -237,7 +267,7 @@ router.post('/generate_document', verifyToken, async (req, res) => {
   } catch (err) {
     console.error('Generate document error:', err);
     if (fullPathWritten && fs.existsSync(fullPathWritten)) {
-      try { fs.unlinkSync(fullPathWritten); } catch (_) {}
+      try { fs.unlinkSync(fullPathWritten); } catch (_) { }
     }
     const msg = (err && err.message) ? String(err.message) : 'PDF generation failed';
     return res.status(500).json({
@@ -250,7 +280,7 @@ router.post('/generate_document', verifyToken, async (req, res) => {
 // GET /hrms/salary - list salary slips
 router.get('/salary', verifyToken, async (req, res) => {
   try {
-    let sql = `SELECT s.*, e.name as employee_name, e.employee_code, e.designation, e.bank_account, e.pan_number, d.name as department
+    let sql = `SELECT s.*, e.name as employee_name, e.employee_code, e.designation, e.bank_account, e.bank_name, e.ifsc_code, e.branch_name, e.account_holder_name, e.pan_number, d.name as department
                FROM salary_slips s 
                JOIN employees e ON s.employee_id = e.id 
                LEFT JOIN departments d ON e.department_id = d.id
@@ -372,7 +402,7 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
     fs.writeFileSync(absOut, pdfBuffer);
     try {
       await query('UPDATE salary_slips SET file_path = ? WHERE id = ?', [newRelPath, id]);
-    } catch (_) {}
+    } catch (_) { }
 
     return ensureAndSend(absOut);
   } catch (err) {
@@ -507,12 +537,12 @@ router.put('/salary/:id', verifyToken, async (req, res) => {
       const absOld = path.resolve(path.join(__dirname, '../../', oldPath));
       const uploadsRoot = path.resolve(path.join(__dirname, '../../uploads'));
       if (absOld.startsWith(uploadsRoot) && fs.existsSync(absOld)) {
-        try { fs.unlinkSync(absOld); } catch (_) {}
+        try { fs.unlinkSync(absOld); } catch (_) { }
       }
     }
     try {
       await query('UPDATE salary_slips SET file_path = ? WHERE id = ?', [newRelPath, id]);
-    } catch (_) {}
+    } catch (_) { }
 
     return res.json({ success: true, message: 'Salary slip updated successfully', data: { id, file_path: newRelPath } });
   } catch (err) {
@@ -544,7 +574,7 @@ router.delete('/salary/:id', verifyToken, async (req, res) => {
       const abs = path.resolve(path.join(__dirname, '../../', rel));
       const uploadsRoot = path.resolve(path.join(__dirname, '../../uploads'));
       if (abs.startsWith(uploadsRoot) && fs.existsSync(abs)) {
-        try { fs.unlinkSync(abs); } catch (_) {}
+        try { fs.unlinkSync(abs); } catch (_) { }
       }
     }
     return res.json({ success: true, message: 'Salary slip deleted successfully' });
@@ -716,6 +746,26 @@ router.put('/leaves', verifyToken, async (req, res) => {
     const b = req.body || {};
     if (!b.id || !b.status) return res.status(400).json({ success: false, message: 'Missing required fields' });
     await query('UPDATE leaves SET status = ?, approved_by = ?, admin_reason = ? WHERE id = ?', [b.status, req.employee.id, b.admin_reason || null, b.id]);
+    // Update leave balance if approved and balance table exists
+    if (String(b.status).toLowerCase() === 'approved') {
+      try {
+        const [leaveRow] = await query('SELECT employee_id, type, start_date, end_date FROM leaves WHERE id = ?', [b.id]);
+        if (leaveRow) {
+          const typeName = String(leaveRow.type || '').trim().toLowerCase();
+          const [typeRow] = await query('SELECT id FROM hr_leave_types WHERE LOWER(name) = ? OR LOWER(code) = ? LIMIT 1', [typeName, typeName]);
+          if (typeRow && typeRow.id) {
+            const days =
+              Math.max(1, Math.floor((new Date(leaveRow.end_date) - new Date(leaveRow.start_date)) / (1000 * 60 * 60 * 24)) + 1);
+            await query(
+              'INSERT INTO hr_leave_balances (employee_id, leave_type_id, balance) VALUES (?, ?, GREATEST(0, (SELECT default_balance FROM hr_leave_types WHERE id = ?) - ?)) ON DUPLICATE KEY UPDATE balance = GREATEST(0, balance - ?)',
+              [leaveRow.employee_id, typeRow.id, typeRow.id, days, days]
+            );
+          }
+        }
+      } catch (_) {
+        // Optional: ignore if tables are missing or date parsing fails
+      }
+    }
     return res.json({ success: true, message: 'Leave status updated successfully' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -735,7 +785,28 @@ router.get('/attendance', verifyToken, async (req, res) => {
     if (req.query.date_from) { sql += ' AND c.date >= ?'; params.push(req.query.date_from); }
     if (req.query.date_to) { sql += ' AND c.date <= ?'; params.push(req.query.date_to); }
     sql += ' ORDER BY c.date DESC, c.created_at DESC';
-    const rows = await query(sql, params);
+    let rows;
+    try {
+      rows = await query(sql, params);
+    } catch (e) {
+      const msg = String((e && e.message) || '');
+      // Backward compatibility for old DB schema without check_in/check_out columns.
+      if (msg.includes("Unknown column 'c.check_in_time'") || msg.includes("Unknown column 'check_in_time'")) {
+        let fallbackSql = `SELECT c.*, e.name as employee_name, d.name as department,
+          CASE WHEN c.time IS NOT NULL THEN 'checked_in' ELSE 'not_checked_in' END as attendance_status,
+          NULL as total_hours
+          FROM employee_checkins c JOIN employees e ON c.employee_id = e.id LEFT JOIN departments d ON e.department_id = d.id WHERE 1=1`;
+        const fallbackParams = [];
+        if (!canAccessAll(req.employee)) { fallbackSql += ' AND c.employee_id = ?'; fallbackParams.push(req.employee.id); }
+        else if (req.query.employee_id) { fallbackSql += ' AND c.employee_id = ?'; fallbackParams.push(req.query.employee_id); }
+        if (req.query.date_from) { fallbackSql += ' AND c.date >= ?'; fallbackParams.push(req.query.date_from); }
+        if (req.query.date_to) { fallbackSql += ' AND c.date <= ?'; fallbackParams.push(req.query.date_to); }
+        fallbackSql += ' ORDER BY c.date DESC, c.created_at DESC';
+        rows = await query(fallbackSql, fallbackParams);
+      } else {
+        throw e;
+      }
+    }
     // Apply official rules to ALL records: 09:30–10:00 = on time = full_day; after 10:00 = late, 4th late in month = half_day
     attendanceRules.applyAttendanceRulesToRows(rows);
     return res.json({ success: true, data: rows });
@@ -901,87 +972,36 @@ router.get('/attendance/report', verifyToken, async (req, res) => {
 });
 
 router.post('/attendance', verifyToken, async (req, res) => {
-  const { getConnection } = require('../config/database');
-  let conn;
   try {
     const b = req.body || {};
-    const action = b.action || 'check_in';
-    const date = new Date().toISOString().slice(0, 10);
-    const time = new Date().toTimeString().slice(0, 8);
-    const location = b.location || 'Office';
-    conn = await getConnection();
     if (!req.employee || !req.employee.id) {
       return res.status(401).json({ success: false, message: 'Unauthorized - Please login again' });
     }
-    if (action === 'check_in') {
-      const [ex] = await conn.execute('SELECT id, check_in_time FROM employee_checkins WHERE employee_id = ? AND date = ?', [req.employee.id, date]);
-      const row = ex && ex[0];
-      if (row && row.check_in_time) {
-        return res.status(400).json({ success: false, message: 'Already checked in today' });
-      }
-
-      const { first: monthFirst, last: monthLast } = getMonthBounds(date);
-      let existingLateCount = 0;
-      try {
-        const [lateRows] = await conn.execute(
-          'SELECT COUNT(*) as cnt FROM employee_checkins WHERE employee_id = ? AND date >= ? AND date <= ? AND is_late = 1',
-          [req.employee.id, monthFirst, monthLast]
-        );
-        existingLateCount = (lateRows && lateRows[0] && lateRows[0].cnt) || 0;
-      } catch (_) {}
-
-      const { attendance_type: attendanceType, is_late: isLate } = attendanceRules.getAttendanceForPunchIn(time, existingLateCount);
-
-      if (row) {
-        try {
-          await conn.execute('UPDATE employee_checkins SET check_in_time=?, check_in_location=?, time=?, location=?, status=?, attendance_type=?, is_late=? WHERE id=?', [time, location, time, location, 'checked_in', attendanceType, isLate, row.id]);
-        } catch (updErr) {
-          const m = (updErr.message || '').toString();
-          if (m.includes("Unknown column 'attendance_type'")) {
-            await conn.execute('UPDATE employee_checkins SET check_in_time=?, check_in_location=?, time=?, location=?, status=? WHERE id=?', [time, location, time, location, 'checked_in', row.id]);
-          } else if (m.includes("Unknown column 'is_late'")) {
-            await conn.execute('UPDATE employee_checkins SET check_in_time=?, check_in_location=?, time=?, location=?, status=?, attendance_type=? WHERE id=?', [time, location, time, location, 'checked_in', attendanceType, row.id]);
-          } else {
-            throw updErr;
-          }
-        }
-      } else {
-        try {
-          await conn.execute('INSERT INTO employee_checkins (employee_id, date, check_in_time, check_in_location, time, location, status, attendance_type, is_late) VALUES (?,?,?,?,?,?,\'checked_in\',?,?)', [req.employee.id, date, time, location, time, location, attendanceType, isLate]);
-        } catch (insErr) {
-          const msg = (insErr.message || '').toString();
-          if (msg.includes("Unknown column 'attendance_type'")) {
-            await conn.execute('INSERT INTO employee_checkins (employee_id, date, check_in_time, check_in_location, time, location, status) VALUES (?,?,?,?,?,?,\'checked_in\')', [req.employee.id, date, time, location, time, location]);
-          } else if (msg.includes("Unknown column 'is_late'")) {
-            await conn.execute('INSERT INTO employee_checkins (employee_id, date, check_in_time, check_in_location, time, location, status, attendance_type) VALUES (?,?,?,?,?,?,\'checked_in\',?)', [req.employee.id, date, time, location, time, location, attendanceType]);
-          } else {
-            throw insErr;
-          }
-        }
-      }
-      const dayLabel = attendanceType === 'full_day' ? 'Full day' : 'Half day';
-      return res.json({ success: true, message: `Checked in. ${dayLabel} attendance.`, data: { attendance_type: attendanceType, is_late: isLate } });
-    } else {
-      const [ex] = await conn.execute('SELECT id, check_in_time FROM employee_checkins WHERE employee_id = ? AND date = ?', [req.employee.id, date]);
-      const row = ex && ex[0];
-      if (!row) {
-        return res.status(400).json({ success: false, message: 'Not checked in today' });
-      }
-      await conn.execute('UPDATE employee_checkins SET check_out_time=?, check_out_location=?, status=? WHERE id=?', [time, location, 'completed', row.id]);
-      return res.json({ success: true, message: 'Checked out. Attendance complete.' });
+    const action = String(b.action || 'check_in').toLowerCase();
+    if (action === 'check_in' || action === 'clock_in') {
+      const attendance = await workTimer.clockIn(req.employee, b);
+      return res.json({ success: true, message: 'Checked in successfully.', data: attendance });
     }
+    if (action === 'break' || action === 'start_break') {
+      const attendance = await workTimer.startBreak(req.employee.id);
+      return res.json({ success: true, message: 'Break started.', data: attendance });
+    }
+    if (action === 'resume' || action === 'end_break') {
+      const attendance = await workTimer.endBreak(req.employee.id);
+      return res.json({ success: true, message: 'Work resumed.', data: attendance });
+    }
+    const attendance = await workTimer.clockOut(req.employee.id, b);
+    return res.json({ success: true, message: 'Checked out. Attendance complete.', data: attendance });
   } catch (err) {
     const msg = (err && err.message) ? String(err.message) : 'Attendance update failed';
     let userMsg = msg;
-    if (msg.includes("Unknown column 'check_in_time'") || msg.includes("Unknown column 'attendance_type'")) {
-      userMsg = 'Database schema outdated. Run migration: cd backend-node && npm run migrate';
+    if (msg.includes("Unknown column 'check_in_time'") || msg.includes("Unknown column 'attendance_type'") || msg.includes('Unknown column') || msg.includes("doesn't exist")) {
+      userMsg = 'Database schema outdated. Run: node backend-node/scripts/ensure-demo-schema.js';
     } else if (msg.includes('ECONNREFUSED') || msg.includes('connect')) {
       userMsg = 'Database connection failed. Check backend .env and MySQL.';
     }
     console.error('POST /hrms/attendance error:', err && err.message);
     return res.status(500).json({ success: false, message: userMsg });
-  } finally {
-    if (conn && conn.release) conn.release();
   }
 });
 
@@ -993,7 +1013,25 @@ router.get('/stats', verifyToken, async (req, res) => {
     const totalEmployees = parseInt(totalEmp && totalEmp.total) || 0;
     const today = new Date().toISOString().slice(0, 10);
     const currentMonth = new Date().toISOString().slice(0, 7).replace(/-/, '-'); // YYYY-MM
-    const [todayAtt] = await query('SELECT COUNT(*) as total FROM employee_checkins WHERE date = ?', [today]);
+
+    const [presentTodayRow] = await query(
+      "SELECT COUNT(DISTINCT employee_id) as total FROM employee_checkins WHERE date = ? AND status IN ('checked_in','on_break','checked_out','completed')",
+      [today]
+    ).catch(() => [{ total: 0 }]);
+    const presentToday = parseInt(presentTodayRow && presentTodayRow.total) || 0;
+
+    const [lateRow] = await query(
+      'SELECT COUNT(DISTINCT employee_id) as total FROM employee_checkins WHERE date = ? AND is_late = 1',
+      [today]
+    ).catch(() => [{ total: 0 }]);
+    const lateEmployees = parseInt(lateRow && lateRow.total) || 0;
+
+    const [onLeaveRow] = await query(
+      "SELECT COUNT(DISTINCT employee_id) as total FROM leaves WHERE status = 'approved' AND ? BETWEEN start_date AND end_date",
+      [today]
+    ).catch(() => [{ total: 0 }]);
+    const onLeaveToday = parseInt(onLeaveRow && onLeaveRow.total) || 0;
+
     const [pendingLeaves] = await query('SELECT COUNT(*) as total FROM leaves WHERE status = ?', ['pending']);
     const [usedLeavesRow] = await query("SELECT COUNT(*) as total FROM leaves WHERE status = ?", ['approved']).catch(() => [{ total: 0 }]);
     const usedLeaves = parseInt(usedLeavesRow && usedLeavesRow.total) || 0;
@@ -1007,6 +1045,15 @@ router.get('/stats', verifyToken, async (req, res) => {
     `).catch(() => []);
     const leaveStats = await query('SELECT type, COUNT(*) as used FROM leaves WHERE status = ? GROUP BY type', ['approved']).catch(() => []);
     const leaveStatsWithApproved = (leaveStats || []).map((ls) => ({ ...ls, approved: ls.used }));
+    const deptCounts = await query(
+      `SELECT COALESCE(d.name, 'Unassigned') as department, COUNT(*) as total
+       FROM employees e LEFT JOIN departments d ON e.department_id = d.id
+       WHERE e.status = 'active'
+       GROUP BY d.name ORDER BY total DESC`
+    ).catch(() => []);
+    const upcomingHolidays = await query(
+      'SELECT id, name, date, description FROM hr_holidays WHERE date >= CURDATE() ORDER BY date ASC LIMIT 5'
+    ).catch(() => []);
     const recent = await query(`
       (SELECT 'leave' as category, employee_id, status, created_at, 'applied for leave' as action FROM leaves)
       UNION ALL (SELECT 'attendance', employee_id, status, created_at, 'marked attendance' FROM employee_checkins)
@@ -1017,13 +1064,17 @@ router.get('/stats', verifyToken, async (req, res) => {
       success: true,
       data: {
         total_employees: totalEmployees,
-        today_attendance: parseInt(todayAtt && todayAtt.total) || 0,
+        present_today: presentToday,
+        on_leave_today: onLeaveToday,
+        late_employees: lateEmployees,
         pending_leaves: parseInt(pendingLeaves && pendingLeaves.total) || 0,
         total_leave_balance: totalLeaveBalance,
         used_leaves: usedLeaves,
         monthly_salary_processed: monthlySalaryProcessed,
         attendance_trends: trends || [],
         leave_stats: leaveStatsWithApproved || [],
+        department_counts: deptCounts || [],
+        upcoming_holidays: upcomingHolidays || [],
         recent_activities: recentActivities,
       },
     });
@@ -1086,6 +1137,530 @@ router.post('/generate_qr', verifyToken, async (req, res) => {
     const baseUrl = process.env.BASE_URL || 'http://localhost:5173';
     const formUrl = baseUrl + '/#/public/joining-form/' + token;
     return res.json({ success: true, token, url: formUrl, message: 'QR code generated successfully' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- Designations ---
+router.get('/designations', verifyToken, async (req, res) => {
+  try {
+    const rows = await query('SELECT * FROM designations ORDER BY name ASC').catch(() => []);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/designations', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const { name, description } = req.body || {};
+  if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
+  try {
+    await query('INSERT INTO designations (name, description) VALUES (?, ?)', [String(name).trim(), description || null]);
+    return res.json({ success: true, message: 'Designation created' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/designations/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  const { name, description } = req.body || {};
+  if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
+  try {
+    await query('UPDATE designations SET name = ?, description = ? WHERE id = ?', [String(name).trim(), description || null, id]);
+    return res.json({ success: true, message: 'Designation updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/designations/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  try {
+    await query('DELETE FROM designations WHERE id = ?', [id]);
+    return res.json({ success: true, message: 'Designation deleted' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- Shifts ---
+router.get('/shifts', verifyToken, async (req, res) => {
+  try {
+    const rows = await query('SELECT * FROM hr_shifts ORDER BY name ASC').catch(() => []);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/shifts', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const { name, start_time, end_time, grace_minutes } = req.body || {};
+  if (!name || !start_time || !end_time) {
+    return res.status(400).json({ success: false, message: 'Name, start_time, end_time are required' });
+  }
+  try {
+    await query(
+      'INSERT INTO hr_shifts (name, start_time, end_time, grace_minutes) VALUES (?, ?, ?, ?)',
+      [String(name).trim(), start_time, end_time, Number(grace_minutes) || 0]
+    );
+    return res.json({ success: true, message: 'Shift created' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/shifts/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  const { name, start_time, end_time, grace_minutes } = req.body || {};
+  if (!name || !start_time || !end_time) {
+    return res.status(400).json({ success: false, message: 'Name, start_time, end_time are required' });
+  }
+  try {
+    await query(
+      'UPDATE hr_shifts SET name = ?, start_time = ?, end_time = ?, grace_minutes = ? WHERE id = ?',
+      [String(name).trim(), start_time, end_time, Number(grace_minutes) || 0, id]
+    );
+    return res.json({ success: true, message: 'Shift updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/shifts/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  try {
+    await query('DELETE FROM hr_shifts WHERE id = ?', [id]);
+    return res.json({ success: true, message: 'Shift deleted' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/shifts/assignments', verifyToken, async (req, res) => {
+  try {
+    let sql = `SELECT sa.*, s.name as shift_name, s.start_time, s.end_time, e.name as employee_name
+               FROM hr_shift_assignments sa
+               JOIN hr_shifts s ON sa.shift_id = s.id
+               JOIN employees e ON sa.employee_id = e.id WHERE 1=1`;
+    const params = [];
+    if (!canAccessAll(req.employee)) {
+      sql += ' AND sa.employee_id = ?';
+      params.push(req.employee.id);
+    } else if (req.query.employee_id) {
+      sql += ' AND sa.employee_id = ?';
+      params.push(Number(req.query.employee_id));
+    }
+    sql += ' ORDER BY sa.effective_from DESC';
+    const rows = await query(sql, params).catch(() => []);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/shifts/assign', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const { employee_id, shift_id, effective_from, effective_to } = req.body || {};
+  if (!employee_id || !shift_id || !effective_from) {
+    return res.status(400).json({ success: false, message: 'employee_id, shift_id, effective_from are required' });
+  }
+  try {
+    await query(
+      'INSERT INTO hr_shift_assignments (employee_id, shift_id, effective_from, effective_to) VALUES (?, ?, ?, ?)',
+      [employee_id, shift_id, effective_from, effective_to || null]
+    );
+    return res.json({ success: true, message: 'Shift assigned' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- Holidays ---
+router.get('/holidays', verifyToken, async (req, res) => {
+  try {
+    const rows = await query('SELECT * FROM hr_holidays ORDER BY date ASC').catch(() => []);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/holidays', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const { name, date, description } = req.body || {};
+  if (!name || !date) return res.status(400).json({ success: false, message: 'Name and date are required' });
+  try {
+    await query('INSERT INTO hr_holidays (name, date, description) VALUES (?, ?, ?)', [String(name).trim(), date, description || null]);
+    return res.json({ success: true, message: 'Holiday created' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/holidays/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  const { name, date, description } = req.body || {};
+  if (!name || !date) return res.status(400).json({ success: false, message: 'Name and date are required' });
+  try {
+    await query('UPDATE hr_holidays SET name = ?, date = ?, description = ? WHERE id = ?', [String(name).trim(), date, description || null, id]);
+    return res.json({ success: true, message: 'Holiday updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/holidays/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  try {
+    await query('DELETE FROM hr_holidays WHERE id = ?', [id]);
+    return res.json({ success: true, message: 'Holiday deleted' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- Announcements ---
+router.get('/announcements', verifyToken, async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT * FROM hr_announcements
+       WHERE (starts_at IS NULL OR starts_at <= NOW())
+         AND (ends_at IS NULL OR ends_at >= NOW())
+       ORDER BY created_at DESC`
+    ).catch(() => []);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/announcements', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const { title, message, starts_at, ends_at } = req.body || {};
+  if (!title || !message) return res.status(400).json({ success: false, message: 'Title and message are required' });
+  try {
+    await query(
+      'INSERT INTO hr_announcements (title, message, starts_at, ends_at, created_by) VALUES (?, ?, ?, ?, ?)',
+      [String(title).trim(), String(message).trim(), starts_at || null, ends_at || null, req.employee.id]
+    );
+    return res.json({ success: true, message: 'Announcement created' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/announcements/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  const { title, message, starts_at, ends_at } = req.body || {};
+  if (!title || !message) return res.status(400).json({ success: false, message: 'Title and message are required' });
+  try {
+    await query(
+      'UPDATE hr_announcements SET title = ?, message = ?, starts_at = ?, ends_at = ? WHERE id = ?',
+      [String(title).trim(), String(message).trim(), starts_at || null, ends_at || null, id]
+    );
+    return res.json({ success: true, message: 'Announcement updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/announcements/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  try {
+    await query('DELETE FROM hr_announcements WHERE id = ?', [id]);
+    return res.json({ success: true, message: 'Announcement deleted' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- HR Settings ---
+router.get('/settings', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  try {
+    const rows = await query('SELECT setting_key, setting_value FROM hr_settings ORDER BY setting_key ASC').catch(() => []);
+    const settings = {};
+    (rows || []).forEach((r) => {
+      settings[r.setting_key] = r.setting_value;
+    });
+    return res.json({ success: true, data: settings });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/settings', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const settings = req.body || {};
+  try {
+    const keys = Object.keys(settings);
+    for (const key of keys) {
+      await query(
+        'INSERT INTO hr_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+        [key, String(settings[key])]
+      );
+    }
+    return res.json({ success: true, message: 'Settings updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- Leave Types & Balances ---
+router.get('/leave-types', verifyToken, async (req, res) => {
+  try {
+    const rows = await query('SELECT * FROM hr_leave_types ORDER BY name ASC').catch(() => []);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/leave-types', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const { name, code, default_balance } = req.body || {};
+  if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
+  try {
+    await query(
+      'INSERT INTO hr_leave_types (name, code, default_balance) VALUES (?, ?, ?)',
+      [String(name).trim(), code || null, Number(default_balance) || 0]
+    );
+    return res.json({ success: true, message: 'Leave type created' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/leave-types/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  const { name, code, default_balance } = req.body || {};
+  if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
+  try {
+    await query(
+      'UPDATE hr_leave_types SET name = ?, code = ?, default_balance = ? WHERE id = ?',
+      [String(name).trim(), code || null, Number(default_balance) || 0, id]
+    );
+    return res.json({ success: true, message: 'Leave type updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/leave-types/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  try {
+    await query('DELETE FROM hr_leave_types WHERE id = ?', [id]);
+    return res.json({ success: true, message: 'Leave type deleted' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/leave-balances', verifyToken, async (req, res) => {
+  try {
+    let sql = `SELECT b.*, e.name as employee_name, t.name as leave_type
+               FROM hr_leave_balances b
+               JOIN employees e ON b.employee_id = e.id
+               JOIN hr_leave_types t ON b.leave_type_id = t.id WHERE 1=1`;
+    const params = [];
+    if (!canAccessAll(req.employee)) {
+      sql += ' AND b.employee_id = ?';
+      params.push(req.employee.id);
+    } else if (req.query.employee_id) {
+      sql += ' AND b.employee_id = ?';
+      params.push(Number(req.query.employee_id));
+    }
+    const rows = await query(sql, params).catch(() => []);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/leave-balances', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const { employee_id, leave_type_id, balance } = req.body || {};
+  if (!employee_id || !leave_type_id) {
+    return res.status(400).json({ success: false, message: 'employee_id and leave_type_id are required' });
+  }
+  try {
+    await query(
+      'INSERT INTO hr_leave_balances (employee_id, leave_type_id, balance) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE balance = VALUES(balance)',
+      [employee_id, leave_type_id, Number(balance) || 0]
+    );
+    return res.json({ success: true, message: 'Leave balance updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- Performance Reviews ---
+router.get('/performance', verifyToken, async (req, res) => {
+  try {
+    let sql = `SELECT pr.*, e.name as employee_name, r.name as reviewer_name
+               FROM performance_reviews pr
+               JOIN employees e ON pr.employee_id = e.id
+               JOIN employees r ON pr.reviewer_id = r.id WHERE 1=1`;
+    const params = [];
+    if (!canAccessAll(req.employee)) {
+      sql += ' AND pr.employee_id = ?';
+      params.push(req.employee.id);
+    } else if (req.query.employee_id) {
+      sql += ' AND pr.employee_id = ?';
+      params.push(Number(req.query.employee_id));
+    }
+    sql += ' ORDER BY pr.created_at DESC';
+    const rows = await query(sql, params).catch(() => []);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/performance', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const { employee_id, period_start, period_end, rating, goals, feedback } = req.body || {};
+  if (!employee_id || !rating) return res.status(400).json({ success: false, message: 'employee_id and rating are required' });
+  try {
+    await query(
+      'INSERT INTO performance_reviews (employee_id, reviewer_id, period_start, period_end, rating, goals, feedback) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [employee_id, req.employee.id, period_start || null, period_end || null, rating, goals || null, feedback || null]
+    );
+    return res.json({ success: true, message: 'Performance review created' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/performance/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  const { period_start, period_end, rating, goals, feedback } = req.body || {};
+  if (!rating) return res.status(400).json({ success: false, message: 'Rating is required' });
+  try {
+    await query(
+      'UPDATE performance_reviews SET period_start = ?, period_end = ?, rating = ?, goals = ?, feedback = ? WHERE id = ?',
+      [period_start || null, period_end || null, rating, goals || null, feedback || null, id]
+    );
+    return res.json({ success: true, message: 'Performance review updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/performance/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  try {
+    await query('DELETE FROM performance_reviews WHERE id = ?', [id]);
+    return res.json({ success: true, message: 'Performance review deleted' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// --- Reports (CSV) ---
+router.get('/reports/employees', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) {
+    return res.status(403).json({ success: false, message: 'Only HR/Admin can download reports' });
+  }
+  try {
+    const rows = await query(
+      `SELECT e.employee_code, e.name, e.email, e.phone, e.designation, d.name as department, e.joining_date, e.employment_type
+       FROM employees e LEFT JOIN departments d ON e.department_id = d.id
+       WHERE e.status = 'active' ORDER BY e.name ASC`
+    );
+    const header = 'Employee Code,Name,Email,Phone,Designation,Department,Joining Date,Employment Type\n';
+    const csvRows = (rows || []).map((r) =>
+      `"${(r.employee_code || '').replace(/"/g, '""')}","${(r.name || '').replace(/"/g, '""')}","${(r.email || '').replace(/"/g, '""')}","${(r.phone || '').replace(/"/g, '""')}","${(r.designation || '').replace(/"/g, '""')}","${(r.department || '').replace(/"/g, '""')}","${(r.joining_date || '').toString().slice(0, 10)}","${(r.employment_type || '').replace(/"/g, '""')}"`
+    );
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="employees-report.csv"');
+    return res.send('\uFEFF' + header + csvRows.join('\n'));
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/reports/leaves', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) {
+    return res.status(403).json({ success: false, message: 'Only HR/Admin can download reports' });
+  }
+  const month = (req.query.month || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return res.status(400).json({ success: false, message: 'Query month=YYYY-MM is required' });
+  }
+  const [y, m] = month.split('-').map(Number);
+  const first = `${month}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const last = `${month}-${String(lastDay).padStart(2, '0')}`;
+  try {
+    const rows = await query(
+      `SELECT l.id, e.employee_code, e.name, l.type, l.start_date, l.end_date, l.status, l.reason
+       FROM leaves l JOIN employees e ON l.employee_id = e.id
+       WHERE l.start_date <= ? AND l.end_date >= ? ORDER BY l.start_date ASC`,
+      [last, first]
+    );
+    const header = 'Employee Code,Name,Leave Type,Start Date,End Date,Status,Reason\n';
+    const csvRows = (rows || []).map((r) =>
+      `"${(r.employee_code || '').replace(/"/g, '""')}","${(r.name || '').replace(/"/g, '""')}","${(r.type || '').replace(/"/g, '""')}","${(r.start_date || '').toString().slice(0, 10)}","${(r.end_date || '').toString().slice(0, 10)}","${(r.status || '').replace(/"/g, '""')}","${(r.reason || '').replace(/"/g, '""')}"`
+    );
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="leave-report-${month}.csv"`);
+    return res.send('\uFEFF' + header + csvRows.join('\n'));
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/reports/payroll', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) {
+    return res.status(403).json({ success: false, message: 'Only HR/Admin can download reports' });
+  }
+  const month = (req.query.month || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return res.status(400).json({ success: false, message: 'Query month=YYYY-MM is required' });
+  }
+  try {
+    const rows = await query(
+      `SELECT s.month, e.employee_code, e.name, s.gross_salary, s.total_deductions, s.net_salary, s.status
+       FROM salary_slips s JOIN employees e ON s.employee_id = e.id
+       WHERE s.month = ? ORDER BY e.name ASC`,
+      [month]
+    );
+    const header = 'Month,Employee Code,Name,Gross Salary,Total Deductions,Net Salary,Status\n';
+    const csvRows = (rows || []).map((r) =>
+      `"${(r.month || '').replace(/"/g, '""')}","${(r.employee_code || '').replace(/"/g, '""')}","${(r.name || '').replace(/"/g, '""')}","${r.gross_salary || 0}","${r.total_deductions || 0}","${r.net_salary || 0}","${(r.status || '').replace(/"/g, '""')}"`
+    );
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="payroll-report-${month}.csv"`);
+    return res.send('\uFEFF' + header + csvRows.join('\n'));
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

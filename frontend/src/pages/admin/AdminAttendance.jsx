@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { getEmployee } from '../../utils/auth';
@@ -38,6 +38,67 @@ export default function AdminAttendance() {
     fetchAttendanceData();
   }, [navigate, selectedMonth, selectedDepartment]);
 
+  const summary = useMemo(() => {
+    return data?.summary || {
+      totalEmployees: 0,
+      presentToday: 0,
+      absentToday: 0,
+      onLeave: 0,
+      attendanceRate: 0,
+      avgWorkingHours: 0,
+      lateArrivals: 0,
+      overtimeEmployees: 0,
+    };
+  }, [data]);
+
+  const monthlyStats = useMemo(() => {
+    if (!Array.isArray(data?.monthlyStats)) return [];
+    return data.monthlyStats.map((item) => ({
+      month: item.day ? item.day.slice(8, 10) : item.month,
+      rate: item.records || 0,
+      workedHours: item.workedHours || 0,
+      overtimeHours: item.overtimeHours || 0,
+    }));
+  }, [data]);
+
+  const attendanceTypes = useMemo(() => {
+    if (!Array.isArray(data?.attendanceTypes)) return [];
+    return data.attendanceTypes;
+  }, [data]);
+
+  const attendanceRecords = useMemo(() => {
+    if (!Array.isArray(data?.attendanceRecords)) return [];
+    return data.attendanceRecords;
+  }, [data]);
+
+  const departmentStats = useMemo(() => {
+    const grouped = new Map();
+    attendanceRecords.forEach((record) => {
+      const key = record.department_name || 'Unassigned';
+      const current = grouped.get(key) || {
+        department: key,
+        present: 0,
+        onBreak: 0,
+        completed: 0,
+        late: 0,
+        avgHours: 0,
+        totalHours: 0,
+        count: 0,
+      };
+      if (record.status === 'checked_in') current.present += 1;
+      if (record.status === 'on_break') current.onBreak += 1;
+      if (record.status === 'completed') current.completed += 1;
+      if (record.is_late) current.late += 1;
+      current.totalHours += Number(record.total_hours) || 0;
+      current.count += 1;
+      grouped.set(key, current);
+    });
+    return Array.from(grouped.values()).map((item) => ({
+      ...item,
+      avgHours: item.count ? (item.totalHours / item.count).toFixed(2) : '0.00',
+    }));
+  }, [attendanceRecords]);
+
   const fetchAttendanceData = async () => {
     try {
       setLoading(true);
@@ -52,9 +113,18 @@ export default function AdminAttendance() {
     }
   };
 
-  const exportAttendance = (format) => {
-    // Mock export functionality
-    alert(`Exporting attendance data as ${format.toUpperCase()}`);
+  const exportAttendance = async () => {
+    const response = await api.get('/hrms/attendance/report', {
+      params: { month: selectedMonth, format: 'csv' },
+      responseType: 'blob',
+    });
+    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `attendance-report-${selectedMonth}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   if (loading) {
@@ -75,53 +145,6 @@ export default function AdminAttendance() {
       </div>
     );
   }
-
-  // Mock data for demonstration
-  const mockData = {
-    summary: {
-      totalEmployees: 64,
-      presentToday: 58,
-      absentToday: 6,
-      onLeave: 4,
-      attendanceRate: 90.6,
-      avgWorkingHours: 8.2
-    },
-    monthlyStats: [
-      { month: 'Jan', present: 1456, absent: 144, leave: 80, rate: 89.2 },
-      { month: 'Feb', present: 1384, absent: 156, leave: 96, rate: 87.8 },
-      { month: 'Mar', present: 1520, absent: 120, leave: 72, rate: 91.2 },
-      { month: 'Apr', present: 1488, absent: 132, leave: 88, rate: 90.1 },
-      { month: 'May', present: 1552, absent: 108, leave: 64, rate: 92.3 },
-      { month: 'Jun', present: 1504, absent: 116, leave: 80, rate: 91.5 }
-    ],
-    departmentStats: [
-      { department: 'Sales', present: 184, absent: 16, leave: 10, rate: 91.0 },
-      { department: 'Marketing', present: 138, absent: 12, leave: 6, rate: 92.0 },
-      { department: 'HR', present: 48, absent: 2, leave: 2, rate: 96.0 },
-      { department: 'Finance', present: 38, absent: 4, leave: 3, rate: 88.4 },
-      { department: 'IT', present: 55, absent: 5, leave: 4, rate: 91.7 }
-    ],
-    attendanceTypes: [
-      { name: 'Present', value: 58, color: '#10b981' },
-      { name: 'Absent', value: 6, color: '#ef4444' },
-      { name: 'On Leave', value: 4, color: '#f59e0b' },
-      { name: 'Late', value: 2, color: '#3b82f6' }
-    ],
-    employeeAttendance: [
-      { id: 1, name: 'Rajesh Kumar', department: 'Sales', present: 22, absent: 1, leave: 2, rate: 91.7, status: 'present' },
-      { id: 2, name: 'Priya Sharma', department: 'Marketing', present: 23, absent: 0, leave: 1, rate: 95.8, status: 'present' },
-      { id: 3, name: 'Amit Singh', department: 'Sales', present: 21, absent: 2, leave: 1, rate: 87.5, status: 'absent' },
-      { id: 4, name: 'Sneha Patel', department: 'HR', present: 24, absent: 0, leave: 0, rate: 100, status: 'present' },
-      { id: 5, name: 'Vikram Rao', department: 'IT', present: 20, absent: 3, leave: 1, rate: 83.3, status: 'present' }
-    ]
-  };
-
-  const dataToUse = data && data.summary ? data : mockData;
-  const summary = dataToUse.summary || { totalEmployees: 0, presentToday: 0, absentToday: 0, onLeave: 0, attendanceRate: 0, avgWorkingHours: 0 };
-  const monthlyStats = Array.isArray(dataToUse.monthlyStats) ? dataToUse.monthlyStats : [];
-  const departmentStats = Array.isArray(dataToUse.departmentStats) ? dataToUse.departmentStats : [];
-  const attendanceTypes = Array.isArray(dataToUse.attendanceTypes) ? dataToUse.attendanceTypes : [];
-  const employeeAttendance = Array.isArray(dataToUse.employeeAttendance) ? dataToUse.employeeAttendance : [];
 
   return (
     <div className="space-y-6">
@@ -273,17 +296,18 @@ export default function AdminAttendance() {
           {/* Monthly Trend */}
           <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Monthly Attendance Trend</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={monthlyStats}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="rate" stroke="#10b981" name="Attendance Rate %" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={monthlyStats}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="workedHours" stroke="#10b981" name="Worked Hours" />
+                  <Line type="monotone" dataKey="overtimeHours" stroke="#3b82f6" name="Overtime Hours" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
         </div>
       ) : (
         <div className="space-y-6">
@@ -293,7 +317,7 @@ export default function AdminAttendance() {
               <h3 className="text-lg font-semibold text-gray-900">Department-wise Attendance</h3>
               <div className="flex space-x-2">
                 <button
-                  onClick={() => exportAttendance('excel')}
+                  onClick={exportAttendance}
                   className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 flex items-center space-x-2"
                 >
                   <i className="fas fa-file-excel"></i>
@@ -307,29 +331,22 @@ export default function AdminAttendance() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Absent</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">On Leave</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attendance Rate</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Working</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">On Break</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Late</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Hours</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {dataToUse.departmentStats.map((dept, index) => (
+                  {departmentStats.map((dept, index) => (
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{dept.department}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">{dept.present}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">{dept.absent}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-yellow-600">{dept.leave}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{dept.rate}%</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                          dept.rate >= 90 ? 'bg-green-100 text-green-700' :
-                          dept.rate >= 80 ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-red-100 text-red-700'
-                        }`}>
-                          {dept.rate >= 90 ? 'Excellent' : dept.rate >= 80 ? 'Good' : 'Needs Attention'}
-                        </span>
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-amber-600">{dept.onBreak}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">{dept.completed}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">{dept.late}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{dept.avgHours}h</td>
                     </tr>
                   ))}
                 </tbody>
@@ -346,30 +363,30 @@ export default function AdminAttendance() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Absent</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Leave</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Today</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check In</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check Out</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Worked</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Break</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {employeeAttendance.map((employee, index) => (
+                  {attendanceRecords.map((employee, index) => (
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">{employee.name}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{employee.department}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">{employee.present}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">{employee.absent}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-yellow-600">{employee.leave}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{employee.rate}%</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{employee.department_name || 'Unassigned'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{employee.check_in_time || '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{employee.check_out_time || '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">{employee.worked_time || '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-amber-600">{employee.break_time || '-'}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                          employee.status === 'present' ? 'bg-green-100 text-green-700' :
-                          employee.status === 'absent' ? 'bg-red-100 text-red-700' :
-                          employee.status === 'late' ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-blue-100 text-blue-700'
+                          employee.status === 'checked_in' ? 'bg-green-100 text-green-700' :
+                          employee.status === 'on_break' ? 'bg-yellow-100 text-yellow-700' :
+                          employee.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                          'bg-gray-100 text-gray-700'
                         }`}>
                           {employee.status}
                         </span>

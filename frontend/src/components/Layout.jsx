@@ -1407,16 +1407,196 @@ export default function Layout() {
                       )}
                     </Link>
 
-                    {/* HR Reports */}
+                    {/* Departments */}
                     <Link
-                      to="/reports"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/reports")
+                      to="/hr/hrms/departments"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/departments")
                         ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
                         : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
                         }`}
                     >
                       <svg
-                        className={`w-5 h-5 mr-3 ${isActive("/reports")
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/departments")
+                          ? "text-white"
+                          : "text-gray-500 group-hover:text-blue-600"
+                          }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M3 7h6l2 2h10v9a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2z"
+                        />
+                      </svg>
+                      <span>Departments</span>
+                      {isActive("/hr/hrms/departments") && (
+                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Link>
+
+                    {/* Designations */}
+                    <Link
+                      to="/hr/hrms/designations"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/designations")
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                    >
+                      <svg
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/designations")
+                          ? "text-white"
+                          : "text-gray-500 group-hover:text-blue-600"
+                          }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6l4 2m4-8a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span>Designations</span>
+                      {isActive("/hr/hrms/designations") && (
+                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Link>
+
+                    {/* Shifts */}
+                    <Link
+                      to="/hr/hrms/shifts"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/shifts")
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                    >
+                      <svg
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/shifts")
+                          ? "text-white"
+                          : "text-gray-500 group-hover:text-blue-600"
+                          }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span>Shift Management</span>
+                      {isActive("/hr/hrms/shifts") && (
+                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Link>
+
+                    {/* Holidays */}
+                    <Link
+                      to="/hr/hrms/holidays"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/holidays")
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                    >
+                      <svg
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/holidays")
+                          ? "text-white"
+                          : "text-gray-500 group-hover:text-blue-600"
+                          }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <span>Holidays</span>
+                      {isActive("/hr/hrms/holidays") && (
+                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Link>
+
+                    {/* Performance */}
+                    <Link
+                      to="/hr/hrms/performance"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/performance")
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                    >
+                      <svg
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/performance")
+                          ? "text-white"
+                          : "text-gray-500 group-hover:text-blue-600"
+                          }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                      <span>Performance</span>
+                      {isActive("/hr/hrms/performance") && (
+                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Link>
+
+                    {/* Announcements */}
+                    <Link
+                      to="/hr/hrms/announcements"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/announcements")
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                    >
+                      <svg
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/announcements")
+                          ? "text-white"
+                          : "text-gray-500 group-hover:text-blue-600"
+                          }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5h2m-1 0v14m-7-7h14" />
+                      </svg>
+                      <span>Announcements</span>
+                      {isActive("/hr/hrms/announcements") && (
+                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Link>
+
+                    {/* Settings */}
+                    <Link
+                      to="/hr/hrms/settings"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/settings")
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                    >
+                      <svg
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/settings")
+                          ? "text-white"
+                          : "text-gray-500 group-hover:text-blue-600"
+                          }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.105 0-2 .895-2 2s.895 2 2 2 2-.895 2-2-.895-2-2-2zm7.4 2a7.4 7.4 0 01-.2 1.7l2 1.5-2 3.5-2.3-1a7.4 7.4 0 01-2.9 1.7l-.3 2.4H10l-.3-2.4a7.4 7.4 0 01-2.9-1.7l-2.3 1-2-3.5 2-1.5a7.4 7.4 0 01-.2-1.7 7.4 7.4 0 01.2-1.7l-2-1.5 2-3.5 2.3 1a7.4 7.4 0 012.9-1.7L10 3h4l.3 2.4a7.4 7.4 0 012.9 1.7l2.3-1 2 3.5-2 1.5c.1.6.2 1.1.2 1.7z" />
+                      </svg>
+                      <span>Settings</span>
+                      {isActive("/hr/hrms/settings") && (
+                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Link>
+
+                    {/* HR Reports */}
+                    <Link
+                      to="/hr/hrms/reports"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/reports")
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                    >
+                      <svg
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/reports")
                           ? "text-white"
                           : "text-gray-500 group-hover:text-blue-600"
                           }`}
@@ -1432,7 +1612,7 @@ export default function Layout() {
                         />
                       </svg>
                       <span>HR Reports</span>
-                      {isActive("/reports") && (
+                      {isActive("/hr/hrms/reports") && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
                     </Link>

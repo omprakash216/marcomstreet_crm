@@ -47,6 +47,51 @@ async function getDepartmentEmployees(departmentId) {
   );
 }
 
+// GET /tasks/assignees - manager can assign tasks to employees in their department only
+router.get('/assignees', verifyToken, async (req, res) => {
+  console.log('DEBUG: Hit /api/tasks/assignees');
+  try {
+    const emp = req.employee;
+    if (!isAdmin(emp) && !isManager(emp)) {
+      console.log('DEBUG: Unauthorized access to assignees');
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    if (isAdmin(emp)) {
+      const rows = await query(
+        `SELECT e.id,
+                e.employee_code,
+                e.name,
+                e.email,
+                e.phone,
+                e.role,
+                e.department_id,
+                e.designation,
+                d.name AS department_name
+         FROM employees e
+         LEFT JOIN departments d ON d.id = e.department_id
+         WHERE e.status = 'active' AND e.role != 'admin'
+         ORDER BY e.name ASC`
+      ).catch((err) => {
+        console.error('DEBUG: Query error in assignees:', err);
+        return [];
+      });
+      return res.json({ success: true, data: rows || [] });
+    }
+
+    const deptId = emp.department_id;
+    if (!deptId) {
+      console.log('DEBUG: Manager has no department_id');
+      return res.json({ success: true, data: [] });
+    }
+    const rows = await getDepartmentEmployees(deptId);
+    return res.json({ success: true, data: rows || [] });
+  } catch (err) {
+    console.error('DEBUG: Catch error in assignees:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to load assignees' });
+  }
+});
+
 router.get('/', verifyToken, async (req, res) => {
   try {
     const rows = await query(
@@ -72,42 +117,6 @@ router.post('/', verifyToken, async (req, res) => {
     return res.json({ success: true, message: 'Task created' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// GET /tasks/assignees - manager can assign tasks to employees in their department only
-router.get('/assignees', verifyToken, async (req, res) => {
-  try {
-    const emp = req.employee;
-    if (!isAdmin(emp) && !isManager(emp)) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
-    }
-
-    if (isAdmin(emp)) {
-      const rows = await query(
-        `SELECT e.id,
-                e.employee_code,
-                e.name,
-                e.email,
-                e.phone,
-                e.role,
-                e.department_id,
-                e.designation,
-                d.name AS department_name
-         FROM employees e
-         LEFT JOIN departments d ON d.id = e.department_id
-         WHERE e.status = 'active' AND e.role != 'admin'
-         ORDER BY e.name ASC`
-      ).catch(() => []);
-      return res.json({ success: true, data: rows || [] });
-    }
-
-    const deptId = emp.department_id;
-    if (!deptId) return res.json({ success: true, data: [] });
-    const rows = await getDepartmentEmployees(deptId);
-    return res.json({ success: true, data: rows || [] });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message || 'Failed to load assignees' });
   }
 });
 

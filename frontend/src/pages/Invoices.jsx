@@ -17,7 +17,8 @@ export default function Invoices() {
   const [formData, setFormData] = useState({
     lead_id: '',
     items: [{ item_name: '', description: '', quantity: 1, unit_price: 0 }],
-    tax_percentage: 10,
+    tax_percentage: 18,
+    tds_percentage: 0,
     discount_percentage: 0,
     due_date: '',
     notes: '',
@@ -41,7 +42,7 @@ export default function Invoices() {
       setInvoices([]);
       return;
     }
-    
+
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -69,7 +70,7 @@ export default function Invoices() {
       setLeads([]);
       return;
     }
-    
+
     try {
       const response = await api.get('/leads');
       setLeads(Array.isArray(response.data.data) ? response.data.data : []);
@@ -128,7 +129,7 @@ export default function Invoices() {
     try {
       const d = new Date(v);
       if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-    } catch (_) {}
+    } catch (_) { }
     return s.slice(0, 10);
   };
 
@@ -139,7 +140,7 @@ export default function Invoices() {
     try {
       const d = new Date(v);
       if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-    } catch (_) {}
+    } catch (_) { }
     return '';
   };
 
@@ -182,7 +183,8 @@ export default function Invoices() {
           unit_price: Number(it.unit_price || 0),
         }))
         : [{ item_name: '', description: '', quantity: 1, unit_price: 0 }],
-      tax_percentage: Number(invoice.tax_percentage ?? 10),
+      tax_percentage: Number(invoice.tax_percentage ?? 18),
+      tds_percentage: Number(invoice.tds_percentage ?? 0),
       discount_percentage: Number(invoice.discount_percentage ?? 0),
       due_date: toDateInput(invoice.due_date),
       notes: invoice.notes || '',
@@ -231,24 +233,25 @@ export default function Invoices() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     // Validate items
-    const invalidItems = formData.items.filter(item => 
+    const invalidItems = formData.items.filter(item =>
       !item.item_name || !item.quantity || item.quantity <= 0 || !item.unit_price || item.unit_price <= 0
     );
-    
+
     if (invalidItems.length > 0) {
       alert('Please fill all required item fields (Name, Quantity > 0, Unit Price > 0)');
       return;
     }
-    
+
     try {
       await api.post('/invoices', formData);
       setShowModal(false);
       setFormData({
         lead_id: '',
         items: [{ item_name: '', description: '', quantity: 1, unit_price: 0 }],
-        tax_percentage: 10,
+        tax_percentage: 18,
+        tds_percentage: 0,
         discount_percentage: 0,
         due_date: '',
         notes: '',
@@ -281,7 +284,7 @@ export default function Invoices() {
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
           }}></div>
         </div>
-        
+
         {/* Content */}
         <div className="relative z-10">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -293,14 +296,14 @@ export default function Invoices() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z" />
                 </svg>
               </div>
-              
+
               {/* Title and Description */}
               <div className="flex-1">
                 <h1 className="text-3xl font-bold text-white mb-1">Invoices</h1>
                 <p className="text-slate-300 text-sm">Generate and manage invoices for your clients</p>
               </div>
             </div>
-            
+
             {/* Right Side - Action Button */}
             <button
               onClick={() => setShowModal(true)}
@@ -313,7 +316,7 @@ export default function Invoices() {
             </button>
           </div>
         </div>
-        
+
         {/* Decorative Elements */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full -ml-12 -mb-12"></div>
@@ -411,91 +414,91 @@ export default function Invoices() {
           <div className="p-6">
             <div className="space-y-4">
               {invoices.map((invoice, index) => (
-            <div key={invoice.id} className="bg-white rounded-xl shadow-md border border-gray-200 p-6 hover:shadow-lg transition-shadow">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-medium text-gray-500">SL No: {index + 1}</span>
+                <div key={invoice.id} className="bg-white rounded-xl shadow-md border border-gray-200 p-6 hover:shadow-lg transition-shadow">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium text-gray-500">SL No: {index + 1}</span>
+                      </div>
+                      <h3 className="text-xl font-bold text-gray-900">{invoice.invoice_number}</h3>
+                      <p className="text-sm text-gray-600 mt-1">{invoice.company_name}</p>
+                      {invoice.contact_person && (
+                        <p className="text-xs text-gray-500 mt-1">Contact: {invoice.contact_person}</p>
+                      )}
+                    </div>
+                    <span className={`px-4 py-2 rounded-full text-sm font-semibold ${getStatusColor(invoice.status)}`}>
+                      {invoice.status.toUpperCase()}
+                    </span>
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900">{invoice.invoice_number}</h3>
-                  <p className="text-sm text-gray-600 mt-1">{invoice.company_name}</p>
-                  {invoice.contact_person && (
-                    <p className="text-xs text-gray-500 mt-1">Contact: {invoice.contact_person}</p>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">Issue Date</div>
+                      <div className="font-semibold text-gray-900">{new Date(invoice.issue_date).toLocaleDateString()}</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">Due Date</div>
+                      <div className="font-semibold text-gray-900">
+                        {invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : 'N/A'}
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500 mb-1">Subtotal</div>
+                      <div className="font-semibold text-gray-900">₹{parseFloat(invoice.subtotal || 0).toLocaleString('en-IN')}</div>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3 border-2 border-green-200">
+                      <div className="text-xs text-green-600 mb-1">Total Amount</div>
+                      <div className="font-bold text-lg text-green-700">₹{parseFloat(invoice.total_amount || 0).toLocaleString('en-IN')}</div>
+                    </div>
+                  </div>
+
+                  {invoice.items && invoice.items.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">Items ({invoice.items.length})</h4>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item Name</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Unit Price</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {invoice.items.map((item, idx) => (
+                              <tr key={idx} className="hover:bg-gray-50">
+                                <td className="px-4 py-3">
+                                  <div className="font-medium text-gray-900">{item.item_name}</div>
+                                  {item.description && (
+                                    <div className="text-xs text-gray-500 mt-1">{item.description}</div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-right text-sm">{item.quantity}</td>
+                                <td className="px-4 py-3 text-right text-sm">₹{parseFloat(item.unit_price || 0).toLocaleString('en-IN')}</td>
+                                <td className="px-4 py-3 text-right font-semibold text-gray-900">₹{parseFloat(item.total_price || 0).toLocaleString('en-IN')}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {invoice.notes && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <p className="text-xs font-medium text-gray-700 mb-1">Notes:</p>
+                      <p className="text-sm text-gray-600">{invoice.notes}</p>
+                    </div>
+                  )}
+
+                  {invoice.payment_terms && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <p className="text-xs font-medium text-gray-700 mb-1">Payment Terms:</p>
+                      <p className="text-sm text-gray-600">{invoice.payment_terms}</p>
+                    </div>
                   )}
                 </div>
-                <span className={`px-4 py-2 rounded-full text-sm font-semibold ${getStatusColor(invoice.status)}`}>
-                  {invoice.status.toUpperCase()}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-xs text-gray-500 mb-1">Issue Date</div>
-                  <div className="font-semibold text-gray-900">{new Date(invoice.issue_date).toLocaleDateString()}</div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-xs text-gray-500 mb-1">Due Date</div>
-                  <div className="font-semibold text-gray-900">
-                    {invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : 'N/A'}
-                  </div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-xs text-gray-500 mb-1">Subtotal</div>
-                  <div className="font-semibold text-gray-900">₹{parseFloat(invoice.subtotal || 0).toLocaleString('en-IN')}</div>
-                </div>
-                <div className="bg-green-50 rounded-lg p-3 border-2 border-green-200">
-                  <div className="text-xs text-green-600 mb-1">Total Amount</div>
-                  <div className="font-bold text-lg text-green-700">₹{parseFloat(invoice.total_amount || 0).toLocaleString('en-IN')}</div>
-                </div>
-              </div>
-
-              {invoice.items && invoice.items.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-3">Items ({invoice.items.length})</h4>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item Name</th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Quantity</th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Unit Price</th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {invoice.items.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-gray-50">
-                            <td className="px-4 py-3">
-                              <div className="font-medium text-gray-900">{item.item_name}</div>
-                              {item.description && (
-                                <div className="text-xs text-gray-500 mt-1">{item.description}</div>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm">{item.quantity}</td>
-                            <td className="px-4 py-3 text-right text-sm">₹{parseFloat(item.unit_price || 0).toLocaleString('en-IN')}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-gray-900">₹{parseFloat(item.total_price || 0).toLocaleString('en-IN')}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {invoice.notes && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <p className="text-xs font-medium text-gray-700 mb-1">Notes:</p>
-                  <p className="text-sm text-gray-600">{invoice.notes}</p>
-                </div>
-              )}
-
-              {invoice.payment_terms && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <p className="text-xs font-medium text-gray-700 mb-1">Payment Terms:</p>
-                  <p className="text-sm text-gray-600">{invoice.payment_terms}</p>
-                </div>
-              )}
-              </div>
               ))}
             </div>
           </div>
@@ -535,22 +538,32 @@ export default function Invoices() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1">Tax %</label>
+                  <label className="block text-xs font-medium mb-1">GST %</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formData.tax_percentage}
-                    onChange={(e) => setFormData({ ...formData, tax_percentage: parseFloat(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, tax_percentage: parseFloat(e.target.value) || 0 })}
                     className="w-full border rounded px-2 py-1.5 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1">Discount %</label>
+                  <label className="block text-xs font-medium mb-1">TDS %</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.tds_percentage}
+                    onChange={(e) => setFormData({ ...formData, tds_percentage: parseFloat(e.target.value) || 0 })}
+                    className="w-full border rounded px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Disc %</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formData.discount_percentage}
-                    onChange={(e) => setFormData({ ...formData, discount_percentage: parseFloat(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, discount_percentage: parseFloat(e.target.value) || 0 })}
                     className="w-full border rounded px-2 py-1.5 text-sm"
                   />
                 </div>
@@ -640,6 +653,32 @@ export default function Invoices() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+
+              {/* Totals Summary */}
+              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                <div className="flex justify-between items-center text-sm mb-1">
+                  <span className="text-gray-500">Subtotal</span>
+                  <span className="font-medium">₹{formData.items.reduce((s, it) => s + (it.quantity * it.unit_price || 0), 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm mb-1">
+                  <span className="text-gray-500">GST ({formData.tax_percentage}%)</span>
+                  <span className="font-medium text-blue-600">+₹{(formData.items.reduce((s, it) => s + (it.quantity * it.unit_price || 0), 0) * (1 - formData.discount_percentage / 100) * (formData.tax_percentage / 100)).toFixed(2)}</span>
+                </div>
+                {formData.tds_percentage > 0 && (
+                  <div className="flex justify-between items-center text-sm mb-1">
+                    <span className="text-gray-500">TDS ({formData.tds_percentage}%)</span>
+                    <span className="font-medium text-red-600">-₹{(formData.items.reduce((s, it) => s + (it.quantity * it.unit_price || 0), 0) * (1 - formData.discount_percentage / 100) * (formData.tds_percentage / 100)).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-base font-bold text-gray-900 pt-2 border-t mt-1">
+                  <span>Grand Total</span>
+                  <span className="text-blue-700">₹{(
+                    formData.items.reduce((s, it) => s + (it.quantity * it.unit_price || 0), 0) *
+                    (1 - formData.discount_percentage / 100) *
+                    (1 + formData.tax_percentage / 100)
+                  ).toFixed(2)}</span>
                 </div>
               </div>
 

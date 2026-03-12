@@ -356,6 +356,8 @@ CREATE TABLE chat_messages (
     to_employee_id INT NOT NULL,
     message TEXT NOT NULL,
     file_path VARCHAR(255),
+    file_name VARCHAR(255),
+    file_type VARCHAR(100),
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (from_employee_id) REFERENCES employees(id) ON DELETE CASCADE,

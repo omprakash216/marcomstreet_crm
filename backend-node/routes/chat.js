@@ -1,8 +1,26 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
 const { query } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 
 const router = express.Router();
+const UPLOADS_CHAT = path.join(__dirname, '../../uploads/chat/messages');
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(UPLOADS_CHAT)) fs.mkdirSync(UPLOADS_CHAT, { recursive: true });
+    cb(null, UPLOADS_CHAT);
+  },
+  filename: (req, file, cb) => {
+    const safeName = Date.now() + '_' + (file.originalname || 'attachment');
+    cb(null, safeName);
+  },
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+});
 
 router.get('/', verifyToken, async (req, res) => {
   try {
@@ -88,21 +106,55 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
-router.post('/', verifyToken, async (req, res) => {
-  try {
-    const { to_employee_id, message } = req.body || {};
-    if (!to_employee_id || !message) {
-      return res.status(400).json({ success: false, message: 'to_employee_id and message required' });
+router.post('/', verifyToken, (req, res) => {
+  upload.single('file')(req, res, async (err) => {
+    if (err) {
+      const isLimit = err.code === 'LIMIT_FILE_SIZE';
+      return res.status(isLimit ? 413 : 400).json({
+        success: false,
+        message: isLimit ? 'File too large (max 50MB)' : 'File upload failed',
+      });
     }
-    await query(
-      'INSERT INTO chat_messages (from_employee_id, to_employee_id, message, is_read) VALUES (?, ?, ?, 0)',
-      [req.employee.id, to_employee_id, message]
-    );
-    return res.json({ success: true, message: 'Message sent' });
-  } catch (err) {
-    console.error('Chat POST:', err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
+
+    try {
+      const { to_employee_id, message } = req.body || {};
+      if (!to_employee_id) {
+        return res.status(400).json({ success: false, message: 'to_employee_id is required' });
+      }
+      let finalMessage = (message || '').trim();
+      if (req.file && !finalMessage) {
+        finalMessage = `Sent a file: ${req.file.originalname}`;
+      }
+      const fileInfo = req.file
+        ? {
+            file_path: `uploads/chat/messages/${req.file.filename}`,
+            file_name: req.file.originalname || req.file.filename,
+            file_type: req.file.mimetype,
+          }
+        : { file_path: null, file_name: null, file_type: null };
+
+      try {
+        await query(
+          'INSERT INTO chat_messages (from_employee_id, to_employee_id, message, file_path, file_name, file_type, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
+          [req.employee.id, to_employee_id, finalMessage || null, fileInfo.file_path, fileInfo.file_name, fileInfo.file_type]
+        );
+      } catch (insertErr) {
+        const msg = (insertErr && insertErr.message) ? String(insertErr.message) : '';
+        if (msg.includes('Unknown column') || msg.includes("doesn't exist")) {
+          await query(
+            'INSERT INTO chat_messages (from_employee_id, to_employee_id, message, file_path, is_read) VALUES (?, ?, ?, ?, 0)',
+            [req.employee.id, to_employee_id, finalMessage || null, fileInfo.file_path]
+          );
+        } else {
+          throw insertErr;
+        }
+      }
+      return res.json({ success: true, message: 'Message sent' });
+    } catch (uploadErr) {
+      console.error('Chat POST:', uploadErr);
+      return res.status(500).json({ success: false, message: uploadErr.message });
+    }
+  });
 });
 
 module.exports = router;

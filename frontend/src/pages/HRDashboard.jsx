@@ -11,6 +11,9 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts';
 
 // Icons (SVG - no external font)
@@ -61,12 +64,12 @@ const IconArrowRight = ({ className = 'w-4 h-4' }) => (
 );
 
 const QUICK_ACTIONS = [
-  { id: 'salary', label: 'Salary Slips', desc: 'Generate payroll', path: '/hr/hrms/salary', icon: IconBanknotes, color: 'emerald' },
-  { id: 'documents', label: 'HR Documents', desc: 'Offer letters & policies', path: '/hr/hrms/documents', icon: IconFolder, color: 'indigo' },
+  { id: 'add-employee', label: 'Add Employee', desc: 'Create profile', path: '/hr/employees', icon: IconUsers, color: 'slate' },
+  { id: 'approve-leave', label: 'Approve Leave', desc: 'Review requests', path: '/hr/hrms/leaves', icon: IconCalendar, color: 'amber' },
+  { id: 'generate-payslip', label: 'Generate Payslip', desc: 'Payroll run', path: '/hr/hrms/salary', icon: IconBanknotes, color: 'emerald' },
   { id: 'attendance', label: 'Attendance', desc: 'Track & correct', path: '/hr/hrms/attendance', icon: IconClock, color: 'blue' },
-  { id: 'leaves', label: 'Leaves', desc: 'Approve & manage', path: '/hr/hrms/leaves', icon: IconCalendar, color: 'amber' },
-  { id: 'employees', label: 'Employees', desc: 'Manage records', path: '/hr/employees', icon: IconUsers, color: 'slate' },
-  { id: 'reports', label: 'Reports', desc: 'HR analytics', path: '/reports', icon: IconChart, color: 'violet' },
+  { id: 'documents', label: 'HR Documents', desc: 'Offer letters & policies', path: '/hr/hrms/documents', icon: IconFolder, color: 'indigo' },
+  { id: 'reports', label: 'Reports', desc: 'HR analytics', path: '/hr/hrms/reports', icon: IconChart, color: 'violet' },
 ];
 
 const colorClasses = {
@@ -84,6 +87,8 @@ export default function HRDashboard() {
   const [recentActivities, setRecentActivities] = useState([]);
   const [attendanceData, setAttendanceData] = useState([]);
   const [leaveStats, setLeaveStats] = useState([]);
+  const [departmentStats, setDepartmentStats] = useState([]);
+  const [upcomingHolidays, setUpcomingHolidays] = useState([]);
   const [activityPage, setActivityPage] = useState(0);
   const navigate = useNavigate();
   const employee = getEmployee();
@@ -107,7 +112,9 @@ export default function HRDashboard() {
         const data = response.data.data;
         setStats({
           total_employees: data.total_employees ?? 0,
-          today_attendance: data.today_attendance ?? 0,
+          present_today: data.present_today ?? 0,
+          on_leave_today: data.on_leave_today ?? 0,
+          late_employees: data.late_employees ?? 0,
           pending_leaves: data.pending_leaves ?? 0,
           total_leave_balance: data.total_leave_balance ?? 0,
           used_leaves: data.used_leaves ?? 0,
@@ -125,6 +132,20 @@ export default function HRDashboard() {
             type: (ls.type || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
             used: parseInt(ls.used, 10) || 0,
             approved: parseInt(ls.approved, 10) || 0,
+          })));
+        }
+        if (data.department_counts?.length > 0) {
+          setDepartmentStats(data.department_counts.map(dc => ({
+            department: dc.department || 'Unassigned',
+            total: parseInt(dc.total, 10) || 0,
+          })));
+        }
+        if (data.upcoming_holidays?.length > 0) {
+          setUpcomingHolidays(data.upcoming_holidays.map(h => ({
+            id: h.id,
+            name: h.name,
+            date: h.date ? String(h.date).slice(0, 10) : '',
+            description: h.description || '',
           })));
         }
         if (data.recent_activities?.length > 0) {
@@ -208,12 +229,14 @@ export default function HRDashboard() {
         </section>
 
         {/* Stats cards - right above charts */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4 mb-6">
           {[
             { label: 'Total Employees', value: stats?.total_employees ?? 0, icon: IconUsers, sub: 'Active' },
-            { label: "Today's Attendance", value: stats?.today_attendance ?? 0, icon: IconClock, sub: 'Checked in' },
+            { label: 'Present Today', value: stats?.present_today ?? 0, icon: IconClock, sub: 'Checked in' },
+            { label: 'On Leave Today', value: stats?.on_leave_today ?? 0, icon: IconCalendar, sub: 'Approved' },
+            { label: 'Late Employees', value: stats?.late_employees ?? 0, icon: IconBriefcase, sub: 'Late marks' },
             { label: 'Pending Leaves', value: stats?.pending_leaves ?? 0, icon: IconDocument, sub: 'Awaiting approval' },
-            { label: 'Salary Slips (Month)', value: stats?.monthly_salary_processed ?? 0, icon: IconBanknotes, sub: 'Generated' },
+            { label: 'Payslips (Month)', value: stats?.monthly_salary_processed ?? 0, icon: IconBanknotes, sub: 'Generated' },
           ].map((item) => {
             const Icon = item.icon;
             return (
@@ -269,6 +292,43 @@ export default function HRDashboard() {
               </ResponsiveContainer>
             ) : (
               <div className="h-[260px] flex items-center justify-center text-slate-400 text-sm">No leave data yet</div>
+            )}
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-6 lg:col-span-2">
+            <h3 className="text-sm font-semibold text-slate-800 mb-4">Department-wise employees</h3>
+            {departmentStats.length > 0 ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie data={departmentStats} dataKey="total" nameKey="department" outerRadius={100} innerRadius={50} paddingAngle={3}>
+                    {departmentStats.map((_, idx) => (
+                      <Cell key={idx} fill={['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#0ea5e9'][idx % 6]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[260px] flex items-center justify-center text-slate-400 text-sm">No department data yet</div>
+            )}
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-6">
+            <h3 className="text-sm font-semibold text-slate-800 mb-4">Upcoming holidays</h3>
+            {upcomingHolidays.length > 0 ? (
+              <div className="space-y-3">
+                {upcomingHolidays.map((h) => (
+                  <div key={h.id} className="p-3 rounded-lg border border-slate-100 bg-slate-50/60">
+                    <p className="text-sm font-semibold text-slate-900">{h.name}</p>
+                    <p className="text-xs text-slate-500">{h.date}</p>
+                    {h.description && <p className="text-xs text-slate-500 mt-1">{h.description}</p>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-slate-400 text-sm">No upcoming holidays</div>
             )}
           </div>
         </section>

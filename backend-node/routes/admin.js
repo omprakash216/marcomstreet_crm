@@ -2,6 +2,8 @@ const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
+const { getIntegrationStats } = require('../services/apiIntegration');
+const { getAdminAttendanceAnalytics } = require('../services/workTimer');
 
 const router = express.Router();
 
@@ -19,25 +21,115 @@ function requireAdminOrHR(req, res, next) {
 
 router.get('/dashboard', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const [leads] = await query('SELECT COUNT(*) as c FROM leads');
-    const [employees] = await query('SELECT COUNT(*) as c FROM employees WHERE status = ?', ['active']);
+    const [leads] = await query('SELECT COUNT(*) as c FROM leads').catch(() => [{ c: 0 }]);
+    const [employees] = await query('SELECT COUNT(*) as c FROM employees WHERE status = ?', ['active']).catch(() => [{ c: 0 }]);
     const [companies] = await query('SELECT COUNT(*) as c FROM companies').catch(() => [{ c: 0 }]);
+    const [activeCompanies] = await query('SELECT COUNT(*) as c FROM companies WHERE status = ?', ['active']).catch(() => [{ c: 0 }]);
+    const [inactiveCompanies] = await query('SELECT COUNT(*) as c FROM companies WHERE status IN (?, ?)', ['inactive', 'suspended']).catch(() => [{ c: 0 }]);
     const [meetings] = await query('SELECT COUNT(*) as c FROM meetings').catch(() => [{ c: 0 }]);
     const [tasks] = await query('SELECT COUNT(*) as c FROM tasks').catch(() => [{ c: 0 }]);
     const [followups] = await query('SELECT COUNT(*) as c FROM followups').catch(() => [{ c: 0 }]);
     const [invoices] = await query('SELECT COUNT(*) as c FROM invoices').catch(() => [{ c: 0 }]);
     const [quotations] = await query('SELECT COUNT(*) as c FROM quotations').catch(() => [{ c: 0 }]);
+    const [liveDeals] = await query(
+      "SELECT COUNT(*) as c FROM leads WHERE status IN ('qualified','proposal','negotiation')"
+    ).catch(() => [{ c: 0 }]);
+
+    const [totalRevenueRow] = await query(
+      "SELECT COALESCE(SUM(total_amount), 0) as total FROM invoices WHERE status IN ('paid','sent','overdue')"
+    ).catch(() => [{ total: 0 }]);
+    const [monthlyRevenueRow] = await query(
+      "SELECT COALESCE(SUM(total_amount), 0) as total FROM invoices WHERE status IN ('paid','sent','overdue') AND MONTH(created_at)=MONTH(CURDATE()) AND YEAR(created_at)=YEAR(CURDATE())"
+    ).catch(() => [{ total: 0 }]);
+
+    const leadsByStatus = await query(
+      'SELECT status, COUNT(*) as count FROM leads GROUP BY status ORDER BY count DESC'
+    ).catch(() => []);
+
+    const monthlyRevenueTrend = await query(`
+      SELECT DATE_FORMAT(created_at, '%Y-%m') as month, DATE_FORMAT(created_at, '%b %Y') as month_label, COALESCE(SUM(total_amount), 0) as revenue
+      FROM invoices
+      WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+      GROUP BY DATE_FORMAT(created_at, '%Y-%m'), DATE_FORMAT(created_at, '%b %Y')
+      ORDER BY month ASC
+    `).catch(() => []);
+
+    const companySales = await query(`
+      SELECT l.company_name, COALESCE(SUM(i.total_amount), 0) as sales
+      FROM leads l
+      LEFT JOIN invoices i ON i.lead_id = l.id
+      GROUP BY l.company_name
+      ORDER BY sales DESC
+      LIMIT 10
+    `).catch(() => []);
+
+    const employeePerformance = await query(`
+      SELECT
+        e.id,
+        e.name,
+        COUNT(DISTINCT l.id) as total_leads,
+        COALESCE(SUM(i.total_amount), 0) as total_revenue
+      FROM employees e
+      LEFT JOIN leads l ON l.assigned_to = e.id
+      LEFT JOIN invoices i ON i.lead_id = l.id
+      WHERE e.status = 'active'
+      GROUP BY e.id, e.name
+      ORDER BY total_revenue DESC, total_leads DESC
+      LIMIT 10
+    `).catch(() => []);
+
+    const recentCompanies = await query(
+      'SELECT id, company_name, email, status, created_at FROM companies ORDER BY created_at DESC LIMIT 5'
+    ).catch(() => []);
+
+    const [employeeAgentOutputs] = await query(`
+      SELECT
+        (SELECT COUNT(*) FROM leads) as total_leads,
+        (SELECT COUNT(*) FROM meetings) as total_meetings,
+        (SELECT COUNT(*) FROM employee_checkins) as total_attendance_logs
+    `).catch(() => [{ total_leads: 0, total_meetings: 0, total_attendance_logs: 0 }]);
+
+    const totalRevenue = Number(totalRevenueRow?.total) || 0;
+    const monthlyRevenue = Number(monthlyRevenueRow?.total) || 0;
+    const totalLeads = Number(leads?.c) || 0;
+    const totalEmployees = Number(employees?.c) || 0;
+    const totalCompanies = Number(companies?.c) || 0;
+    const totalMeetings = Number(meetings?.c) || 0;
+    const totalTasks = Number(tasks?.c) || 0;
+    const totalFollowups = Number(followups?.c) || 0;
+    const totalInvoices = Number(invoices?.c) || 0;
+    const totalQuotations = Number(quotations?.c) || 0;
+    const activeCompaniesCount = Number(activeCompanies?.c) || 0;
+    const suspendedCompaniesCount = Number(inactiveCompanies?.c) || 0;
+    const liveDealsCount = Number(liveDeals?.c) || 0;
+
     return res.json({
       success: true,
       data: {
-        total_leads: Number(leads?.c) || 0,
-        total_employees: Number(employees?.c) || 0,
-        total_companies: Number(companies?.c) || 0,
-        total_meetings: Number(meetings?.c) || 0,
-        total_tasks: Number(tasks?.c) || 0,
-        total_followups: Number(followups?.c) || 0,
-        total_invoices: Number(invoices?.c) || 0,
-        total_quotations: Number(quotations?.c) || 0,
+        totalLeads,
+        totalEmployees,
+        totalCompanies,
+        activeCompanies: activeCompaniesCount,
+        suspendedCompanies: suspendedCompaniesCount,
+        liveDeals: liveDealsCount,
+        totalRevenue,
+        monthlyRevenue,
+        leadsByStatus: leadsByStatus || [],
+        monthlyRevenueTrend: monthlyRevenueTrend || [],
+        companySales: companySales || [],
+        employeePerformance: employeePerformance || [],
+        recentCompanies: recentCompanies || [],
+        employeeAgentOutputs: employeeAgentOutputs || { total_leads: 0, total_meetings: 0, total_attendance_logs: 0 },
+
+        // Backward-compatible keys for older frontend screens.
+        total_leads: totalLeads,
+        total_employees: totalEmployees,
+        total_companies: totalCompanies,
+        total_meetings: totalMeetings,
+        total_tasks: totalTasks,
+        total_followups: totalFollowups,
+        total_invoices: totalInvoices,
+        total_quotations: totalQuotations,
       },
     });
   } catch (err) {
@@ -50,29 +142,32 @@ router.get('/attendance', verifyToken, requireAdmin, async (req, res) => {
     const month = req.query.month || new Date().toISOString().slice(0, 7);
     const department = req.query.department || '';
     const selectedDate = req.query.selected_date || new Date().toISOString().slice(0, 10);
-    const [todayCheckedIn] = await query("SELECT COUNT(DISTINCT employee_id) as c FROM employee_checkins WHERE date = CURDATE() AND status IN ('checked_in', 'completed')");
-    const [totalEmployees] = await query('SELECT COUNT(*) as c FROM employees WHERE status = ?', ['active']);
-    const present = parseInt(todayCheckedIn?.c) || 0;
-    const total = parseInt(totalEmployees?.c) || 0;
-    let sql = `SELECT ec.id, ec.employee_id, ec.date, ec.status, ec.check_in_time, ec.check_out_time, ec.check_in_location, ec.check_out_location, ec.total_hours, e.name, e.email, e.employee_code
-      FROM employee_checkins ec JOIN employees e ON e.id = ec.employee_id WHERE ec.date = ? AND ec.status IN ('checked_in', 'completed', 'checked_out')`;
-    const params = [selectedDate];
-    if (department) { sql += ' AND e.department_id = (SELECT id FROM departments WHERE name = ? LIMIT 1)'; params.push(department); }
-    sql += ' ORDER BY ec.date DESC, ec.check_in_time DESC';
-    const attendanceRecords = await query(sql, params);
-    const monthlyStats = await query(`
-      SELECT DATE_FORMAT(date, '%Y-%m') as month, COUNT(DISTINCT employee_id) as employees, COUNT(*) as checkins
-      FROM employee_checkins WHERE date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) GROUP BY DATE_FORMAT(date, '%Y-%m') ORDER BY month DESC
-    `).catch(() => []);
+    const analytics = await getAdminAttendanceAnalytics({
+      month,
+      selected_date: selectedDate,
+      department,
+    });
+
+    const attendanceRecords = department && department !== 'all'
+      ? analytics.attendanceRecords.filter((row) => String(row.department_name || '').toLowerCase() === String(department).toLowerCase())
+      : analytics.attendanceRecords;
+
     return res.json({
       success: true,
       data: {
-        todayCheckedIn: present,
-        totalEmployees: total,
-        presentEmployees: present,
-        absentEmployees: total - present,
-        attendanceRecords: attendanceRecords || [],
-        monthlyStats: monthlyStats || [],
+        todayCheckedIn: analytics.summary.presentToday,
+        totalEmployees: analytics.summary.totalEmployees,
+        presentEmployees: analytics.summary.presentToday,
+        absentEmployees: analytics.summary.absentToday,
+        lateArrivals: analytics.summary.lateArrivals,
+        overtimeEmployees: analytics.summary.overtimeEmployees,
+        avgWorkingHours: analytics.summary.avgWorkingHours,
+        totalWorkedTime: analytics.summary.totalWorkedTime,
+        attendanceRate: analytics.summary.attendanceRate,
+        attendanceRecords,
+        monthlyStats: analytics.monthlyStats || [],
+        attendanceTypes: analytics.attendanceTypes || [],
+        summary: analytics.summary,
       },
     });
   } catch (err) {
@@ -235,9 +330,9 @@ router.patch('/tasks/:id/status', verifyToken, requireAdmin, async (req, res) =>
 router.get('/employees', verifyToken, async (req, res) => {
   try {
     const id = req.query.id || null;
-    const fields = 'e.id, e.employee_code, e.name, e.email, e.phone, e.role, e.department_id, e.designation, e.status, e.created_at, d.name as department_name';
+    const fields = `e.*, d.name as department_name`;
     if (id) {
-      const rows = await query(`SELECT ${fields}, e.address, e.joining_date, e.permanent_address, e.dob, e.gender, e.marital_status FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.id = ?`, [id]);
+      const rows = await query(`SELECT ${fields} FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.id = ?`, [id]);
       const emp = rows[0];
       if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
       return res.json({ success: true, employee: emp });
@@ -254,10 +349,30 @@ router.post('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
     const b = req.body || {};
     if (!b.name || !b.email || !b.password) return res.status(400).json({ success: false, message: 'Missing required fields' });
     const hashedPassword = await bcrypt.hash(b.password, 10).catch(() => b.password);
-    await query(
-      `INSERT INTO employees (employee_code, name, email, phone, password, role, department_id, designation, status, address, permanent_address, dob, gender, marital_status, emergency_contact_name, emergency_contact_phone, joining_date, employment_type, probation_period, basic_salary, hra, conveyance, medical_allowance, lta, other_allowances, previous_company, previous_designation, experience_years, qualification, bank_account, pan_number) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [b.employee_code || 'EMP' + Date.now(), b.name, b.email, b.phone || null, hashedPassword, b.role || 'employee', b.department_id || null, b.designation || null, 'active', b.address || null, b.permanent_address || null, b.dob || null, b.gender || null, b.marital_status || null, b.emergency_contact_name || null, b.emergency_contact_phone || null, b.joining_date || null, b.employment_type || 'full_time', b.probation_period || '3', b.basic_salary || null, b.hra || null, b.conveyance || null, b.medical_allowance || null, b.lta || null, b.other_allowances || null, b.previous_company || null, b.previous_designation || null, b.experience_years || null, b.qualification || null, b.bank_account || null, b.pan_number || null]
-    );
+
+    const queryStr = `INSERT INTO employees (
+      employee_code, name, email, phone, password, role, department_id, designation, status, 
+      address, permanent_address, dob, gender, marital_status, emergency_contact_name, 
+      emergency_contact_phone, joining_date, employment_type, probation_period, basic_salary, 
+      hra, conveyance, medical_allowance, lta, other_allowances, previous_company, 
+      previous_designation, experience_years, qualification, bank_account, bank_name, 
+      ifsc_code, branch_name, account_holder_name, pan_number, aadhar_number
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+
+    const params = [
+      b.employee_code || 'EMP' + Date.now(), b.name, b.email, b.phone || null, hashedPassword,
+      b.role || 'employee', b.department_id || null, b.designation || null, 'active',
+      b.address || null, b.permanent_address || null, b.dob || null, b.gender || null,
+      b.marital_status || null, b.emergency_contact_name || null, b.emergency_contact_phone || null,
+      b.joining_date || null, b.employment_type || 'full_time', b.probation_period || '3',
+      b.basic_salary || null, b.hra || null, b.conveyance || null, b.medical_allowance || null,
+      b.lta || null, b.other_allowances || null, b.previous_company || null,
+      b.previous_designation || null, b.experience_years || null, b.qualification || null,
+      b.bank_account || null, b.bank_name || null, b.ifsc_code || null, b.branch_name || null,
+      b.account_holder_name || null, b.pan_number || null, b.aadhar_number || null
+    ];
+
+    await query(queryStr, params);
     return res.json({ success: true, message: 'Employee created successfully' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -271,7 +386,16 @@ router.put('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
     const rows = await query('SELECT * FROM employees WHERE id = ?', [b.id]);
     const existing = rows[0];
     if (!existing) return res.status(404).json({ success: false, message: 'Employee not found' });
-    const updateFields = ['employee_code', 'name', 'email', 'phone', 'role', 'department_id', 'designation', 'status', 'address', 'permanent_address', 'dob', 'gender', 'marital_status', 'emergency_contact_name', 'emergency_contact_phone', 'joining_date', 'employment_type', 'probation_period', 'basic_salary', 'hra', 'conveyance', 'medical_allowance', 'lta', 'other_allowances', 'previous_company', 'previous_designation', 'experience_years', 'qualification', 'bank_account', 'pan_number'];
+
+    const updateFields = [
+      'employee_code', 'name', 'email', 'phone', 'role', 'department_id', 'designation', 'status',
+      'address', 'permanent_address', 'dob', 'gender', 'marital_status', 'emergency_contact_name',
+      'emergency_contact_phone', 'joining_date', 'employment_type', 'probation_period', 'basic_salary',
+      'hra', 'conveyance', 'medical_allowance', 'lta', 'other_allowances', 'previous_company',
+      'previous_designation', 'experience_years', 'qualification', 'bank_account', 'bank_name',
+      'ifsc_code', 'branch_name', 'account_holder_name', 'pan_number', 'aadhar_number'
+    ];
+
     const values = updateFields.map((f) => (b[f] !== undefined && b[f] !== null ? b[f] : existing[f]));
     values.push(b.id);
     const placeholders = updateFields.map((f) => `${f}=?`).join(', ');
@@ -301,9 +425,17 @@ router.get('/api-keys', verifyToken, requireAdmin, async (req, res) => {
     `);
     const [activeKeys] = await query('SELECT COUNT(*) as c FROM api_keys WHERE api_key IS NOT NULL');
     const [totalCompanies] = await query('SELECT COUNT(*) as c FROM companies');
+    const integrationStats = await getIntegrationStats();
     return res.json({
       success: true,
-      data: { companies: rows || [], statistics: { activeApiKeys: Number(activeKeys?.c) || 0, totalCompanies: Number(totalCompanies?.c) || 0 } },
+      data: {
+        companies: rows || [],
+        statistics: {
+          activeApiKeys: Number(activeKeys?.c) || 0,
+          totalCompanies: Number(totalCompanies?.c) || 0,
+        },
+        integrationStats,
+      },
     });
   } catch (err) {
     return res.json({ success: true, data: { companies: [], statistics: { activeApiKeys: 0, totalCompanies: 0 } } });
@@ -332,7 +464,7 @@ router.post('/api-keys', verifyToken, requireAdmin, async (req, res) => {
 router.put('/api-keys', verifyToken, requireAdmin, async (req, res) => {
   try {
     const b = req.body || {};
-    await query('UPDATE api_keys SET webhook_url = ?, updated_at = NOW() WHERE company_id = ?', [b.webhook_url || null, b.company_id]).catch(() => {});
+    await query('UPDATE api_keys SET webhook_url = ?, updated_at = NOW() WHERE company_id = ?', [b.webhook_url || null, b.company_id]).catch(() => { });
     return res.json({ success: true, message: 'API key updated' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

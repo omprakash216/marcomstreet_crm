@@ -94,6 +94,7 @@ router.post('/', verifyToken, async (req, res) => {
     if (!itemsIn.length) return res.status(400).json({ success: false, message: 'At least one item is required' });
 
     const taxPct = money2(b.tax_percentage || 0);
+    const tdsPct = money2(b.tds_percentage || 0);
     const discPct = money2(b.discount_percentage || 0);
     const issueDate = new Date().toISOString().slice(0, 10);
     const dueDate = b.due_date ? String(b.due_date).slice(0, 10) : null;
@@ -119,6 +120,7 @@ router.post('/', verifyToken, async (req, res) => {
     const discountAmount = money2(subtotal * (discPct / 100));
     const taxable = money2(subtotal - discountAmount);
     const taxAmount = money2(taxable * (taxPct / 100));
+    const tdsAmount = money2(taxable * (tdsPct / 100));
     const totalAmount = money2(taxable + taxAmount);
 
     const invoiceNumber = b.invoice_number ? String(b.invoice_number) : ('INV' + Date.now());
@@ -128,9 +130,9 @@ router.post('/', verifyToken, async (req, res) => {
       // New schema (COMPLETE_DATABASE_SETUP.sql)
       const [r] = await conn.execute(
         `INSERT INTO invoices
-          (invoice_number, quotation_id, lead_id, employee_id, issue_date, due_date, subtotal, tax_percentage, tax_amount, discount_percentage, discount_amount, total_amount, status, notes, payment_terms)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [invoiceNumber, b.quotation_id || null, leadId, req.employee.id, issueDate, dueDate, subtotal, taxPct, taxAmount, discPct, discountAmount, totalAmount, status, notes, paymentTerms]
+          (invoice_number, quotation_id, lead_id, employee_id, issue_date, due_date, subtotal, tax_percentage, tax_amount, tds_percentage, tds_amount, discount_percentage, discount_amount, total_amount, status, notes, payment_terms)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [invoiceNumber, b.quotation_id || null, leadId, req.employee.id, issueDate, dueDate, subtotal, taxPct, taxAmount, tdsPct, tdsAmount, discPct, discountAmount, totalAmount, status, notes, paymentTerms]
       );
       const invoiceId = r.insertId;
 
@@ -247,6 +249,7 @@ router.put('/:id', verifyToken, async (req, res) => {
     if (!itemsIn.length) return res.status(400).json({ success: false, message: 'At least one item is required' });
 
     const taxPct = money2(b.tax_percentage != null ? b.tax_percentage : existing.tax_percentage || 0);
+    const tdsPct = money2(b.tds_percentage != null ? b.tds_percentage : existing.tds_percentage || 0);
     const discPct = money2(b.discount_percentage != null ? b.discount_percentage : existing.discount_percentage || 0);
     const dueDate = b.due_date ? String(b.due_date).slice(0, 10) : (existing.due_date ? String(existing.due_date).slice(0, 10) : null);
     const notes = b.notes != null ? String(b.notes) : (existing.notes || '');
@@ -270,6 +273,7 @@ router.put('/:id', verifyToken, async (req, res) => {
     const discountAmount = money2(subtotal * (discPct / 100));
     const taxable = money2(subtotal - discountAmount);
     const taxAmount = money2(taxable * (taxPct / 100));
+    const tdsAmount = money2(taxable * (tdsPct / 100));
     const totalAmount = money2(taxable + taxAmount);
 
     const conn = await getConnection();
@@ -282,6 +286,8 @@ router.put('/:id', verifyToken, async (req, res) => {
            subtotal=?,
            tax_percentage=?,
            tax_amount=?,
+           tds_percentage=?,
+           tds_amount=?,
            discount_percentage=?,
            discount_amount=?,
            total_amount=?,
@@ -290,7 +296,7 @@ router.put('/:id', verifyToken, async (req, res) => {
            payment_terms=?,
            updated_at=CURRENT_TIMESTAMP
          WHERE id=?`,
-        [leadId, dueDate, subtotal, taxPct, taxAmount, discPct, discountAmount, totalAmount, status, notes, paymentTerms, id]
+        [leadId, dueDate, subtotal, taxPct, taxAmount, tdsPct, tdsAmount, discPct, discountAmount, totalAmount, status, notes, paymentTerms, id]
       );
 
       // Replace items if table exists

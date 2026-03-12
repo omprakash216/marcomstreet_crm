@@ -4,6 +4,8 @@ import { getEmployee } from '../../utils/auth';
 
 export default function Leaves() {
   const [leaves, setLeaves] = useState([]);
+  const [leaveTypes, setLeaveTypes] = useState([]);
+  const [leaveBalances, setLeaveBalances] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [filter, setFilter] = useState({
@@ -17,6 +19,8 @@ export default function Leaves() {
     end_date: '',
     reason: ''
   });
+  const [editingType, setEditingType] = useState(null);
+  const [typeForm, setTypeForm] = useState({ name: '', code: '', default_balance: 0 });
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [currentLeaveId, setCurrentLeaveId] = useState(null);
   const [adminReason, setAdminReason] = useState('');
@@ -58,6 +62,8 @@ export default function Leaves() {
 
   useEffect(() => {
     fetchLeaves();
+    fetchLeaveTypes();
+    fetchLeaveBalances();
   }, []);
 
   const fetchLeaves = async () => {
@@ -71,6 +77,24 @@ export default function Leaves() {
       console.error('Error fetching leaves:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchLeaveTypes = async () => {
+    try {
+      const resp = await api.get('/hrms/leave-types');
+      if (resp.data?.success) setLeaveTypes(resp.data.data || []);
+    } catch (_) {
+      setLeaveTypes([]);
+    }
+  };
+
+  const fetchLeaveBalances = async () => {
+    try {
+      const resp = await api.get(`/hrms/leave-balances?employee_id=${employee?.id || ''}`);
+      if (resp.data?.success) setLeaveBalances(resp.data.data || []);
+    } catch (_) {
+      setLeaveBalances([]);
     }
   };
 
@@ -94,6 +118,47 @@ export default function Leaves() {
       alert(error.response?.data?.message || 'Failed to apply leave');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resetTypeForm = () => {
+    setEditingType(null);
+    setTypeForm({ name: '', code: '', default_balance: 0 });
+  };
+
+  const handleSaveLeaveType = async (e) => {
+    e.preventDefault();
+    if (!typeForm.name) return;
+    try {
+      if (editingType?.id) {
+        await api.put(`/hrms/leave-types/${editingType.id}`, typeForm);
+      } else {
+        await api.post('/hrms/leave-types', typeForm);
+      }
+      resetTypeForm();
+      fetchLeaveTypes();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to save leave type');
+    }
+  };
+
+  const handleEditLeaveType = (t) => {
+    setEditingType(t);
+    setTypeForm({
+      name: t.name || '',
+      code: t.code || '',
+      default_balance: t.default_balance || 0,
+    });
+  };
+
+  const handleDeleteLeaveType = async (t) => {
+    const ok = window.confirm(`Delete leave type "${t.name}"?`);
+    if (!ok) return;
+    try {
+      await api.delete(`/hrms/leave-types/${t.id}`);
+      fetchLeaveTypes();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete leave type');
     }
   };
 
@@ -157,6 +222,20 @@ export default function Leaves() {
         </div>
       </div>
 
+      {leaveBalances.length > 0 && (
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-6">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3">Leave Balance</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {leaveBalances.map((b) => (
+              <div key={b.id} className="border border-slate-100 rounded-lg p-3 bg-slate-50/60">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase">{b.leave_type || 'Leave'}</p>
+                <p className="text-lg font-bold text-slate-900">{b.balance}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Standardized Filters Section */}
       <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -178,10 +257,20 @@ export default function Leaves() {
               className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All Types</option>
-              <option value="casual">Casual Leave</option>
-              <option value="sick">Sick Leave</option>
-              <option value="annual">Annual Leave</option>
-              <option value="other">Other</option>
+              {leaveTypes.length > 0 ? (
+                leaveTypes.map((t) => (
+                  <option key={t.id} value={(t.name || '').toLowerCase()}>
+                    {t.name}
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="casual">Casual Leave</option>
+                  <option value="sick">Sick Leave</option>
+                  <option value="annual">Annual Leave</option>
+                  <option value="other">Other</option>
+                </>
+              )}
             </select>
           </div>
           <div>
@@ -364,10 +453,20 @@ export default function Leaves() {
                       onChange={(e) => setNewLeave({ ...newLeave, type: e.target.value })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                     >
-                      <option value="casual">Casual Leave</option>
-                      <option value="sick">Sick Leave</option>
-                      <option value="annual">Annual Leave</option>
-                      <option value="other">Other</option>
+                      {leaveTypes.length > 0 ? (
+                        leaveTypes.map((t) => (
+                          <option key={t.id} value={(t.name || '').toLowerCase()}>
+                            {t.name}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="casual">Casual Leave</option>
+                          <option value="sick">Sick Leave</option>
+                          <option value="annual">Annual Leave</option>
+                          <option value="other">Other</option>
+                        </>
+                      )}
                     </select>
                   </div>
 
@@ -483,6 +582,90 @@ export default function Leaves() {
           </div>
         )
       }
+
+      {isAdminOrManager && (
+        <div className="mt-6 bg-white rounded-lg shadow-md border border-gray-200 p-5">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Leave Types & Default Balance</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <form onSubmit={handleSaveLeaveType} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Leave Type</label>
+                <input
+                  type="text"
+                  value={typeForm.name}
+                  onChange={(e) => setTypeForm({ ...typeForm, name: e.target.value })}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Code</label>
+                <input
+                  type="text"
+                  value={typeForm.code}
+                  onChange={(e) => setTypeForm({ ...typeForm, code: e.target.value })}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Default Balance</label>
+                <input
+                  type="number"
+                  value={typeForm.default_balance}
+                  onChange={(e) => setTypeForm({ ...typeForm, default_balance: e.target.value })}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+                  {editingType ? 'Update' : 'Add'}
+                </button>
+                {editingType && (
+                  <button type="button" onClick={resetTypeForm} className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+
+            <div className="lg:col-span-2">
+              {leaveTypes.length === 0 ? (
+                <p className="text-sm text-slate-500">No leave types configured.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Type</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Code</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Default</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {leaveTypes.map((t) => (
+                        <tr key={t.id}>
+                          <td className="px-4 py-3 font-medium text-slate-900">{t.name}</td>
+                          <td className="px-4 py-3 text-slate-600">{t.code || '-'}</td>
+                          <td className="px-4 py-3 text-slate-600">{t.default_balance || 0}</td>
+                          <td className="px-4 py-3 text-right space-x-2">
+                            <button onClick={() => handleEditLeaveType(t)} className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100">
+                              Edit
+                            </button>
+                            <button onClick={() => handleDeleteLeaveType(t)} className="px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 rounded-md hover:bg-red-100">
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div >
   );
 }

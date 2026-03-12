@@ -2,16 +2,18 @@ import axios from 'axios';
 import { cacheInterceptor, cacheResponseInterceptor } from './cache';
 
 // API base URL configuration
-// In development, use relative path to leverage Vite proxy
-// In production, use relative path since frontend and backend are in same hosting
-const API_BASE_URL = import.meta.env.DEV ? '/api' : '/api';
+// In development, prefer direct backend URL to avoid proxy upload issues.
+// In production, use relative path since frontend and backend are in same hosting.
+const devApiPort = import.meta.env.VITE_API_PORT || '3000';
+const devApiBase =
+  import.meta.env.VITE_API_BASE_URL || `http://localhost:${devApiPort}/api`;
+const API_BASE_URL = import.meta.env.DEV ? devApiBase : '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
   timeout: 10000, // 10 seconds timeout
+  maxContentLength: Infinity,
+  maxBodyLength: Infinity,
 });
 
 // Debug logging
@@ -29,6 +31,29 @@ api.interceptors.request.use(
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData;
+    if (isFormData) {
+      // Let the browser set the multipart boundary
+      if (config.headers?.delete) {
+        config.headers.delete('Content-Type');
+        config.headers.delete('content-type');
+      } else if (config.headers) {
+        delete config.headers['Content-Type'];
+        delete config.headers['content-type'];
+      }
+      // File uploads can take longer than JSON requests
+      if (!config.timeout || config.timeout < 60000) {
+        config.timeout = 60000;
+      }
+    } else {
+      // Default JSON content type for non-FormData requests
+      if (config.headers?.set) {
+        config.headers.set('Content-Type', 'application/json');
+      } else if (config.headers) {
+        config.headers['Content-Type'] = 'application/json';
+      }
     }
 
     // Simplified URL handling for Vite proxy + Node backend
@@ -62,11 +87,11 @@ api.interceptors.response.use(
     if (response) {
       console.error(`❌ API Error [${response.status}] for ${config.url}:`, response.data);
     } else {
-      console.error(`❌ Network Error for ${config.url}:`, error.message);
+      const fullUrl = `${config?.baseURL || ''}${config?.url || ''}`;
+      console.error(`❌ Network Error for ${fullUrl || config?.url}:`, error.message, error.code || '');
     }
     return Promise.reject(error);
   }
 );
 
 export default api;
-

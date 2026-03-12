@@ -40,4 +40,21 @@ async function verifyToken(req, res, next) {
   }
 }
 
-module.exports = { verifyToken, JWT_SECRET };
+async function verifyApiKey(req, res, next) {
+  const apiKey = req.headers['x-api-key'] || req.query.api_key;
+  if (!apiKey) {
+    return res.status(401).json({ success: false, message: 'API Key missing' });
+  }
+  try {
+    const rows = await query('SELECT company_id FROM api_keys WHERE api_key = ?', [apiKey]);
+    if (!rows[0]) {
+      return res.status(401).json({ success: false, message: 'Invalid API Key' });
+    }
+    req.company_id = rows[0].company_id;
+    next();
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Server error during API key verification' });
+  }
+}
+
+module.exports = { verifyToken, verifyApiKey, JWT_SECRET };

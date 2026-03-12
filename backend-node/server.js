@@ -27,6 +27,11 @@ const designerRoutes = require('./routes/designer');
 const hrDocumentsRoutes = require('./routes/hrDocuments');
 const groupMeetingsRoutes = require('./routes/groupMeetings');
 const employeesRoutes = require('./routes/employees');
+const inventoryRoutes = require('./routes/inventory');
+const accountsRoutes = require('./routes/accounts');
+const publicApiRoutes = require('./routes/publicApi');
+const billingRoutes = require('./routes/billing');
+const expensesRoutes = require('./routes/expenses');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -64,6 +69,12 @@ app.use('/api/designer', designerRoutes);
 app.use('/api/hr-documents', hrDocumentsRoutes);
 app.use('/api/group-meetings', groupMeetingsRoutes);
 app.use('/api/employees', employeesRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/accounts', accountsRoutes);
+app.use('/api/external', publicApiRoutes);
+app.use('/api/webhook', publicApiRoutes);
+app.use('/api/billing', billingRoutes);
+app.use('/api/expenses', expensesRoutes);
 
 app.get('/api/check', (req, res) => {
   res.json({ success: true, message: 'Node backend is running' });
@@ -135,21 +146,13 @@ function runAutoPunchOutAtMidnight() {
   const today = now.toISOString().slice(0, 10);
   if (lastAutoPunchOutDate === today) return;
   lastAutoPunchOutDate = today;
-  const { query, getConnection } = require('./config/database');
+  const { closeOpenAttendanceRecords } = require('./services/workTimer');
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   const dateStr = yesterday.toISOString().slice(0, 10);
-  getConnection()
-    .then((conn) => {
-      return conn.execute(
-        "UPDATE employee_checkins SET check_out_time = '23:59:59', check_out_location = 'Auto (12 AM)', status = 'completed' WHERE date = ? AND status = 'checked_in'",
-        [dateStr]
-      ).then(() => { conn.release(); });
-    })
-    .then((result) => {
-      if (result && result[0] && result[0].affectedRows > 0) {
-        console.log('[Attendance] Auto punch out at 12 AM: ' + result[0].affectedRows + ' record(s) updated for ' + dateStr);
-      }
+  Promise.resolve(closeOpenAttendanceRecords(dateStr))
+    .then(() => {
+      console.log('[Attendance] Auto close executed for ' + dateStr);
     })
     .catch((err) => console.error('[Attendance] Auto punch out error:', err.message));
 }

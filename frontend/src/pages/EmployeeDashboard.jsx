@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../utils/api';
 
 import MeetingCalendar from '../components/MeetingCalendar';
+import WorkingHoursCard from '../components/WorkingHoursCard';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart,
@@ -260,6 +261,8 @@ export default function Dashboard() {
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full -ml-12 -mb-12"></div>
       </div>
+
+      <WorkingHoursCard className="mb-6" />
 
 
 

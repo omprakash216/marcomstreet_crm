@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { getEmployee } from '../../utils/auth';
 import MeetingCalendar from '../../components/MeetingCalendar';
+import WorkingHoursCard from '../../components/WorkingHoursCard';
 import {
   BarChart,
   Bar,
@@ -14,6 +15,10 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  FunnelChart,
+  Funnel,
+  Cell,
+  LabelList,
 } from 'recharts';
 
 export default function AdminDashboard() {
@@ -67,10 +72,15 @@ export default function AdminDashboard() {
 
   if (!data) return null;
 
+  const toNumber = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  };
+
   // Chart data for Company Sales
   const companySalesData = (data.companySales || []).slice(0, 8).map(c => ({
     name: c.company_name.length > 15 ? c.company_name.substring(0, 15) + '...' : c.company_name,
-    sales: parseFloat(c.sales)
+    sales: toNumber(c.sales)
   }));
 
   // Chart data for Leads Status
@@ -79,17 +89,25 @@ export default function AdminDashboard() {
     count: l.count
   }));
 
+  // Funnel Chart Data
+  const funnelData = [
+    { value: data.totalLeads || 0, name: 'Total Leads', fill: '#3b82f6' },
+    { value: (data.leadsByStatus || []).find(l => l.status === 'contacted')?.count || 0, name: 'Contacted', fill: '#6366f1' },
+    { value: (data.leadsByStatus || []).find(l => l.status === 'proposal')?.count || 0, name: 'Proposal', fill: '#8b5cf6' },
+    { value: (data.leadsByStatus || []).find(l => l.status === 'won')?.count || 0, name: 'Won', fill: '#10b981' },
+  ].filter(item => item.value > 0).sort((a, b) => b.value - a.value);
+
   // Chart data for Monthly Revenue Trend
   const monthlyRevenueData = (data.monthlyRevenueTrend || []).map(m => ({
     month: m.month_label,
-    revenue: parseFloat(m.revenue)
+    revenue: toNumber(m.revenue)
   }));
 
   // Chart data for Employee Performance
   const employeePerformanceData = (data.employeePerformance || []).slice(0, 8).map(e => ({
     name: e.name.length > 10 ? e.name.substring(0, 10) + '...' : e.name,
-    revenue: parseFloat(e.total_revenue),
-    leads: e.total_leads
+    revenue: toNumber(e.total_revenue),
+    leads: toNumber(e.total_leads)
   }));
 
   const safeEmployeeAgentOutputs = data.employeeAgentOutputs || {};
@@ -116,6 +134,8 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      <WorkingHoursCard className="mb-2" />
+
       {/* Key Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-white to-blue-50/50 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 p-5 border border-blue-100/50">
@@ -141,11 +161,11 @@ export default function AdminDashboard() {
             </div>
             <div className="text-right">
               <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-0.5">Total Revenue</p>
-              <p className="text-2xl font-bold text-gray-900">₹{parseFloat(data.totalRevenue).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+              <p className="text-2xl font-bold text-gray-900">₹{toNumber(data.totalRevenue).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
             </div>
           </div>
           <div className="text-xs text-gray-600">
-            This Month: ₹{parseFloat(data.monthlyRevenue).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            This Month: ₹{toNumber(data.monthlyRevenue).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
           </div>
         </div>
 
@@ -176,6 +196,45 @@ export default function AdminDashboard() {
           </div>
           <div className="text-xs text-gray-600">
             Active Employees
+          </div>
+        </div>
+      </div>
+
+      {/* Lead Funnel Section [NEW] */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200/50 overflow-hidden mb-6">
+        <div className="bg-gradient-to-r from-indigo-700 via-indigo-800 to-indigo-900 px-5 py-3 border-b border-gray-200/50">
+          <h3 className="text-base font-bold text-white flex items-center">
+            <div className="w-8 h-8 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center mr-3">
+              <i className="fas fa-filter text-white text-sm"></i>
+            </div>
+            Lead Conversion Funnel
+          </h3>
+        </div>
+        <div className="p-6">
+          <div className="flex flex-col md:flex-row items-center justify-around gap-8">
+            <div className="w-full md:w-2/3 h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <FunnelChart>
+                  <Tooltip />
+                  <Funnel
+                    data={funnelData}
+                    dataKey="value"
+                  >
+                    <LabelList position="right" fill="#4b5563" stroke="none" dataKey="name" />
+                    <LabelList position="center" fill="#fff" stroke="none" dataKey="value" />
+                  </Funnel>
+                </FunnelChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="w-full md:w-1/3 grid grid-cols-2 gap-4">
+              {funnelData.map((entry, index) => (
+                <div key={index} className="bg-gray-50 p-4 rounded-xl border border-gray-100 shadow-sm transition-transform hover:scale-105">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">{entry.name}</p>
+                  <p className="text-2xl font-black text-gray-800">{entry.value}</p>
+                  <div className="w-full h-1 mt-2 rounded-full" style={{ backgroundColor: entry.fill }}></div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

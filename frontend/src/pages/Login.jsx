@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { setEmployee } from '../utils/auth';
 import MarcomLogo from '../components/MarcomLogo';
@@ -12,6 +12,14 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const prefill = location.state?.prefill;
+    if (prefill?.email && prefill?.password) {
+      setFormData({ email: prefill.email, password: prefill.password });
+    }
+  }, [location.state]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
