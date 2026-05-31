@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import api from '../utils/api';
 import JoiningFormPDF from './JoiningFormPDF';
+import { buildPdfBlobFromPreview } from '../utils/previewPdf';
 
 const defaultEducation = { qual: '', univ: '', year: '', perc: '' };
 const defaultEmployment = { comp: '', desig: '', dur: '', reason: '' };
 
-const JoiningFormGenerator = ({ allEmployees = [], employeeData }) => {
+const JoiningFormGenerator = ({ allEmployees = [], employeeData, onSaved }) => {
   const [formData, setFormData] = useState({
     employeeName: employeeData?.name || '',
     designation: employeeData?.designation || '',
@@ -34,6 +36,9 @@ const JoiningFormGenerator = ({ allEmployees = [], employeeData }) => {
   });
 
   const [showPreview, setShowPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(employeeData?.id || employeeData?.employee_id || '');
+  const previewRef = useRef(null);
 
   useEffect(() => {
     if (employeeData) {
@@ -47,6 +52,7 @@ const JoiningFormGenerator = ({ allEmployees = [], employeeData }) => {
         email: employeeData.email || prev.email,
         phone: employeeData.phone || prev.phone
       }));
+      setSelectedEmployeeId(employeeData.id || employeeData.employee_id || '');
     }
   }, [employeeData]);
 
@@ -73,8 +79,11 @@ const JoiningFormGenerator = ({ allEmployees = [], employeeData }) => {
   };
 
   const handleEmployeeSelect = (emp) => {
-    if (!emp) return;
-    setFormData(prev => ({
+    if (!emp) {
+      setSelectedEmployeeId('');
+      return;
+    }
+    setFormData((prev) => ({
       ...prev,
       employeeName: emp.name || '',
       designation: emp.designation || '',
@@ -84,6 +93,45 @@ const JoiningFormGenerator = ({ allEmployees = [], employeeData }) => {
       email: emp.email || prev.email,
       phone: emp.phone || prev.phone
     }));
+    setSelectedEmployeeId(emp.id || '');
+  };
+
+  const handleSave = async () => {
+    const employeeId = selectedEmployeeId || employeeData?.id || employeeData?.employee_id;
+    if (!employeeId) {
+      alert('Please select an employee to save this document.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const pdfBlob = await buildPdfBlobFromPreview({
+        root: previewRef.current,
+        pageSelector: '.joining-form-print-page',
+      });
+
+      const safeName = String(formData.employeeName || 'Employee')
+        .trim()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9_-]/g, '');
+      const fileName = `Joining_Form_${safeName || 'Employee'}_${Date.now()}.pdf`;
+      const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+      const uploadData = new FormData();
+      uploadData.append('employee_id', String(employeeId));
+      uploadData.append('title', `Joining Form - ${formData.employeeName || 'Employee'}`);
+      uploadData.append('type', 'other');
+      uploadData.append('file', pdfFile);
+
+      await api.post('/hrms/documents', uploadData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      alert('Joining form saved to Document Library.');
+      if (onSaved) onSaved();
+    } catch (err) {
+      alert(err.response?.data?.message || err.message || 'Failed to save joining form');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const formatDate = (dateString) => {
@@ -96,36 +144,45 @@ const JoiningFormGenerator = ({ allEmployees = [], employeeData }) => {
     return (
       <div>
         <div className="mb-4 flex justify-between items-center">
-          <button onClick={() => setShowPreview(false)} className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg">← Back to Edit</button>
-          <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md">🖨️ Print PDF</button>
+          <button onClick={() => setShowPreview(false)} className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg">{'<- Back to Edit'}</button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md disabled:opacity-60"
+          >
+            {saving ? 'Saving...' : 'Save to Library'}
+          </button>
         </div>
-        <JoiningFormPDF
-          employeeName={formData.employeeName}
-          designation={formData.designation}
-          department={formData.department}
-          joiningDate={formatDate(formData.joiningDate)}
-          fatherName={formData.fatherName}
-          dob={formData.dob ? new Date(formData.dob).toLocaleDateString('en-GB') : ''}
-          gender={formData.gender}
-          maritalStatus={formData.maritalStatus}
-          phone={formData.phone}
-          email={formData.email}
-          permanentAddress={formData.permanentAddress}
-          currentAddress={formData.currentAddress}
-          aadharNo={formData.aadharNo}
-          panNo={formData.panNo}
-          emergencyContactName={formData.emergencyContactName}
-          emergencyRelation={formData.emergencyRelation}
-          emergencyPhone={formData.emergencyPhone}
-          education={formData.education}
-          employment={formData.employment}
-          docsResume={formData.docsResume}
-          docsId={formData.docsId}
-          docsAddress={formData.docsAddress}
-          docsCertificates={formData.docsCertificates}
-          docsPhotos={formData.docsPhotos}
-          docsOthers={formData.docsOthers}
-        />
+        <div ref={previewRef}>
+          <JoiningFormPDF
+            employeeName={formData.employeeName}
+            designation={formData.designation}
+            department={formData.department}
+            joiningDate={formatDate(formData.joiningDate)}
+            fatherName={formData.fatherName}
+            dob={formData.dob ? new Date(formData.dob).toLocaleDateString('en-GB') : ''}
+            gender={formData.gender}
+            maritalStatus={formData.maritalStatus}
+            phone={formData.phone}
+            email={formData.email}
+            permanentAddress={formData.permanentAddress}
+            currentAddress={formData.currentAddress}
+            aadharNo={formData.aadharNo}
+            panNo={formData.panNo}
+            emergencyContactName={formData.emergencyContactName}
+            emergencyRelation={formData.emergencyRelation}
+            emergencyPhone={formData.emergencyPhone}
+            education={formData.education}
+            employment={formData.employment}
+            showPrintButton={false}
+            docsResume={formData.docsResume}
+            docsId={formData.docsId}
+            docsAddress={formData.docsAddress}
+            docsCertificates={formData.docsCertificates}
+            docsPhotos={formData.docsPhotos}
+            docsOthers={formData.docsOthers}
+          />
+        </div>
       </div>
     );
   }
@@ -141,8 +198,12 @@ const JoiningFormGenerator = ({ allEmployees = [], employeeData }) => {
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-1">Select Employee</label>
           <select
-            value={allEmployees.find(e => e.name === formData.employeeName)?.id || ''}
-            onChange={(e) => handleEmployeeSelect(allEmployees.find(emp => emp.id === e.target.value))}
+            value={selectedEmployeeId || ''}
+            onChange={(e) => {
+              const val = e.target.value;
+              const emp = val ? allEmployees.find((emp) => String(emp.id) === String(val)) : null;
+              handleEmployeeSelect(emp);
+            }}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">Select an employee (optional)</option>

@@ -24,7 +24,7 @@ import {
 } from 'react-icons/md';
 import api from '../utils/api';
 
-const MeetingCalendar = ({ onMeetingClick }) => {
+const MeetingCalendar = ({ onMeetingClick, onDayClick, compact = false, refreshKey = 0, selectedDate = null }) => {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -32,7 +32,7 @@ const MeetingCalendar = ({ onMeetingClick }) => {
 
     useEffect(() => {
         fetchMeetings();
-    }, [currentMonth]);
+    }, [currentMonth, refreshKey]);
 
     const fetchMeetings = async () => {
         setLoading(true);
@@ -40,12 +40,15 @@ const MeetingCalendar = ({ onMeetingClick }) => {
         try {
             const monthStart = startOfMonth(currentMonth);
             const monthEnd = endOfMonth(currentMonth);
+            const viewStart = startOfWeek(monthStart);
+            const viewEnd = endOfWeek(monthEnd);
 
             const response = await api.get('/meetings', {
                 params: {
-                    date_from: format(monthStart, 'yyyy-MM-dd'),
-                    date_to: format(monthEnd, 'yyyy-MM-dd'),
-                    unlimited: true
+                    date_from: format(viewStart, 'yyyy-MM-dd'),
+                    date_to: format(viewEnd, 'yyyy-MM-dd'),
+                    page: 1,
+                    limit: 500
                 }
             });
 
@@ -96,11 +99,13 @@ const MeetingCalendar = ({ onMeetingClick }) => {
     };
 
     const renderHeader = () => {
+        const wrapperPadding = compact ? 'px-4 sm:px-5 py-2.5' : 'px-5 sm:px-6 py-4';
+        const titleSize = compact ? 'text-lg sm:text-xl' : 'text-2xl';
         return (
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 sm:px-6 py-4 bg-white border-b border-gray-100 rounded-t-2xl">
+            <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white border-b border-gray-100 rounded-t-2xl ${wrapperPadding}`}>
                 <div className="flex items-center gap-4">
                     <div>
-                        <h2 className="text-2xl font-bold text-slate-800 leading-tight">
+                        <h2 className={`${titleSize} font-bold text-slate-800 leading-tight`}>
                             {format(currentMonth, 'MMMM yyyy')}
                         </h2>
                         <div className="mt-1 flex items-center gap-2 text-[11px] font-bold text-slate-500">
@@ -153,10 +158,11 @@ const MeetingCalendar = ({ onMeetingClick }) => {
 
     const renderDays = () => {
         const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const dayHeaderPadding = compact ? 'py-2 text-[10px]' : 'py-3 text-sm';
         return (
             <div className="grid grid-cols-7 bg-slate-50 border-b border-gray-100">
                 {days.map((day, idx) => (
-                    <div key={idx} className="py-3 text-sm font-bold text-slate-500 text-center uppercase tracking-wider">
+                    <div key={idx} className={`${dayHeaderPadding} font-bold text-slate-500 text-center uppercase tracking-wider`}>
                         {day}
                     </div>
                 ))}
@@ -173,6 +179,9 @@ const MeetingCalendar = ({ onMeetingClick }) => {
         const rows = [];
         let days = [];
         let day = startDate;
+        const cellMinHeight = compact ? 'min-h-[72px] sm:min-h-[80px]' : 'min-h-[120px] sm:min-h-[140px]';
+        const maxVisibleMeetings = compact ? 2 : 3;
+        const selectedDateObj = parseMeetingDate(selectedDate);
 
         const getStatusColor = (status) => {
             switch (status?.toLowerCase()) {
@@ -190,12 +199,15 @@ const MeetingCalendar = ({ onMeetingClick }) => {
                     .map((m) => ({ ...m, __dt: parseMeetingDate(m.meeting_date) }))
                     .filter((m) => m.__dt && isSameDay(m.__dt, cloneDay))
                     .sort((a, b) => (a.__dt?.getTime() || 0) - (b.__dt?.getTime() || 0));
+                const cleanDayMeetings = dayMeetings.map(({ __dt, ...m }) => m);
+                const isSelectedDay = selectedDateObj && isSameDay(cloneDay, selectedDateObj);
 
                 days.push(
                     <div
                         key={day.toString()}
-                        className={`min-h-[120px] sm:min-h-[140px] border-r border-b border-gray-100 p-2 transition-all hover:bg-slate-50/50 group ${!isSameMonth(day, monthStart) ? 'bg-gray-50/50' : 'bg-white'
-                            } ${isSameDay(day, new Date()) ? 'relative' : ''}`}
+                        onClick={() => onDayClick && onDayClick(cloneDay, cleanDayMeetings)}
+                        className={`${cellMinHeight} border-r border-b border-gray-100 p-2 transition-all hover:bg-slate-50/50 group cursor-pointer ${!isSameMonth(day, monthStart) ? 'bg-gray-50/50' : 'bg-white'
+                            } ${isSameDay(day, new Date()) ? 'relative' : ''} ${isSelectedDay ? 'ring-2 ring-blue-500 ring-inset bg-blue-50/30' : ''}`}
                     >
                         {isSameDay(day, new Date()) && (
                             <div className="absolute top-0 left-0 w-full h-1 bg-blue-600" />
@@ -218,10 +230,13 @@ const MeetingCalendar = ({ onMeetingClick }) => {
                         </div>
 
                         <div className="space-y-1.5 overflow-hidden">
-                            {dayMeetings.slice(0, 3).map((meeting, idx) => (
+                            {dayMeetings.slice(0, maxVisibleMeetings).map((meeting, idx) => (
                                 <div
                                     key={meeting.id}
-                                    onClick={() => onMeetingClick && onMeetingClick(meeting)}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onMeetingClick && onMeetingClick(meeting);
+                                    }}
                                     className={`px-2 py-1.5 rounded-lg border text-[11px] font-medium cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] active:scale-[0.98] ${getStatusColor(meeting.status)}`}
                                 >
                                     <div className="flex items-center gap-1 mb-0.5">
@@ -239,9 +254,15 @@ const MeetingCalendar = ({ onMeetingClick }) => {
                                     )}
                                 </div>
                             ))}
-                            {dayMeetings.length > 3 && (
-                                <div className="text-[10px] text-center font-bold text-blue-600 py-1 hover:underline cursor-pointer">
-                                    + {dayMeetings.length - 3} more
+                            {dayMeetings.length > maxVisibleMeetings && (
+                                <div
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDayClick && onDayClick(cloneDay, cleanDayMeetings);
+                                    }}
+                                    className="text-[10px] text-center font-bold text-blue-600 py-1 hover:underline cursor-pointer"
+                                >
+                                    + {dayMeetings.length - maxVisibleMeetings} more
                                 </div>
                             )}
                         </div>

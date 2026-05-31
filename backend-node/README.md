@@ -13,6 +13,11 @@
 2. **Database** – MySQL chala hona chahiye, same DB: `marcom_street_crm`.  
    Optional: `.env` banao (`.env.example` copy karke) aur `DB_*` set karein.
 
+   Quick check:
+   ```bash
+   npm run db:doctor
+   ```
+
 3. **Start**
    ```bash
    npm start
@@ -37,7 +42,7 @@
 
 ## API Routes (sab Node par, bina .php)
 
-- **Auth:** `POST /api/auth/login`, `POST /api/auth/logout`
+- **Auth:** `POST /api/auth/login`, `POST /api/auth/logout`, forgot password: `POST /api/auth/forgot-password/request-otp`, `POST /api/auth/forgot-password/verify-otp`, `POST /api/auth/forgot-password/reset` (SMS via Twilio when `TWILIO_*` env vars are set; otherwise OTP is logged on the server—see `.env.example`)
 - **Checkin:** `GET /api/checkin/status`, `POST /api/checkin/checkin`
 - **Activities:** `GET /api/activities`, `POST /api/activities/create`
 - **Companies:** `GET/POST/PUT /api/companies`, `GET /api/companies/history`, `GET /api/companies/:id`, `GET /api/companies/:id/leads`, etc.

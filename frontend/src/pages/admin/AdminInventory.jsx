@@ -287,25 +287,43 @@ export default function AdminInventory() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
-          <p className="text-gray-500 text-sm">Product catalog + stock + barcode scanner support</p>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center">
+              <i className="fas fa-warehouse text-gray-700 text-xl"></i>
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
+              <p className="text-gray-500 text-sm">Items, stock levels, and barcode lookup</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => fetchInventory()}
+              className="px-5 py-2.5 rounded-lg border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditItem(null);
+                setFormData(initialForm);
+                setShowModal(true);
+              }}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+            >
+              <i className="fas fa-plus"></i>
+              Add New Item
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => {
-            setEditItem(null);
-            setFormData(initialForm);
-            setShowModal(true);
-          }}
-          className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
-        >
-          <i className="fas fa-plus"></i>
-          Add New Item
-        </button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <StatCard label="Total Items" value={stats.total} icon="fas fa-boxes" color="blue" />
         <StatCard label="Available" value={stats.available} icon="fas fa-check-circle" color="green" />
         <StatCard label="In Use" value={stats.in_use} icon="fas fa-user-tag" color="indigo" />
@@ -529,7 +547,7 @@ export default function AdminInventory() {
 
       {viewItem && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6 bg-gray-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[96vw] sm:max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/80">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">{viewItem.name || 'Inventory Item'}</h3>
@@ -543,7 +561,7 @@ export default function AdminInventory() {
               </button>
             </div>
 
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               <DetailCard label="Item Code" value={getItemCode(viewItem)} />
               <DetailCard label="Barcode" value={viewItem.barcode} />
               <DetailCard label="Category" value={viewItem.category} />
@@ -570,8 +588,8 @@ export default function AdminInventory() {
               <DetailCard label="Purchase Date" value={viewItem.purchase_date ? String(viewItem.purchase_date).slice(0, 10) : '-'} />
               <DetailCard label="Assigned To" value={viewItem.assigned_to_name || 'Unassigned'} />
               <DetailCard label="Status" value={String(viewItem.status || '').replace('_', ' ')} />
-              <div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500 mb-2">Description</p>
+              <div className="sm:col-span-2 lg:col-span-3 rounded-2xl border border-gray-200 bg-gray-50 p-3 sm:p-4">
+                <p className="text-[10px] sm:text-xs font-bold uppercase tracking-[0.2em] text-gray-500 mb-2">Description</p>
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{viewItem.description || 'No description available'}</p>
               </div>
             </div>
@@ -622,12 +640,14 @@ function StatCard({ label, value, icon, color }) {
     amber: 'bg-amber-50 text-amber-600 border-amber-100',
   };
   return (
-    <div className={`p-5 rounded-2xl border ${colors[color]} shadow-sm`}>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-bold uppercase tracking-widest opacity-70">{label}</span>
-        <i className={`${icon} text-lg`}></i>
+    <div className={`p-4 sm:p-5 rounded-2xl border ${colors[color]} shadow-sm`}>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <span className="flex-1 text-[10px] sm:text-xs font-bold uppercase tracking-[0.18em] text-gray-600 leading-snug break-words">
+          {label}
+        </span>
+        <i className={`${icon} text-lg sm:text-xl`}></i>
       </div>
-      <p className="text-2xl font-black">{value}</p>
+      <p className="text-xl sm:text-2xl font-black leading-none">{value}</p>
     </div>
   );
 }
@@ -651,8 +671,8 @@ function StatusBadge({ status }) {
 
 function DetailCard({ label, value }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500 mb-2">{label}</p>
+    <div className="rounded-2xl border border-gray-200 bg-white p-3 sm:p-4 shadow-sm">
+      <p className="text-[10px] sm:text-xs font-bold uppercase tracking-[0.2em] text-gray-500 mb-2">{label}</p>
       <p className="text-sm font-semibold text-gray-900 break-words">
         {value === null || value === undefined || value === '' ? '-' : value}
       </p>

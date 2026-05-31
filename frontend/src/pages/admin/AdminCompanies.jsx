@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
-import { getEmployee } from '../../utils/auth';
+import { getEmployee, normalizeRole } from '../../utils/auth';
 
 export default function AdminCompanies() {
   const [loading, setLoading] = useState(true);
   const [companies, setCompanies] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
+  const [viewCompany, setViewCompany] = useState(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const [formData, setFormData] = useState({
     company_name: '',
     email: '',
@@ -28,12 +31,18 @@ export default function AdminCompanies() {
 
   useEffect(() => {
     const employee = getEmployee();
-    if (!employee || employee.role !== 'admin') {
+    const role = normalizeRole(employee?.role);
+    if (!employee || (role !== 'admin' && role !== 'superadmin' && role !== 'super_admin')) {
       navigate('/login');
       return;
     }
     fetchCompanies();
   }, [navigate]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(companies.length / pageSize));
+    if (page > totalPages) setPage(totalPages);
+  }, [companies.length, page]);
 
   const fetchCompanies = async () => {
     try {
@@ -147,6 +156,11 @@ export default function AdminCompanies() {
     );
   }
 
+  const totalPages = Math.max(1, Math.ceil(companies.length / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const paginatedCompanies = companies.slice(startIndex, startIndex + pageSize);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -205,6 +219,7 @@ export default function AdminCompanies() {
           <table className="w-full">
             <thead className="bg-gradient-to-r from-gray-700 via-gray-800 to-gray-900">
               <tr>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-white uppercase tracking-wider">SL</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-white uppercase tracking-wider">Company</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-white uppercase tracking-wider">Email</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-white uppercase tracking-wider">Code</th>
@@ -214,8 +229,9 @@ export default function AdminCompanies() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {companies.map((company) => (
+              {paginatedCompanies.map((company, idx) => (
                 <tr key={company.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{startIndex + idx + 1}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-semibold text-gray-900">{company.company_name}</div>
                     <div className="text-xs text-gray-500">{company.phone || 'N/A'}</div>
@@ -250,6 +266,13 @@ export default function AdminCompanies() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center space-x-2">
                       <button
+                        onClick={() => setViewCompany(company)}
+                        className="text-slate-600 hover:text-slate-900"
+                        title="View Details"
+                      >
+                        <i className="fas fa-eye"></i>
+                      </button>
+                      <button
                         onClick={() => openEditModal(company)}
                         className="text-blue-600 hover:text-blue-900"
                         title="Edit"
@@ -270,7 +293,122 @@ export default function AdminCompanies() {
             </tbody>
           </table>
         </div>
+
+        {companies.length > 0 ? (
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-6 py-4 border-t bg-gray-50">
+            <div className="text-sm text-gray-600">
+              Showing <span className="font-semibold">{Math.min(startIndex + 1, companies.length)}</span>–
+              <span className="font-semibold">{Math.min(startIndex + paginatedCompanies.length, companies.length)}</span> of{' '}
+              <span className="font-semibold">{companies.length}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="px-4 py-2 rounded-lg border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <div className="px-3 py-2 text-sm font-semibold text-gray-700">
+                Page {safePage} / {totalPages}
+              </div>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="px-4 py-2 rounded-lg border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
+
+      {/* View Modal */}
+      {viewCompany && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">Company Details</h2>
+              <button onClick={() => setViewCompany(null)} className="text-white hover:text-gray-200">
+                <i className="fas fa-times text-xl"></i>
+              </button>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Company</div>
+                  <div className="text-sm font-bold text-gray-900">{viewCompany.company_name || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</div>
+                  <div className="text-sm font-bold text-gray-900">{viewCompany.status || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Email</div>
+                  <div className="text-sm text-gray-900">{viewCompany.email || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone</div>
+                  <div className="text-sm text-gray-900">{viewCompany.phone || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Company Code</div>
+                  <div className="text-sm text-gray-900">{viewCompany.company_code || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Client Code</div>
+                  <div className="text-sm text-gray-900">{viewCompany.client_code || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Website</div>
+                  <div className="text-sm text-gray-900">{viewCompany.website || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tax ID</div>
+                  <div className="text-sm text-gray-900">{viewCompany.tax_id || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Registration No.</div>
+                  <div className="text-sm text-gray-900">{viewCompany.registration_number || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Created</div>
+                  <div className="text-sm text-gray-900">
+                    {viewCompany.created_at ? new Date(viewCompany.created_at).toLocaleString() : '—'}
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Address</div>
+                  <div className="text-sm text-gray-900">
+                    {[viewCompany.address, viewCompany.city, viewCompany.state, viewCompany.country, viewCompany.zip_code]
+                      .filter(Boolean)
+                      .join(', ') || '—'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 mt-6">
+                <button
+                  onClick={() => setViewCompany(null)}
+                  className="px-5 py-2 rounded-lg bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200 transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    setViewCompany(null);
+                    openEditModal(viewCompany);
+                  }}
+                  className="px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors"
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create/Edit Modal */}
       {showModal && (

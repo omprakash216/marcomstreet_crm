@@ -107,10 +107,10 @@ export default function ClientHistory() {
 
     const getStatusColor = (status) => {
         switch (status) {
-            case 'Completed': return 'bg-green-100 text-green-800';
-            case 'Pending': return 'bg-yellow-100 text-yellow-800';
-            case 'Missed': return 'bg-red-100 text-red-800';
-            default: return 'bg-gray-100 text-gray-800';
+            case 'Completed': return 'bg-green-100 text-green-800 border-green-200';
+            case 'Pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+            case 'Missed': return 'bg-red-100 text-red-800 border-red-200';
+            default: return 'bg-gray-100 text-gray-800 border-gray-200';
         }
     };
 
@@ -401,7 +401,7 @@ export default function ClientHistory() {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-bold">{item.user}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getStatusColor(item.status)}`}>
+                                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${getStatusColor(item.status)}`}>
                                             {item.status}
                                         </span>
                                     </td>
@@ -496,7 +496,7 @@ export default function ClientHistory() {
                                     <i className="fas fa-info-circle mt-1 text-slate-500 text-sm"></i>
                                     <div>
                                         <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">STATUS</p>
-                                        <span className={`px-4 py-1.5 rounded-full border text-[10px] font-bold ${selectedItem.status === 'Completed' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
+                                        <span className={`px-4 py-1.5 rounded-full border text-[10px] font-bold ${getStatusColor(selectedItem.status)}`}>
                                             {selectedItem.status}
                                         </span>
                                     </div>

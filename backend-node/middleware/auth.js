@@ -21,13 +21,33 @@ async function verifyToken(req, res, next) {
     if (!decoded || !decoded.id) {
       return res.status(401).json({ success: false, message: 'Invalid token' });
     }
-    const rows = await query(
-      'SELECT * FROM employees WHERE id = ? AND status = ?',
-      [decoded.id, 'active']
-    );
-    const employee = rows[0];
+
+    let employee = null;
+    try {
+      const rows = await query('SELECT * FROM employees WHERE id = ? AND status = ?', [decoded.id, 'active']);
+      employee = rows[0] || null;
+    } catch (err) {
+      // Backward compatibility: older schemas may not have `status` column.
+      if (err && err.code === 'ER_BAD_FIELD_ERROR' && /status/i.test(err.message || '')) {
+        const rows = await query('SELECT * FROM employees WHERE id = ?', [decoded.id]);
+        employee = rows[0] || null;
+        if (employee && employee.status && String(employee.status).toLowerCase() !== 'active') {
+          employee = null;
+        }
+      } else {
+        throw err;
+      }
+    }
     if (!employee) {
       return res.status(401).json({ success: false, message: 'User not found or inactive' });
+    }
+    const dbTokenVersion = Number(employee.tokenVersion || 0);
+    const jwtTokenVersion = Number(decoded.tokenVersion || 0);
+    if (dbTokenVersion !== jwtTokenVersion) {
+      return res.status(401).json({
+        success: false,
+        message: 'Session expired. Please login again.',
+      });
     }
     req.employee = employee;
     next();
@@ -38,6 +58,20 @@ async function verifyToken(req, res, next) {
       error: err.message,
     });
   }
+}
+
+async function verifySuperAdmin(req, res, next) {
+  if (!req.employee) {
+    return res.status(401).json({ success: false, message: 'Unauthorized - Please login again' });
+  }
+  const role = String(req.employee.role || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_');
+  if (role !== 'superadmin' && role !== 'super_admin') {
+    return res.status(403).json({ success: false, message: 'Super Admin access required' });
+  }
+  next();
 }
 
 async function verifyApiKey(req, res, next) {
@@ -57,4 +91,4 @@ async function verifyApiKey(req, res, next) {
   }
 }
 
-module.exports = { verifyToken, verifyApiKey, JWT_SECRET };
+module.exports = { verifyToken, verifySuperAdmin, verifyApiKey, JWT_SECRET };

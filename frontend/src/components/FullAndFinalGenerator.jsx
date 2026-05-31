@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import api from '../utils/api';
 import FullAndFinalPDF from './FullAndFinalPDF';
+import { buildPdfBlobFromPreview } from '../utils/previewPdf';
 
-const FullAndFinalGenerator = ({ employeeData, allEmployees = [] }) => {
+const FullAndFinalGenerator = ({ employeeData, allEmployees = [], onSaved }) => {
   const [formData, setFormData] = useState({
     employeeName: employeeData?.name || '',
     designation: employeeData?.designation || '',
@@ -13,6 +15,10 @@ const FullAndFinalGenerator = ({ employeeData, allEmployees = [] }) => {
     hrEmail: 'hrthevanygroup@gmail.com'
   });
 
+  const [saving, setSaving] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(employeeData?.id || employeeData?.employee_id || '');
+  const previewRef = useRef(null);
+
   useEffect(() => {
     if (employeeData) {
       setFormData(prev => ({
@@ -20,6 +26,7 @@ const FullAndFinalGenerator = ({ employeeData, allEmployees = [] }) => {
         employeeName: employeeData.name || '',
         designation: employeeData.designation || ''
       }));
+      setSelectedEmployeeId(employeeData.id || employeeData.employee_id || '');
     }
   }, [employeeData]);
 
@@ -32,14 +39,18 @@ const FullAndFinalGenerator = ({ employeeData, allEmployees = [] }) => {
 
   const handleEmployeeSelect = (e) => {
     const id = e.target.value;
-    if (!id) return;
-    const emp = allEmployees.find(e => String(e.id) === String(id));
+    if (!id) {
+      setSelectedEmployeeId('');
+      return;
+    }
+    const emp = allEmployees.find((emp) => String(emp.id) === String(id));
     if (emp) {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
         employeeName: emp.name || '',
         designation: emp.designation || ''
       }));
+      setSelectedEmployeeId(emp.id || '');
     }
   };
 
@@ -53,6 +64,48 @@ const FullAndFinalGenerator = ({ employeeData, allEmployees = [] }) => {
     });
   };
 
+  const handleSave = async () => {
+    const employeeId = selectedEmployeeId || employeeData?.id || employeeData?.employee_id;
+    if (!employeeId) {
+      alert('Please select an employee to save this document.');
+      return;
+    }
+    if (!formData.employeeName || !formData.designation || !formData.lastWorkingDate) {
+      alert('Please fill Employee Name, Designation, and Last Working Date.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const pdfBlob = await buildPdfBlobFromPreview({
+        root: previewRef.current,
+        pageSelector: '.full-and-final-doc',
+      });
+
+      const safeName = String(formData.employeeName || 'Employee')
+        .trim()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9_-]/g, '');
+      const fileName = `Full_And_Final_${safeName || 'Employee'}_${Date.now()}.pdf`;
+      const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+      const uploadData = new FormData();
+      uploadData.append('employee_id', String(employeeId));
+      uploadData.append('title', `Full and Final - ${formData.employeeName || 'Employee'}`);
+      uploadData.append('type', 'other');
+      uploadData.append('file', pdfFile);
+
+      await api.post('/hrms/documents', uploadData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      alert('Full & Final letter saved to Document Library.');
+      if (onSaved) onSaved();
+    } catch (err) {
+      alert(err.response?.data?.message || err.message || 'Failed to save Full & Final letter');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (showPreview) {
     return (
       <div>
@@ -64,27 +117,31 @@ const FullAndFinalGenerator = ({ employeeData, allEmployees = [] }) => {
             ← Back to Edit
           </button>
           <button
-            onClick={() => window.print()}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md"
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md disabled:opacity-60"
           >
-            🖨️ Print PDF
+            {saving ? 'Saving...' : 'Save to Library'}
           </button>
         </div>
-        <FullAndFinalPDF
-          employeeName={formData.employeeName}
-          designation={formData.designation}
-          lastWorkingDate={formatDate(formData.lastWorkingDate)}
-          companyName={formData.companyName}
-          companyAddress={formData.companyAddress}
-          hrName={formData.hrName}
-          hrContact={formData.hrContact}
-          hrEmail={formData.hrEmail}
-          currentDate={new Date().toLocaleDateString('en-GB', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric'
-          })}
-        />
+        <div ref={previewRef}>
+          <FullAndFinalPDF
+            employeeName={formData.employeeName}
+            designation={formData.designation}
+            lastWorkingDate={formatDate(formData.lastWorkingDate)}
+            companyName={formData.companyName}
+            companyAddress={formData.companyAddress}
+            hrName={formData.hrName}
+            hrContact={formData.hrContact}
+            showPrintButton={false}
+            hrEmail={formData.hrEmail}
+            currentDate={new Date().toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric'
+            })}
+          />
+        </div>
       </div>
     );
   }
@@ -103,6 +160,7 @@ const FullAndFinalGenerator = ({ employeeData, allEmployees = [] }) => {
             <select
               name="employeeSelect"
               onChange={handleEmployeeSelect}
+              value={selectedEmployeeId || ''}
               className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">— Select —</option>

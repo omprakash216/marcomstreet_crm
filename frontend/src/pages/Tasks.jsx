@@ -5,6 +5,7 @@ import { getEmployee } from '../utils/auth';
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -53,12 +54,16 @@ export default function Tasks() {
     }
 
     try {
+      setLoadError('');
       const response = await api.get('/tasks');
       setTasks(Array.isArray(response.data.data) ? response.data.data : []);
     } catch (error) {
       // Only log unexpected errors
       if (error.response?.status !== 401 && error.code !== 'ERR_NETWORK') {
         console.error('Error fetching tasks:', error);
+      }
+      if (error.response?.status && error.response?.status !== 401) {
+        setLoadError(error.response?.data?.message || `Unable to load tasks (HTTP ${error.response.status})`);
       }
       setTasks([]);
     } finally {
@@ -219,6 +224,23 @@ export default function Tasks() {
 
   return (
     <div>
+      {loadError ? (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 flex items-start justify-between gap-3">
+          <div className="text-sm">
+            <div className="font-bold">Tasks page is not loading properly</div>
+            <div className="text-amber-800 mt-0.5">{loadError}</div>
+          </div>
+          <button
+            onClick={() => {
+              setLoading(true);
+              fetchTasks();
+            }}
+            className="shrink-0 px-4 py-2 rounded-lg bg-amber-600 text-white text-xs font-black uppercase tracking-wider hover:bg-amber-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
       {/* Professional Header Section */}
       <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-gray-900 rounded-xl shadow-lg mb-6 p-6 relative overflow-hidden">
         {/* Background Pattern */}

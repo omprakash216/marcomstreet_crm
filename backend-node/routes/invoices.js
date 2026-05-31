@@ -2,6 +2,7 @@ const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const documentGenerator = require('../services/documentGenerator');
+const { localYmd, nextDocumentNumber } = require('../utils/documentNumbers');
 
 const router = express.Router();
 
@@ -17,6 +18,33 @@ function money2(n) {
   return Math.round(v * 100) / 100;
 }
 
+function normalizeDocumentSettings(row = {}) {
+  return {
+    company_name: row.company_name || row.name || 'Company Name',
+    email: row.email || '',
+    phone: row.phone || '',
+    address: row.address || '',
+    gst_number: row.gst_number || row.tax_id || '',
+    pan_number: row.pan_number || row.registration_number || '',
+    logo_path: row.logo_path || '',
+    quotation_template: row.quotation_template || 'standard',
+    quotation_header_text: row.quotation_header_text || '',
+    quotation_footer_text: row.quotation_footer_text || 'Thank you for your business!',
+  };
+}
+
+async function getDocumentSettings(companyId) {
+  if (!companyId) return normalizeDocumentSettings();
+  const settingsRows = await query(
+    'SELECT * FROM company_settings WHERE company_id = ? ORDER BY id DESC LIMIT 1',
+    [companyId]
+  ).catch(() => []);
+  if (settingsRows?.[0]) return normalizeDocumentSettings(settingsRows[0]);
+
+  const companyRows = await query('SELECT * FROM companies WHERE id = ? LIMIT 1', [companyId]).catch(() => []);
+  return normalizeDocumentSettings(companyRows?.[0] || {});
+}
+
 router.get('/', verifyToken, async (req, res) => {
   try {
     const search = req.query.search || null;
@@ -25,10 +53,8 @@ router.get('/', verifyToken, async (req, res) => {
     const dateTo = req.query.date_to || null;
 
     let sql = `SELECT i.*, l.company_name, l.contact_person, l.phone, l.email
-               FROM invoices i
-               LEFT JOIN leads l ON i.lead_id = l.id
-               WHERE 1=1`;
-    const params = [];
+               FROM invoices i LEFT JOIN leads l ON i.lead_id = l.id WHERE i.company_id = ?`;
+    const params = [req.employee.company_id];
 
     if (!canSeeAll(req.employee)) {
       sql += ' AND i.employee_id = ?';
@@ -96,7 +122,7 @@ router.post('/', verifyToken, async (req, res) => {
     const taxPct = money2(b.tax_percentage || 0);
     const tdsPct = money2(b.tds_percentage || 0);
     const discPct = money2(b.discount_percentage || 0);
-    const issueDate = new Date().toISOString().slice(0, 10);
+    const issueDate = localYmd();
     const dueDate = b.due_date ? String(b.due_date).slice(0, 10) : null;
     const notes = b.notes || '';
     const paymentTerms = b.payment_terms || '';
@@ -123,16 +149,17 @@ router.post('/', verifyToken, async (req, res) => {
     const tdsAmount = money2(taxable * (tdsPct / 100));
     const totalAmount = money2(taxable + taxAmount);
 
-    const invoiceNumber = b.invoice_number ? String(b.invoice_number) : ('INV' + Date.now());
-
     const conn = await getConnection();
+    let invoiceNumber = '';
     try {
+      invoiceNumber = await nextDocumentNumber(conn, 'invoice', issueDate);
+      await conn.beginTransaction();
+
       // New schema (COMPLETE_DATABASE_SETUP.sql)
       const [r] = await conn.execute(
-        `INSERT INTO invoices
-          (invoice_number, quotation_id, lead_id, employee_id, issue_date, due_date, subtotal, tax_percentage, tax_amount, tds_percentage, tds_amount, discount_percentage, discount_amount, total_amount, status, notes, payment_terms)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [invoiceNumber, b.quotation_id || null, leadId, req.employee.id, issueDate, dueDate, subtotal, taxPct, taxAmount, tdsPct, tdsAmount, discPct, discountAmount, totalAmount, status, notes, paymentTerms]
+        `INSERT INTO invoices (company_id, invoice_number, quotation_id, lead_id, employee_id, issue_date, due_date, subtotal, tax_percentage, tax_amount, tds_percentage, tds_amount, discount_percentage, discount_amount, total_amount, status, notes, payment_terms)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [req.employee.company_id, invoiceNumber, b.quotation_id || null, leadId, req.employee.id, issueDate, dueDate, subtotal, taxPct, taxAmount, tdsPct, tdsAmount, discPct, discountAmount, totalAmount, status, notes, paymentTerms]
       );
       const invoiceId = r.insertId;
 
@@ -156,6 +183,7 @@ router.post('/', verifyToken, async (req, res) => {
         }
       }
 
+      await conn.commit();
       return res.json({
         success: true,
         message: 'Invoice created',
@@ -165,18 +193,35 @@ router.post('/', verifyToken, async (req, res) => {
       // Legacy fallback schema (older deployments)
       const msg = String(e && e.message ? e.message : e);
       if (msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR')) {
-        const [r2] = await conn.execute(
-          'INSERT INTO invoices (lead_id, employee_id, invoice_number, client_name, total_amount, status, due_date, notes) VALUES (?,?,?,?,?,?,?,?)',
-          [leadId, req.employee.id, invoiceNumber, b.client_name || '', totalAmount, status, dueDate, notes]
-        );
-        return res.json({ success: true, message: 'Invoice created', data: { id: r2.insertId, invoice_number: invoiceNumber, total_amount: totalAmount } });
+        try {
+          const [r2] = await conn.execute(
+            'INSERT INTO invoices (company_id, lead_id, employee_id, invoice_number, client_name, total_amount, status, due_date, notes) VALUES (?,?,?,?,?,?,?,?,?)',
+            [req.employee.company_id, leadId, req.employee.id, invoiceNumber, b.client_name || '', totalAmount, status, dueDate, notes]
+          );
+          await conn.commit();
+          return res.json({ success: true, message: 'Invoice created', data: { id: r2.insertId, invoice_number: invoiceNumber, total_amount: totalAmount } });
+        } catch (fallbackErr) {
+          try { await conn.rollback(); } catch (_) { }
+          throw fallbackErr;
+        }
       }
+      try { await conn.rollback(); } catch (_) { }
       throw e;
     } finally {
       conn.release();
     }
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /invoices/template-settings - use the same selected format as quotations
+router.get('/template-settings', verifyToken, async (req, res) => {
+  try {
+    const settings = await getDocumentSettings(req.employee?.company_id);
+    return res.json({ success: true, data: settings });
+  } catch (_) {
+    return res.json({ success: true, data: normalizeDocumentSettings() });
   }
 });
 
@@ -194,8 +239,8 @@ router.get('/:id/pdf', verifyToken, async (req, res) => {
       `SELECT i.*, l.company_name, l.contact_person, l.phone as company_phone, l.email as company_email
        FROM invoices i
        LEFT JOIN leads l ON i.lead_id = l.id
-       WHERE i.id = ? ${canAll ? '' : 'AND i.employee_id = ?'}`,
-      canAll ? [id] : [id, req.employee.id]
+       WHERE i.id = ? AND i.company_id = ? ${canAll ? '' : 'AND i.employee_id = ?'}`,
+      canAll ? [id, req.employee.company_id] : [id, req.employee.company_id, req.employee.id]
     );
     const inv = Array.isArray(invRows) ? invRows[0] : null;
     if (!inv) return res.status(404).json({ success: false, message: 'Invoice not found' });
@@ -237,8 +282,8 @@ router.put('/:id', verifyToken, async (req, res) => {
 
     // Load existing for access + legacy fallback defaults
     const invRows = await query(
-      `SELECT * FROM invoices WHERE id = ? ${canAll ? '' : 'AND employee_id = ?'}`,
-      canAll ? [id] : [id, req.employee.id]
+      `SELECT * FROM invoices WHERE id = ? AND company_id = ? ${canAll ? '' : 'AND employee_id = ?'}`,
+      canAll ? [id, req.employee.company_id] : [id, req.employee.company_id, req.employee.id]
     );
     const existing = Array.isArray(invRows) ? invRows[0] : null;
     if (!existing) return res.status(404).json({ success: false, message: 'Invoice not found' });
@@ -348,8 +393,8 @@ router.patch('/:id/status', verifyToken, async (req, res) => {
     const allowed = ['draft', 'sent', 'paid', 'overdue', 'cancelled'];
     if (!allowed.includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
     const canAll = canSeeAll(req.employee);
-    const params = [status, id];
-    let sql = 'UPDATE invoices SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?';
+    const params = [status, id, req.employee.company_id];
+    let sql = 'UPDATE invoices SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND company_id=?';
     if (!canAll) { sql += ' AND employee_id=?'; params.push(req.employee.id); }
     const r = await query(sql, params);
     if (r && typeof r.affectedRows === 'number' && r.affectedRows === 0) {
@@ -367,8 +412,8 @@ router.delete('/:id', verifyToken, async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ success: false, message: 'Invalid invoice id' });
     const canAll = canSeeAll(req.employee);
-    const params = [id];
-    let sql = 'DELETE FROM invoices WHERE id = ?';
+    const params = [id, req.employee.company_id];
+    let sql = 'DELETE FROM invoices WHERE id = ? AND company_id = ?';
     if (!canAll) { sql += ' AND employee_id=?'; params.push(req.employee.id); }
     const r = await query(sql, params);
     if (r && typeof r.affectedRows === 'number' && r.affectedRows === 0) {

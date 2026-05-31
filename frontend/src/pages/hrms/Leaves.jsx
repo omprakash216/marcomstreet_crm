@@ -8,6 +8,9 @@ export default function Leaves() {
   const [leaveBalances, setLeaveBalances] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const PAGE_SIZE = 10;
+  const [leavePage, setLeavePage] = useState(0);
+  const [leaveTypePage, setLeaveTypePage] = useState(0);
   const [filter, setFilter] = useState({
     search: '',
     status: '',
@@ -51,13 +54,30 @@ export default function Leaves() {
 
   const fmtDate = (v) => {
     if (!v) return '-';
+    if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+    if (typeof v === 'object') {
+      // Common wrappers (e.g. Dayjs, nested date payloads)
+      const nested = v.$d || v.date || v.value;
+      if (nested && nested !== v) return fmtDate(nested);
+
+      // Object-style date parts fallback
+      const year = Number(v.year ?? v.y);
+      const monthRaw = Number(v.month ?? v.M);
+      const day = Number(v.day ?? v.date ?? v.d);
+      if (Number.isFinite(year) && Number.isFinite(monthRaw) && Number.isFinite(day)) {
+        const month = monthRaw >= 1 ? monthRaw : monthRaw + 1;
+        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+          return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        }
+      }
+    }
     const s = String(v);
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
     try {
       const d = new Date(v);
       if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
     } catch (_) {}
-    return s.slice(0, 10);
+    return typeof v === 'object' ? '-' : s.slice(0, 10);
   };
 
   useEffect(() => {
@@ -185,6 +205,44 @@ export default function Leaves() {
       (filter.type === '' || leave.type === filter.type);
   });
 
+  useEffect(() => {
+    // Reset pagination when filters or dataset changes
+    setLeavePage(0);
+  }, [filter.search, filter.status, filter.type, leaves.length]);
+
+  useEffect(() => {
+    // Reset leave type pagination when list changes
+    setLeaveTypePage(0);
+  }, [leaveTypes.length]);
+
+  const sortedLeaves = [...filteredLeaves].sort((a, b) => {
+    // Prefer created_at when available; otherwise fallback to date/id.
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    if (ta && tb && ta !== tb) return tb - ta;
+
+    const da = a?.start_date ? new Date(a.start_date).getTime() : 0;
+    const db = b?.start_date ? new Date(b.start_date).getTime() : 0;
+    if (da && db && da !== db) return db - da;
+
+    return (Number(b?.id) || 0) - (Number(a?.id) || 0);
+  });
+
+  const leaveTotalRows = sortedLeaves.length;
+  const leaveTotalPages = Math.max(1, Math.ceil(leaveTotalRows / PAGE_SIZE));
+  const leaveSafePage = Math.min(Math.max(leavePage, 0), leaveTotalPages - 1);
+  const leaveStartIndex = leaveSafePage * PAGE_SIZE;
+  const leaveEndIndex = Math.min(leaveStartIndex + PAGE_SIZE, leaveTotalRows);
+  const paginatedLeaves = sortedLeaves.slice(leaveStartIndex, leaveEndIndex);
+
+  const sortedLeaveTypes = [...leaveTypes].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
+  const leaveTypeTotalRows = sortedLeaveTypes.length;
+  const leaveTypeTotalPages = Math.max(1, Math.ceil(leaveTypeTotalRows / PAGE_SIZE));
+  const leaveTypeSafePage = Math.min(Math.max(leaveTypePage, 0), leaveTypeTotalPages - 1);
+  const leaveTypeStartIndex = leaveTypeSafePage * PAGE_SIZE;
+  const leaveTypeEndIndex = Math.min(leaveTypeStartIndex + PAGE_SIZE, leaveTypeTotalRows);
+  const paginatedLeaveTypes = sortedLeaveTypes.slice(leaveTypeStartIndex, leaveTypeEndIndex);
+
   return (
     <div>
       {/* Standardized Header Section */}
@@ -288,7 +346,7 @@ export default function Leaves() {
           </div>
           <div className="flex items-end">
             <div className="w-full px-4 py-2 text-sm font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded-lg text-center">
-              {filteredLeaves.length} Records Found
+              {leaveTotalRows} Records Found
             </div>
           </div>
         </div>
@@ -300,6 +358,7 @@ export default function Leaves() {
           <table className="min-w-[1100px] w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">SL No</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Employee</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Role</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Leave Type</th>
@@ -311,22 +370,25 @@ export default function Leaves() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {loading && filteredLeaves.length === 0 ? (
+            {loading && leaveTotalRows === 0 ? (
               <tr>
-                <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
+                <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
                   <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mb-2"></div>
                   <p>Loading records...</p>
                 </td>
               </tr>
-            ) : filteredLeaves.length === 0 ? (
+            ) : leaveTotalRows === 0 ? (
               <tr>
-                <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
+                <td colSpan="8" className="px-6 py-12 text-center text-gray-500">
                   No records found matching your criteria.
                 </td>
               </tr>
             ) : (
-              filteredLeaves.map((leave) => (
+              paginatedLeaves.map((leave, index) => (
                 <tr key={leave.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-500">
+                    {leaveStartIndex + index + 1}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center space-x-3">
                       <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">
@@ -421,6 +483,36 @@ export default function Leaves() {
           </tbody>
           </table>
         </div>
+
+        {!loading && leaveTotalRows > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-gray-100 bg-white">
+            <div className="text-xs text-gray-500">
+              Showing <span className="font-semibold text-gray-700">{leaveStartIndex + 1}</span>-<span className="font-semibold text-gray-700">{leaveEndIndex}</span> of{' '}
+              <span className="font-semibold text-gray-700">{leaveTotalRows}</span>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setLeavePage((p) => Math.max(0, p - 1))}
+                disabled={leaveSafePage === 0}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <div className="text-xs text-gray-500">
+                Page <span className="font-semibold text-gray-700">{leaveSafePage + 1}</span> / <span className="font-semibold text-gray-700">{leaveTotalPages}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLeavePage((p) => Math.min(leaveTotalPages - 1, p + 1))}
+                disabled={leaveSafePage >= leaveTotalPages - 1}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Professional Apply Leave Modal */}
@@ -636,6 +728,7 @@ export default function Leaves() {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SL No</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Type</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Code</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Default</th>
@@ -643,8 +736,9 @@ export default function Leaves() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {leaveTypes.map((t) => (
+                      {paginatedLeaveTypes.map((t, index) => (
                         <tr key={t.id}>
+                          <td className="px-4 py-3 text-slate-500 font-semibold">{leaveTypeStartIndex + index + 1}</td>
                           <td className="px-4 py-3 font-medium text-slate-900">{t.name}</td>
                           <td className="px-4 py-3 text-slate-600">{t.code || '-'}</td>
                           <td className="px-4 py-3 text-slate-600">{t.default_balance || 0}</td>
@@ -660,6 +754,36 @@ export default function Leaves() {
                       ))}
                     </tbody>
                   </table>
+
+                  {leaveTypeTotalRows > 0 && (
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-slate-100 bg-white">
+                      <div className="text-xs text-slate-500">
+                        Showing <span className="font-semibold text-slate-700">{leaveTypeStartIndex + 1}</span>-<span className="font-semibold text-slate-700">{leaveTypeEndIndex}</span> of{' '}
+                        <span className="font-semibold text-slate-700">{leaveTypeTotalRows}</span>
+                      </div>
+                      <div className="flex items-center gap-2 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setLeaveTypePage((p) => Math.max(0, p - 1))}
+                          disabled={leaveTypeSafePage === 0}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Previous
+                        </button>
+                        <div className="text-xs text-slate-500">
+                          Page <span className="font-semibold text-slate-700">{leaveTypeSafePage + 1}</span> / <span className="font-semibold text-slate-700">{leaveTypeTotalPages}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setLeaveTypePage((p) => Math.min(leaveTypeTotalPages - 1, p + 1))}
+                          disabled={leaveTypeSafePage >= leaveTypeTotalPages - 1}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

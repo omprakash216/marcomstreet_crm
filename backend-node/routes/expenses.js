@@ -90,8 +90,8 @@ router.post('/', verifyToken, async (req, res) => {
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
     await ensureExpensesTable();
-    await query('DELETE FROM expenses WHERE id = ?', [req.params.id]);
-    res.json({ success: true, message: 'Expense deleted' });
+    await query('DELETE FROM expenses WHERE id = ? AND company_id = ?', [req.params.id, req.employee.company_id]);
+    res.json({ success: true, message: 'Expense deleted successfully' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

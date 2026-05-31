@@ -9,6 +9,11 @@ import FullAndFinalGenerator from '../../components/FullAndFinalGenerator';
 export default function HRDocuments() {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const PAGE_SIZE = 10;
+  const HIDDEN_DOC_PATHS = new Set([
+    'uploads/hr_documents/1776429379848_offer_letter_hr_manager_1776429379829.pdf'
+  ]);
+  const [docPage, setDocPage] = useState(0);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [allEmployees, setAllEmployees] = useState([]);
   const [filter, setFilter] = useState({
@@ -53,7 +58,8 @@ export default function HRDocuments() {
 
   const employee = getEmployee();
   const role = (employee?.role || '').toLowerCase();
-  const isAllowed = role === 'admin' || role === 'human_resources';
+  // Access allowed for all roles (super admin, admin, HR, manager, employee, etc.)
+  const isAllowed = true;
 
   // Node only: same origin, /serve-pdf from Node
   const BASE_URL = '';
@@ -129,9 +135,10 @@ export default function HRDocuments() {
 
   const fetchEmployees = async () => {
     try {
-      const response = await api.get('/chat?action=users');
+      const response = await api.get('/employees');
       if (response.data.success) {
-        setAllEmployees(response.data.data);
+        const emps = response.data.data || [];
+        setAllEmployees(emps.map((e) => ({ ...e, department: e.department_name || e.department })));
       }
     } catch (error) {
       console.error('Error fetching employees:', error);
@@ -195,28 +202,51 @@ export default function HRDocuments() {
     });
   };
 
+  const normalizeDocPath = (value) =>
+    String(value || '')
+      .trim()
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .toLowerCase();
+
   const filteredDocs = docs.filter(doc => {
+    const normalizedPath = normalizeDocPath(doc.file_path);
+    if (HIDDEN_DOC_PATHS.has(normalizedPath)) return false;
+
     const matchesSearch = filter.search === '' ||
-      doc.title.toLowerCase().includes(filter.search.toLowerCase()) ||
+      (doc.title || '').toLowerCase().includes(filter.search.toLowerCase()) ||
       doc.employee_name?.toLowerCase().includes(filter.search.toLowerCase());
     const matchesType = filter.type === '' || doc.type === filter.type;
     return matchesSearch && matchesType;
   });
+
+  useEffect(() => {
+    // Reset to first page whenever dataset or filters change.
+    setDocPage(0);
+  }, [filter.search, filter.type, docs.length, activeTab]);
+
+  const sortedDocs = [...filteredDocs].sort((a, b) => {
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    if (ta && tb && ta !== tb) return tb - ta;
+    return (Number(b?.id) || 0) - (Number(a?.id) || 0);
+  });
+
+  const docTotalRows = sortedDocs.length;
+  const docTotalPages = Math.max(1, Math.ceil(docTotalRows / PAGE_SIZE));
+  const docSafePage = Math.min(Math.max(docPage, 0), docTotalPages - 1);
+  const docStartIndex = docSafePage * PAGE_SIZE;
+  const docEndIndex = Math.min(docStartIndex + PAGE_SIZE, docTotalRows);
+  const paginatedDocs = sortedDocs.slice(docStartIndex, docEndIndex);
 
   const handleGenerateDoc = async (e) => {
     e.preventDefault();
     try {
       const response = await api.post('/hrms/generate_document', docToGenerate);
       if (response.data.success) {
-        alert('Document generated successfully!');
+        alert('Document generated and saved to the Document Library!');
         setShowGenerateModal(false);
         fetchDocs();
-
-        // Automatically open the generated document
-        if (response.data.data?.file_path) {
-          const fileUrl = getDocUrl(response.data.data.file_path);
-          window.open(fileUrl, '_blank');
-        }
       }
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to generate document');
@@ -313,10 +343,11 @@ export default function HRDocuments() {
             {(activeTab === 'experience-letter' || activeTab === 'offer-letter' || activeTab === 'joining-form' || activeTab === 'full-and-final') && isAllowed && (
               <div className="flex space-x-3">
                 <select
-                  value={selectedEmployee?.id || ''}
+                  value={selectedEmployee?.id ?? ''}
                   onChange={(e) => {
-                    const emp = allEmployees.find(emp => emp.id === e.target.value);
-                    setSelectedEmployee(emp);
+                    const val = e.target.value;
+                    const emp = val ? allEmployees.find((emp) => String(emp.id) === String(val)) : null;
+                    setSelectedEmployee(emp || null);
                   }}
                   className="px-4 py-3 bg-white text-slate-700 rounded-xl shadow-lg font-semibold border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
@@ -434,7 +465,7 @@ export default function HRDocuments() {
           <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
           <p className="text-sm font-medium text-gray-500">Loading documents...</p>
         </div>
-      ) : filteredDocs.length === 0 ? (
+      ) : docTotalRows === 0 ? (
         <div className="bg-white rounded-xl p-12 text-center border border-gray-100 shadow-md">
           <i className="fas fa-folder-open text-4xl text-gray-300 mb-4 block"></i>
           <p className="text-gray-500">No documents found</p>
@@ -445,6 +476,7 @@ export default function HRDocuments() {
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
+                  <th className="text-left font-semibold px-4 py-3 whitespace-nowrap">SL No</th>
                   <th className="text-left font-semibold px-4 py-3">Title</th>
                   <th className="text-left font-semibold px-4 py-3">Type</th>
                   {isAllowed && <th className="text-left font-semibold px-4 py-3">Employee</th>}
@@ -453,11 +485,13 @@ export default function HRDocuments() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredDocs.map((doc) => (
+                {paginatedDocs.map((doc, idx) => (
                   <tr key={doc.id} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-3 text-slate-500 font-semibold whitespace-nowrap">
+                      {docStartIndex + idx + 1}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="font-semibold text-slate-900">{doc.title || 'Untitled'}</div>
-                      <div className="text-xs text-slate-500">{doc.file_path || ''}</div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-1 rounded text-[11px] font-bold uppercase ${doc.type === 'offer_letter' ? 'bg-green-100 text-green-700' :
@@ -508,19 +542,46 @@ export default function HRDocuments() {
               </tbody>
             </table>
           </div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-slate-100 bg-white">
+            <div className="text-xs text-slate-500">
+              Showing <span className="font-semibold text-slate-700">{docStartIndex + 1}</span>-<span className="font-semibold text-slate-700">{docEndIndex}</span> of{' '}
+              <span className="font-semibold text-slate-700">{docTotalRows}</span>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setDocPage((p) => Math.max(0, p - 1))}
+                disabled={docSafePage === 0}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <div className="text-xs text-slate-500">
+                Page <span className="font-semibold text-slate-700">{docSafePage + 1}</span> / <span className="font-semibold text-slate-700">{docTotalPages}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDocPage((p) => Math.min(docTotalPages - 1, p + 1))}
+                disabled={docSafePage >= docTotalPages - 1}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Upload Document Modal */}
         </>
       ) : activeTab === 'experience-letter' ? (
-        <ExperienceLetterGenerator employeeData={selectedEmployee} />
+        <ExperienceLetterGenerator allEmployees={allEmployees} employeeData={selectedEmployee} onSaved={fetchDocs} />
       ) : activeTab === 'offer-letter' ? (
-        <OfferLetterGenerator allEmployees={allEmployees} employeeData={selectedEmployee} />
+        <OfferLetterGenerator allEmployees={allEmployees} employeeData={selectedEmployee} onSaved={fetchDocs} />
       ) : activeTab === 'joining-form' ? (
-        <JoiningFormGenerator allEmployees={allEmployees} employeeData={selectedEmployee} />
+        <JoiningFormGenerator allEmployees={allEmployees} employeeData={selectedEmployee} onSaved={fetchDocs} />
       ) : activeTab === 'full-and-final' ? (
-        <FullAndFinalGenerator allEmployees={allEmployees} employeeData={selectedEmployee} />
+        <FullAndFinalGenerator allEmployees={allEmployees} employeeData={selectedEmployee} onSaved={fetchDocs} />
       ) : null}
 
       {/* Upload Document Modal */}
@@ -627,8 +688,8 @@ export default function HRDocuments() {
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">Employee</label>
                   <select
                     required
-                    value={docToGenerate.employee_id}
-                    onChange={(e) => setDocToGenerate({ ...docToGenerate, employee_id: e.target.value })}
+                    value={docToGenerate.employee_id || ''}
+                    onChange={(e) => setDocToGenerate({ ...docToGenerate, employee_id: e.target.value || '' })}
                     className="w-full px-4 py-2.5 text-slate-800 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
                   >
                     <option value="">Select an employee</option>

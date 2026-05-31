@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import api from '../../utils/api';
 
 const TYPES = [
@@ -87,24 +87,23 @@ export default function AdminExpenses() {
 
   return (
     <div className="space-y-6 text-slate-800">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Expenses</h1>
-          <p className="text-slate-500 text-sm font-medium">
-            Track salaries and all operational expenses from one consolidated view.
-          </p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Admin - Expenses</p>
+          <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">Expenses</h1>
+          <p className="text-slate-500 text-sm">Track salaries and all operational expenses from one consolidated view.</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <button
             onClick={handleExport}
-            className="flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
           >
-            <i className="fas fa-file-excel text-emerald-500" />
-            Export to Excel
+            <i className="fas fa-file-excel text-emerald-600" />
+            Export
           </button>
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 hover:scale-[1.02] active:scale-[0.98]"
+            className="inline-flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-slate-800 transition shadow-sm active:scale-[0.98]"
           >
             <i className="fas fa-plus" />
             Add Expense
@@ -113,30 +112,26 @@ export default function AdminExpenses() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[2rem] p-8 text-white shadow-2xl relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 transition-transform duration-500 group-hover:scale-110" />
-          <div className="relative z-10 flex flex-col justify-between h-full">
+        <div className="md:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+          <div className="flex flex-col justify-between h-full">
             <div>
-              <p className="text-blue-100 font-bold uppercase tracking-widest text-xs mb-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 mb-2">
                 Total Expenses (Filtered)
               </p>
-              <h2 className="text-4xl md:text-5xl font-black tracking-tight mb-2">
-                ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              <h2 className="text-4xl font-semibold text-slate-900 tracking-tight mb-2">
+                INR {totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </h2>
             </div>
-            <div className="flex items-center gap-4 mt-6">
-              <div className="px-4 py-2 bg-white/20 backdrop-blur-md rounded-xl text-sm font-bold border border-white/30">
+            <div className="flex flex-wrap items-center gap-3 mt-6">
+              <div className="px-3 py-1.5 bg-slate-50 rounded-xl text-xs font-semibold border border-slate-200 text-slate-700">
                 {expenses.length} Entries
               </div>
-              <div className="text-blue-100 text-xs font-semibold">
-                Last Updated: {new Date().toLocaleTimeString()}
-              </div>
+              <div className="text-slate-500 text-xs font-medium">Last updated: {new Date().toLocaleTimeString()}</div>
             </div>
           </div>
-          <i className="fas fa-receipt absolute bottom-8 right-8 text-7xl opacity-10 rotate-6 transition-transform duration-500 group-hover:rotate-0" />
         </div>
 
-        <div className="bg-white rounded-[2rem] p-6 border border-slate-200 shadow-sm space-y-4">
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
           <h3 className="text-sm font-bold tracking-[0.25em] uppercase text-slate-500">Filters</h3>
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-2 gap-3">
@@ -184,7 +179,7 @@ export default function AdminExpenses() {
         </div>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 border-b border-slate-100 bg-slate-50/40 flex items-center justify-between text-xs text-slate-500">
           <span>Showing latest expense entries</span>
         </div>
@@ -203,7 +198,7 @@ export default function AdminExpenses() {
               {loading ? (
                 <tr>
                   <td colSpan={5} className="px-8 py-16 text-center text-slate-400">
-                    Loading expenses…
+                    Loading expenses...
                   </td>
                 </tr>
               ) : expenses.length === 0 ? (
@@ -225,12 +220,12 @@ export default function AdminExpenses() {
                     </td>
                     <td className="px-6 py-4">
                       <p className="text-sm font-medium text-slate-800">
-                        {e.description || '—'}
+                        {e.description || '-'}
                       </p>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <span className="text-sm font-bold text-slate-900">
-                        ₹{parseFloat(e.amount).toLocaleString('en-IN')}
+                        INR {parseFloat(e.amount).toLocaleString('en-IN')}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -250,18 +245,18 @@ export default function AdminExpenses() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-xl">
-          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden border border-white/20">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-black text-slate-900 leading-tight">Add Expense</h3>
+                <h3 className="text-xl font-semibold text-slate-900 leading-tight">Add Expense</h3>
                 <p className="text-slate-400 text-xs font-medium mt-1">
                   Record a new expense entry (salary, rent, tools or other).
                 </p>
               </div>
               <button
                 onClick={() => setShowModal(false)}
-                className="w-9 h-9 flex items-center justify-center bg-slate-50 text-slate-400 rounded-full hover:bg-slate-100 hover:text-slate-600 transition-all"
+                className="w-9 h-9 flex items-center justify-center bg-slate-50 text-slate-500 rounded-full hover:bg-slate-100 transition"
               >
                 <i className="fas fa-times" />
               </button>
@@ -312,7 +307,7 @@ export default function AdminExpenses() {
               </div>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
-                  Amount (₹)
+                  Amount (INR)
                 </label>
                 <input
                   type="number"
@@ -335,7 +330,7 @@ export default function AdminExpenses() {
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-blue-600 px-5 py-2 text-xs font-semibold text-white hover:bg-blue-700 shadow-md"
+                  className="rounded-xl bg-slate-900 px-5 py-2 text-xs font-semibold text-white hover:bg-slate-800 shadow-sm"
                 >
                   Save Expense
                 </button>
@@ -347,4 +342,5 @@ export default function AdminExpenses() {
     </div>
   );
 }
+
 

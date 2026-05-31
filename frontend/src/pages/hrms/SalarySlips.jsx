@@ -5,6 +5,8 @@ import { getEmployee } from '../../utils/auth';
 export default function SalarySlips() {
   const [slips, setSlips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const pageSize = 10;
+  const [page, setPage] = useState(1);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -32,6 +34,7 @@ export default function SalarySlips() {
     tax_deduction: '',
     professional_tax: '',
     other_deductions: '',
+    payment_mode: 'Bank Transfer',
     status: 'generated'
   });
   const employee = getEmployee();
@@ -77,25 +80,21 @@ export default function SalarySlips() {
 
   const downloadSlipPdf = async (slip) => {
     if (!slip) return;
-    const hasId = slip?.id !== undefined && slip?.id !== null && slip?.id !== '';
-    const filePath = slip?.file_path;
-    // Prefer authenticated API endpoint (auto-regenerates missing PDFs).
-    // `regen=1` ensures latest letter-head.png layout even if an old PDF file exists on disk.
-    const apiUrl = hasId ? `/hrms/salary/${encodeURIComponent(String(slip.id))}/pdf?download=1&regen=1` : null;
-    const fallbackUrl = `${BASE_URL}/serve-pdf?file=${encodeURIComponent(filePath)}&download=1`;
-    const safeName =
-      (String(filePath || '').split('/').pop()?.replace(/[^a-zA-Z0-9._-]/g, '_')) || 'salary-slip.pdf';
+    const slipId = slip?.id ?? slip?.salary_slip_id ?? slip?.slip_id;
+    if (slipId === undefined || slipId === null || String(slipId).trim() === '') {
+      alert('Salary slip ID missing. Please refresh and try again.');
+      return;
+    }
+
+    // Always use authenticated regenerate endpoint (no stale file-path fallback).
+    const apiUrl = `/hrms/salary/${encodeURIComponent(String(slipId))}/pdf?download=1&regen=1&force=1&ts=${Date.now()}`;
+    const month = String(slip?.month || '').replace(/[^0-9-]/g, '') || 'month';
+    const code = String(slip?.employee_code || 'EMP').replace(/[^a-zA-Z0-9_-]/g, '') || 'EMP';
+    const safeName = `salary-slip_${code}_${month}_${Date.now()}.pdf`;
 
     try {
-      let blob;
-      if (apiUrl) {
-        const resp = await api.get(apiUrl, { responseType: 'blob' });
-        blob = resp.data;
-      } else {
-        const resp = await fetch(fallbackUrl, { credentials: 'include' });
-        if (!resp.ok) throw new Error(`Download failed (${resp.status})`);
-        blob = await resp.blob();
-      }
+      const resp = await api.get(apiUrl, { responseType: 'blob' });
+      const blob = resp.data;
 
       const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -124,10 +123,11 @@ export default function SalarySlips() {
 
   useEffect(() => {
     fetchSlips();
-    if (isAdminOrManager) {
-      fetchEmployees();
-    }
-  }, [filter, isAdminOrManager]);
+  }, []);
+
+  useEffect(() => {
+    if (isAdminOrManager) fetchEmployees();
+  }, [isAdminOrManager]);
 
   // Auto-set pay period when month changes
   useEffect(() => {
@@ -167,6 +167,7 @@ export default function SalarySlips() {
 
   const fetchSlips = async () => {
     try {
+      setLoading(true);
       const response = await api.get('/hrms/salary');
       if (response.data.success) {
         setSlips(response.data.data);
@@ -279,6 +280,7 @@ export default function SalarySlips() {
       tax_deduction: '',
       professional_tax: '',
       other_deductions: '',
+      payment_mode: 'Bank Transfer',
       status: 'generated'
     });
   };
@@ -296,6 +298,15 @@ export default function SalarySlips() {
     const matchesYear = filter.year === '' || slip.month.includes(filter.year);
     return matchesMonth && matchesYear;
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter.month, filter.year, slips.length]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSlips.length / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const pageRows = filteredSlips.slice(startIndex, startIndex + pageSize);
 
   const { grossSalary, totalDeductions, netSalary } = calculateTotals();
 
@@ -317,6 +328,7 @@ export default function SalarySlips() {
       tax_deduction: slip.tax_deduction ?? '',
       professional_tax: slip.professional_tax ?? '',
       other_deductions: slip.other_deductions ?? '',
+      payment_mode: slip.payment_mode || 'Bank Transfer',
       status: slip.status || 'generated',
     });
     setShowEditModal(true);
@@ -447,6 +459,7 @@ export default function SalarySlips() {
             <table className="min-w-[1100px] w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">SL No</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Month</th>
                   {isAdminOrManager && (
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Employee</th>
@@ -461,8 +474,11 @@ export default function SalarySlips() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredSlips.map((slip) => (
+                {pageRows.map((slip, index) => (
                   <tr key={slip.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-500">
+                      {String(startIndex + index + 1).padStart(2, '0')}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">{slip.month}</td>
                     {isAdminOrManager && (
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{slip.employee_name || '-'}</td>
@@ -526,6 +542,39 @@ export default function SalarySlips() {
               </tbody>
             </table>
           </div>
+
+          {filteredSlips.length > pageSize && (
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-4 py-3 border-t border-gray-200 bg-white">
+              <div className="text-sm text-gray-600">
+                Showing <span className="font-semibold text-gray-800">{startIndex + 1}</span>–
+                <span className="font-semibold text-gray-800">{Math.min(startIndex + pageSize, filteredSlips.length)}</span> of{' '}
+                <span className="font-semibold text-gray-800">{filteredSlips.length}</span>
+              </div>
+              <div className="flex items-center justify-between md:justify-end gap-3">
+                <div className="text-xs text-gray-500">
+                  Page <span className="font-semibold text-gray-700">{safePage}</span> / {totalPages}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPage(p => Math.max(1, Math.min(totalPages, p) - 1))}
+                    disabled={safePage <= 1}
+                    className="px-3 py-2 text-sm font-medium border rounded-lg bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={safePage >= totalPages}
+                    className="px-3 py-2 text-sm font-medium border rounded-lg bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -549,7 +598,7 @@ export default function SalarySlips() {
             </div>
 
             <form onSubmit={handleUpdateSlip} className="p-5 sm:p-6 overflow-y-auto">
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-6 grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Pay Period (Month)</label>
                   <input
@@ -586,6 +635,16 @@ export default function SalarySlips() {
                     type="date"
                     value={editSlip.pay_period_end}
                     onChange={(e) => setEditSlip({ ...editSlip, pay_period_end: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Payment Mode</label>
+                  <input
+                    type="text"
+                    value={editSlip.payment_mode || ''}
+                    onChange={(e) => setEditSlip({ ...editSlip, payment_mode: e.target.value })}
+                    placeholder="Bank Transfer"
                     className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
                   />
                 </div>
@@ -712,7 +771,7 @@ export default function SalarySlips() {
 
             <form onSubmit={handleGenerateSlip} className="p-6">
               {/* Employee & Period Selection */}
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Employee Selection</label>
                   <select
@@ -740,6 +799,16 @@ export default function SalarySlips() {
                     required
                     value={newSlip.month}
                     onChange={(e) => setNewSlip({ ...newSlip, month: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Payment Mode</label>
+                  <input
+                    type="text"
+                    value={newSlip.payment_mode || ''}
+                    onChange={(e) => setNewSlip({ ...newSlip, payment_mode: e.target.value })}
+                    placeholder="Bank Transfer"
                     className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
                   />
                 </div>
@@ -947,14 +1016,21 @@ export default function SalarySlips() {
                   <p className="text-sm text-gray-600">Bank A/C</p>
                   <p className="font-semibold text-gray-900">{selectedSlip.bank_account || '-'}</p>
                 </div>
+                <div>
+                  <p className="text-sm text-gray-600">Payment Mode</p>
+                  <p className="font-semibold text-gray-900">{selectedSlip.payment_mode || 'Bank Transfer'}</p>
+                </div>
               </div>
             </div>
 
             {/* Earnings & Deductions */}
-            <div className="grid grid-cols-2 gap-6 mb-6">
+            <div
+              className="salary-slip-breakdown-grid grid gap-6 mb-6"
+              style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}
+            >
               {/* Earnings */}
-              <div>
-                <h3 className="font-semibold text-gray-900 mb-3 flex items-center">
+              <div className="min-w-0">
+                <h3 className="font-bold text-gray-900 mb-5 flex items-center">
                   <i className="fas fa-arrow-up text-green-600 mr-2"></i>
                   Earnings
                 </h3>
@@ -991,8 +1067,8 @@ export default function SalarySlips() {
               </div>
 
               {/* Deductions */}
-              <div>
-                <h3 className="font-semibold text-gray-900 mb-3 flex items-center">
+              <div className="min-w-0">
+                <h3 className="font-semibold text-gray-900 mb-5 flex items-center">
                   <i className="fas fa-arrow-down text-red-600 mr-2"></i>
                   Deductions
                 </h3>
@@ -1050,4 +1126,3 @@ export default function SalarySlips() {
     </div>
   );
 }
-

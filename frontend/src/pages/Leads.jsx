@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../utils/api';
 import AIGuidance from '../components/AIGuidance';
 import FollowupModal from '../components/FollowupModal';
@@ -8,6 +8,9 @@ import LeadModal from '../components/LeadModal';
 export default function Leads() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [hasNextPage, setHasNextPage] = useState(false);
   const [filter, setFilter] = useState({
     search: '',
     status: '',
@@ -21,11 +24,14 @@ export default function Leads() {
   const [followupLeadId, setFollowupLeadId] = useState(null);
   const [showLeadModal, setShowLeadModal] = useState(false);
   const [editingLeadId, setEditingLeadId] = useState(null);
+  const [leadModalInitialValues, setLeadModalInitialValues] = useState({});
+  const [leadModalTitle, setLeadModalTitle] = useState('');
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     fetchLeads();
-  }, [filter]);
+  }, [filter, page]);
 
 
   const fetchLeads = async () => {
@@ -70,9 +76,9 @@ export default function Leads() {
         if (filter.date_to) params.append('date_to', filter.date_to);
       }
 
-      // Add pagination for fast loading
-      params.append('page', '1');
-      params.append('limit', '50'); // Load 50 records at a time for fast loading
+      // Pagination
+      params.append('page', String(page));
+      params.append('limit', String(pageSize));
 
       const apiUrl = `/leads${params.toString() ? '?' + params.toString() : ''}`;
       console.log('🔍 Fetching leads from:', apiUrl);
@@ -110,19 +116,22 @@ export default function Leads() {
         return;
       }
 
-      let leadsData = Array.isArray(response.data.data) ? response.data.data : [];
+      const rawLeads = response.data.data;
+      if (rawLeads !== undefined && rawLeads !== null && !Array.isArray(rawLeads)) {
+        console.warn('⚠️ Leads response data is not an array:', rawLeads);
+      }
+      let leadsData = Array.isArray(rawLeads) ? rawLeads : [];
+      setHasNextPage(Boolean(response.data?.has_next) || leadsData.length === pageSize);
 
       // Log if we got data
       if (leadsData.length > 0) {
         console.log(`✅ Successfully loaded ${leadsData.length} leads from database (qualified leads excluded)`);
         console.log('📋 First lead:', leadsData[0]);
-      } else {
-        console.warn('⚠️ No leads found in response after filtering. Response data:', response.data);
       }
 
       // Don't apply client-side filtering if backend already filtered
       // Only apply if no backend filters were used
-      const hasBackendFilters = filter.status || filter.priority || filter.search || filter.date_filter;
+      const hasBackendFilters = true;
 
       if (!hasBackendFilters) {
         // Client-side filtering for date (if backend doesn't support)
@@ -175,10 +184,12 @@ export default function Leads() {
   };
 
   const handleFilterChange = (field, value) => {
+    setPage(1);
     setFilter({ ...filter, [field]: value });
   };
 
   const clearFilters = () => {
+    setPage(1);
     setFilter({
       search: '',
       status: '',
@@ -189,10 +200,19 @@ export default function Leads() {
     });
   };
 
-  const handleStatusUpdate = async (leadId, newStatus) => {
+  const handleStatusUpdate = async (lead, newStatus) => {
+    const leadId = lead?.id ?? null;
+    const leadCode = lead?.lead_code ?? null;
+    if (!leadId && !leadCode) {
+      alert('Lead identify nahi ho paayi. Please page refresh karke phir try karein.');
+      return;
+    }
+
     try {
       await api.put('/leads/update_status', {
         lead_id: leadId,
+        id: leadId,
+        lead_code: leadCode,
         status: newStatus,
       });
       fetchLeads();
@@ -215,15 +235,38 @@ export default function Leads() {
     window.open(`${API_BASE_URL || ''}/api/leads/export?token=${encodeURIComponent(token || '')}`, '_blank');
   };
 
-  const handleCreateLead = () => {
+  const handleCreateLead = (initialValues = {}, title = '') => {
     setEditingLeadId(null);
+    setLeadModalInitialValues(initialValues);
+    setLeadModalTitle(title);
     setShowLeadModal(true);
   };
 
   const handleEditLead = (leadId) => {
     setEditingLeadId(leadId);
+    setLeadModalInitialValues({});
+    setLeadModalTitle('');
     setShowLeadModal(true);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const createMode = params.get('create');
+    const source = params.get('source');
+    const shouldCreateMediaLead = createMode === 'media' || source === 'media';
+
+    if (shouldCreateMediaLead) {
+      handleCreateLead(
+        {
+          source: 'media',
+          priority: 'high',
+          notes: 'Media lead'
+        },
+        'Create Media Lead'
+      );
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.search, location.pathname, navigate]);
 
   const handleDeleteLead = async (leadId) => {
     if (!window.confirm('Are you sure you want to delete this lead? This action cannot be undone.')) {
@@ -271,9 +314,9 @@ export default function Leads() {
   }
 
   return (
-    <div>
+    <div className="relative">
       {/* Professional Header Section */}
-      <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-gray-900 rounded-xl shadow-lg mb-6 p-6 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-gray-900 rounded-xl shadow-lg mb-6 p-4 sm:p-6 relative overflow-hidden">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{
@@ -283,24 +326,26 @@ export default function Leads() {
 
         {/* Content */}
         <div className="relative z-10">
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             {/* Icon */}
-            <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-start gap-4 flex-1 min-w-0">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
+                <svg className="w-7 h-7 sm:w-8 sm:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
 
             {/* Title and Description */}
             <div className="flex-1">
-              <h1 className="text-3xl font-bold text-white mb-1">Leads & Follow-ups</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1">Leads & Follow-ups</h1>
               <p className="text-slate-300 text-sm">Manage and track all your leads and follow-up activities</p>
             </div>
+            </div>
             {/* Action Buttons */}
-            <div className="flex space-x-3">
+            <div className="flex flex-wrap gap-3 w-full lg:w-auto lg:ml-auto lg:justify-end">
               <button
                 onClick={handleCreateLead}
-                className="flex items-center space-x-2 px-4 py-2 bg-white text-blue-600 rounded-lg border border-white hover:bg-blue-50 transition-all"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-white text-blue-600 rounded-lg border border-white hover:bg-blue-50 transition-all"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -309,7 +354,7 @@ export default function Leads() {
               </button>
               <button
                 onClick={handleExport}
-                className="flex items-center space-x-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 transition-all"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 transition-all"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -487,7 +532,7 @@ export default function Leads() {
                 leads.map((lead, index) => (
                   <tr key={lead.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-center font-medium text-gray-600">
-                      {index + 1}
+                      {(page - 1) * pageSize + index + 1}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium">{lead.company_name}</div>
@@ -501,7 +546,7 @@ export default function Leads() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <select
                         value={lead.status}
-                        onChange={(e) => handleStatusUpdate(lead.id, e.target.value)}
+                        onChange={(e) => handleStatusUpdate(lead, e.target.value)}
                         className={`border rounded px-2 py-1 text-sm ${getStatusColor(lead.status)}`}
                       >
                         <option value="new">New</option>
@@ -593,6 +638,32 @@ export default function Leads() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {!loading && (
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-6 py-4 border-t bg-gray-50">
+            <div className="text-sm text-gray-600">
+              Page <span className="font-semibold">{page}</span> · Showing{' '}
+              <span className="font-semibold">{leads.length}</span> record{leads.length === 1 ? '' : 's'}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-4 py-2 rounded-lg border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!hasNextPage}
+                className="px-4 py-2 rounded-lg border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {selectedLeadId && (
@@ -622,9 +693,14 @@ export default function Leads() {
           showModal={showLeadModal}
           setShowModal={setShowLeadModal}
           leadId={editingLeadId}
+          initialValues={leadModalInitialValues}
+          title={leadModalTitle}
+          presentation="contained"
           onSuccess={() => {
             setShowLeadModal(false);
             setEditingLeadId(null);
+            setLeadModalInitialValues({});
+            setLeadModalTitle('');
             fetchLeads();
           }}
         />

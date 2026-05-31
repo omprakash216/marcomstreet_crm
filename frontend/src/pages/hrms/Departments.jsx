@@ -136,16 +136,22 @@ export default function Departments() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">SL No</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Name</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Description</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Actions</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {departments.map((dept) => (
+                  {departments.map((dept, index) => (
                     <tr key={dept.id} className="hover:bg-slate-50/60">
-                      <td className="px-4 py-3 font-medium text-slate-900">{dept.name}</td>
-                      <td className="px-4 py-3 text-slate-600">{dept.description || '-'}</td>
+                      <td className="px-4 py-3 text-slate-500 font-semibold whitespace-nowrap">{String(index + 1).padStart(2, '0')}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{dept.name}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        <div className="max-w-[520px] truncate" title={dept.description || ''}>
+                          {dept.description || '-'}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-right space-x-2">
                         <button
                           onClick={() => handleEdit(dept)}

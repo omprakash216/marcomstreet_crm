@@ -1,5 +1,5 @@
 import React from 'react';
-import logoImage from '../assets/MS_LOGO2.png';
+import logoImage from '../assets/vg.png';
 
 const MarcomLogo = ({ className = '' }) => {
     return (
@@ -7,7 +7,8 @@ const MarcomLogo = ({ className = '' }) => {
             <img
                 src={logoImage}
                 alt="Marcom Logo"
-                className="w-full h-full object-contain"
+                className="object-contain"
+                style={{ width: '100%', height: '100%' }}
             />
         </div>
     );

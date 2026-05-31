@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../utils/api';
 import { getEmployee } from '../utils/auth';
 
 const DAILY_GOAL_SECONDS = 8 * 60 * 60;
+const STORAGE_KEY = 'attendance.working_hours.summary.v1';
 
 function pad(value) {
   return String(value).padStart(2, '0');
@@ -45,43 +46,174 @@ async function captureLocation() {
 
 export default function WorkingHoursCard({ className = '', onUpdated, showActions = true, refreshKey }) {
   const employee = getEmployee();
-  const [summary, setSummary] = useState(null);
+  const storageKey = `${STORAGE_KEY}.${employee?.id || employee?.email || 'anonymous'}`;
+  const [summary, setSummary] = useState(() => {
+    try {
+      const cached = localStorage.getItem(storageKey);
+      return cached ? JSON.parse(cached) : null;
+    } catch (_) {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [error, setError] = useState('');
   const [tick, setTick] = useState(Date.now());
+  const runtimeRef = useRef({
+    sessionKey: '',
+    baseWorked: 0,
+    baseBreak: 0,
+    baseAtMs: Date.now(),
+  });
+  const liveRef = useRef({
+    sessionKey: '',
+    worked: 0,
+    breakTime: 0,
+    total: 0,
+  });
+  const pendingCounterResetRef = useRef(false);
 
-  const refreshSummary = useCallback(async () => {
+  const refreshSummary = useCallback(async ({ allowCounterReset = false } = {}) => {
     try {
       setError('');
       const response = await api.get('/checkin/today');
       if (response.data?.success) {
-        setSummary({
+        const acceptCounterReset = allowCounterReset || pendingCounterResetRef.current;
+        const next = {
           ...response.data.data,
           _fetchedAt: Date.now(),
+          _serverTimeMs: Number(response.data.data?.server_time_ms) || Date.now(),
+        };
+        setSummary((prev) => {
+          const nextAttendance = next?.attendance;
+          const nextSessionKey = nextAttendance
+            ? `${nextAttendance.id || 'na'}|${nextAttendance.check_in_time || ''}`
+            : '';
+          const live = liveRef.current;
+          if (acceptCounterReset && nextAttendance) {
+            const resetWorked = Number(nextAttendance.worked_seconds) || 0;
+            const resetBreak = Number(nextAttendance.break_seconds) || 0;
+            runtimeRef.current = {
+              sessionKey: nextSessionKey,
+              baseWorked: resetWorked,
+              baseBreak: resetBreak,
+              baseAtMs: Number(next._serverTimeMs) || Date.now(),
+            };
+            liveRef.current = {
+              sessionKey: nextSessionKey,
+              worked: resetWorked,
+              breakTime: resetBreak,
+              total: resetWorked + resetBreak,
+            };
+          }
+          if (!acceptCounterReset && nextAttendance && live.sessionKey && live.sessionKey === nextSessionKey) {
+            const nextWorked = Number(nextAttendance.worked_seconds) || 0;
+            const nextBreak = Number(nextAttendance.break_seconds) || 0;
+            const nextTotal = nextWorked + nextBreak;
+            if (live.total > nextTotal) {
+              next.attendance = {
+                ...nextAttendance,
+                worked_seconds: Math.max(nextWorked, live.worked),
+                break_seconds: Math.max(nextBreak, live.breakTime),
+              };
+            }
+          }
+          const activeStatuses = new Set(['checked_in', 'on_break']);
+          if (!acceptCounterReset && prev?.attendance && next?.attendance) {
+            const prevStatus = prev.attendance.status;
+            const nextStatus = next.attendance.status;
+            if (activeStatuses.has(prevStatus) && activeStatuses.has(nextStatus)) {
+              const prevWorked = Number(prev.attendance.worked_seconds) || 0;
+              const nextWorked = Number(next.attendance.worked_seconds) || 0;
+              const prevBreak = Number(prev.attendance.break_seconds) || 0;
+              const nextBreak = Number(next.attendance.break_seconds) || 0;
+              // Guard against server responses that reset counters (e.g., stale rows)
+              if (nextWorked + nextBreak < prevWorked + prevBreak) {
+                next.attendance = {
+                  ...next.attendance,
+                  worked_seconds: Math.max(nextWorked, prevWorked),
+                  break_seconds: Math.max(nextBreak, prevBreak),
+                };
+              }
+            }
+          }
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(next));
+          } catch (_) {}
+          if (onUpdated) onUpdated(next);
+          return next;
         });
-        if (onUpdated) onUpdated(response.data.data);
+        if (acceptCounterReset) pendingCounterResetRef.current = false;
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to load working timer');
     } finally {
       setLoading(false);
     }
-  }, [onUpdated]);
+  }, [onUpdated, storageKey]);
 
   useEffect(() => {
     refreshSummary();
     const secondTimer = setInterval(() => setTick(Date.now()), 1000);
     const syncTimer = setInterval(refreshSummary, 60000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshSummary();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       clearInterval(secondTimer);
       clearInterval(syncTimer);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [refreshSummary, refreshKey]);
+
+  useEffect(() => {
+    const attendance = summary?.attendance;
+    if (!attendance) {
+      runtimeRef.current = {
+        sessionKey: '',
+        baseWorked: 0,
+        baseBreak: 0,
+        baseAtMs: Date.now(),
+      };
+      return;
+    }
+
+    const sessionKey = `${attendance.id || 'na'}|${attendance.check_in_time || ''}`;
+    const serverAtMs = Number(summary?._serverTimeMs) || Date.now();
+    const nextWorked = Number(attendance.worked_seconds) || 0;
+    const nextBreak = Number(attendance.break_seconds) || 0;
+
+    const prev = runtimeRef.current;
+    const prevTotal = (prev.baseWorked || 0) + (prev.baseBreak || 0);
+    const nextTotal = nextWorked + nextBreak;
+
+    if (prev.sessionKey !== sessionKey) {
+      runtimeRef.current = {
+        sessionKey,
+        baseWorked: nextWorked,
+        baseBreak: nextBreak,
+        baseAtMs: serverAtMs,
+      };
+      return;
+    }
+
+    if (nextTotal >= prevTotal) {
+      runtimeRef.current = {
+        ...prev,
+        baseWorked: nextWorked,
+        baseBreak: nextBreak,
+        baseAtMs: serverAtMs,
+      };
+    }
+  }, [summary]);
 
   const liveAttendance = useMemo(() => {
     const attendance = summary?.attendance;
     if (!attendance) {
+      liveRef.current = { sessionKey: '', worked: 0, breakTime: 0, total: 0 };
       return {
         status: 'pending',
         worked_seconds: 0,
@@ -93,24 +225,42 @@ export default function WorkingHoursCard({ className = '', onUpdated, showAction
         can_start_break: false,
         can_resume: false,
         can_clock_out: false,
+        can_reset_timer: false,
       };
     }
 
     const fetchedAt = Number(summary?._fetchedAt) || Date.now();
-    const elapsed = Math.max(0, Math.floor((tick - fetchedAt) / 1000));
-    let workedSeconds = Number(attendance.worked_seconds) || 0;
-    let breakSeconds = Number(attendance.break_seconds) || 0;
+    const serverTimeAtFetch = Number(summary?._serverTimeMs) || fetchedAt;
+    const serverOffsetMs = serverTimeAtFetch - fetchedAt;
+    const serverNowMs = tick + serverOffsetMs;
+
+    const runtime = runtimeRef.current;
+    const elapsed = Math.max(0, Math.floor((serverNowMs - (runtime.baseAtMs || serverTimeAtFetch)) / 1000));
+    let workedSeconds = Number(runtime.baseWorked) || 0;
+    let breakSeconds = Number(runtime.baseBreak) || 0;
     const targetSeconds = Number(attendance.target_seconds) || DAILY_GOAL_SECONDS;
 
     if (attendance.status === 'checked_in') {
       workedSeconds += elapsed;
     } else if (attendance.status === 'on_break') {
       breakSeconds += elapsed;
+    } else if (attendance.status === 'completed' || attendance.status === 'checked_out') {
+      // After punch-out, use the exact server values — do NOT add elapsed time
+      workedSeconds = Number(attendance.worked_seconds) || 0;
+      breakSeconds = Number(attendance.break_seconds) || 0;
     }
 
     const overtimeSeconds = Math.max(0, workedSeconds - targetSeconds);
     const remainingSeconds = Math.max(0, targetSeconds - workedSeconds);
     const progressPercent = targetSeconds > 0 ? Math.min(100, Math.round((workedSeconds / targetSeconds) * 100)) : 0;
+
+    const sessionKey = `${attendance.id || 'na'}|${attendance.check_in_time || ''}`;
+    liveRef.current = {
+      sessionKey,
+      worked: workedSeconds,
+      breakTime: breakSeconds,
+      total: workedSeconds + breakSeconds,
+    };
 
     return {
       ...attendance,
@@ -123,6 +273,7 @@ export default function WorkingHoursCard({ className = '', onUpdated, showAction
       can_start_break: attendance.can_start_break,
       can_resume: attendance.can_resume,
       can_clock_out: attendance.can_clock_out,
+      can_reset_timer: attendance.can_reset_timer,
     };
   }, [summary, tick]);
 
@@ -136,6 +287,10 @@ export default function WorkingHoursCard({ className = '', onUpdated, showAction
 
   const handleAction = async (action) => {
     try {
+      if (action === 'resetTimer') {
+        const ok = window.confirm('Reset timer now? Worked and break time for current session will restart from 00:00:00.');
+        if (!ok) return;
+      }
       setActionLoading(action);
       setError('');
       const payload = await captureLocation();
@@ -144,9 +299,12 @@ export default function WorkingHoursCard({ className = '', onUpdated, showAction
         startBreak: '/checkin/start-break',
         endBreak: '/checkin/end-break',
         clockOut: '/checkin/clock-out',
+        resetTimer: '/checkin/reset-timer',
       };
       await api.post(endpointMap[action], payload);
-      await refreshSummary();
+      const needsCounterReset = action === 'resetTimer' || action === 'clockOut' || action === 'clockIn';
+      if (needsCounterReset) pendingCounterResetRef.current = true;
+      await refreshSummary({ allowCounterReset: needsCounterReset });
     } catch (err) {
       setError(err.response?.data?.message || 'Attendance action failed');
     } finally {
@@ -212,8 +370,8 @@ export default function WorkingHoursCard({ className = '', onUpdated, showAction
           </div>
           <div className="mt-3 flex flex-wrap gap-6 text-sm text-slate-600">
             <span>Break: <strong className="text-slate-900">{formatSeconds(liveAttendance.break_seconds)}</strong></span>
-            <span>Check In: <strong className="text-slate-900">{liveAttendance.check_in_time || '--:--:--'}</strong></span>
-            <span>Check Out: <strong className="text-slate-900">{liveAttendance.check_out_time || '--:--:--'}</strong></span>
+            <span>Punch In: <strong className="text-slate-900">{liveAttendance.check_in_time || '--:--:--'}</strong></span>
+            <span>Punch Out: <strong className="text-slate-900">{liveAttendance.check_out_time || '--:--:--'}</strong></span>
           </div>
         </div>
 
@@ -225,7 +383,7 @@ export default function WorkingHoursCard({ className = '', onUpdated, showAction
               disabled={loading || actionLoading || !liveAttendance.can_clock_in}
               className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {actionLoading === 'clockIn' ? 'Clocking In...' : 'Clock In'}
+              {actionLoading === 'clockIn' ? 'Punching In...' : 'Punch In'}
             </button>
             <button
               type="button"
@@ -249,7 +407,15 @@ export default function WorkingHoursCard({ className = '', onUpdated, showAction
               disabled={loading || actionLoading || !liveAttendance.can_clock_out}
               className="rounded-xl bg-rose-600 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {actionLoading === 'clockOut' ? 'Clocking Out...' : 'Clock Out'}
+              {actionLoading === 'clockOut' ? 'Punching Out...' : 'Punch Out'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleAction('resetTimer')}
+              disabled={loading || actionLoading || !liveAttendance.can_reset_timer}
+              className="rounded-xl bg-slate-700 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {actionLoading === 'resetTimer' ? 'Resetting...' : 'Reset Timer'}
             </button>
           </div>
         )}

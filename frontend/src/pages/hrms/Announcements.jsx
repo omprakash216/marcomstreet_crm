@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import api from '../../utils/api';
 
 export default function Announcements() {
@@ -6,6 +6,21 @@ export default function Announcements() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ title: '', message: '', starts_at: '', ends_at: '' });
+  const now = new Date();
+
+  const fmtDateTime = (v) => {
+    if (!v) return '-';
+    const s = String(v).replace('T', ' ');
+    return s.length >= 16 ? s.slice(0, 16) : s;
+  };
+
+  const getStatus = (item) => {
+    const start = item?.starts_at ? new Date(item.starts_at) : null;
+    const end = item?.ends_at ? new Date(item.ends_at) : null;
+    if (start && !Number.isNaN(start.getTime()) && now < start) return 'scheduled';
+    if (end && !Number.isNaN(end.getTime()) && now > end) return 'expired';
+    return 'active';
+  };
 
   const fetchAnnouncements = async () => {
     try {
@@ -149,29 +164,67 @@ export default function Announcements() {
           ) : announcements.length === 0 ? (
             <div className="p-6 text-sm text-slate-500">No announcements found.</div>
           ) : (
-            <div className="divide-y divide-slate-100">
-              {announcements.map((item) => (
-                <div key={item.id} className="p-5 hover:bg-slate-50/60 transition-colors">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">{item.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1">{item.message}</p>
-                      <p className="text-[11px] text-slate-400 mt-2">
-                        {item.starts_at ? `From ${String(item.starts_at).replace('T', ' ').slice(0, 16)}` : 'Active now'}
-                        {item.ends_at ? ` • Until ${String(item.ends_at).replace('T', ' ').slice(0, 16)}` : ''}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => handleEdit(item)} className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100">
-                        Edit
-                      </button>
-                      <button onClick={() => handleDelete(item)} className="px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 rounded-md hover:bg-red-100">
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="min-w-[920px] w-full text-left">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">SL</th>
+                    <th className="px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">Title</th>
+                    <th className="px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">Message</th>
+                    <th className="px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">Starts</th>
+                    <th className="px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">Ends</th>
+                    <th className="px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
+                    <th className="px-5 py-3 text-xs font-semibold text-slate-600 uppercase tracking-wider text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {announcements.map((item, idx) => {
+                    const status = getStatus(item);
+                    const statusUi =
+                      status === 'active'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : status === 'scheduled'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'bg-slate-50 text-slate-600 border-slate-200';
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-5 py-4 text-sm text-slate-600">{idx + 1}</td>
+                        <td className="px-5 py-4">
+                          <div className="text-sm font-semibold text-slate-900 max-w-[240px] truncate" title={item.title || ""}>
+                            {item.title || "-"}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="text-sm text-slate-600 max-w-[420px] truncate" title={item.message || ""}>
+                            {item.message || "-"}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-600">
+                          {item.starts_at ? fmtDateTime(item.starts_at) : "Active"}
+                        </td>
+                        <td className="px-5 py-4 whitespace-nowrap text-sm text-slate-600">
+                          {item.ends_at ? fmtDateTime(item.ends_at) : "-"}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize ${statusUi}`}>
+                            {status}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => handleEdit(item)} className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100">
+                              Edit
+                            </button>
+                            <button onClick={() => handleDelete(item)} className="px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 rounded-md hover:bg-red-100">
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

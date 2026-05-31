@@ -10,44 +10,128 @@ function canSeeAll(emp) {
   return allowedRoles.includes(String(emp?.role || '').toLowerCase().trim());
 }
 
+const editableStatuses = ['scheduled', 'rescheduled', 'completed', 'cancelled'];
+const meetingTypes = ['client_meeting', 'follow_up', 'presentation', 'other'];
+
+function normalizeStatus(status, fallback = 'scheduled') {
+  const value = String(status || '').toLowerCase().trim();
+  return editableStatuses.includes(value) ? value : fallback;
+}
+
+function normalizeMeetingType(type) {
+  const value = String(type || '').toLowerCase().trim();
+  return meetingTypes.includes(value) ? value : 'other';
+}
+
+function normalizeMeetingDate(value) {
+  if (!value) return '';
+  const normalized = String(value).replace('T', ' ').slice(0, 19);
+  return normalized.length === 16 ? `${normalized}:00` : normalized;
+}
+
+function normalizeDuration(value) {
+  const duration = Number(value);
+  return Number.isFinite(duration) && duration >= 15 && duration <= 480 ? Math.round(duration) : 60;
+}
+
 router.get('/', verifyToken, async (req, res) => {
   try {
-    let sql = `SELECT m.*, l.company_name, e.name as employee_name FROM meetings m LEFT JOIN leads l ON m.lead_id = l.id LEFT JOIN employees e ON m.employee_id = e.id WHERE 1=1`;
-    const params = [];
-    if (!canSeeAll(req.employee)) { sql += ' AND m.employee_id = ?'; params.push(req.employee.id); }
-    sql += ' ORDER BY m.meeting_date DESC, m.created_at DESC';
-    const rows = await query(sql, params);
-    return res.json({ success: true, data: rows || [] });
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const hasLimitParam = Object.prototype.hasOwnProperty.call(req.query || {}, 'limit');
+    const parsedLimit = parseInt(req.query.limit, 10);
+    const usePagination = hasLimitParam && Number.isFinite(parsedLimit) && parsedLimit > 0;
+    const limit = Math.min(Math.max(parsedLimit || 1, 1), 100);
+
+    let baseSql = `FROM meetings m LEFT JOIN leads l ON m.lead_id = l.id LEFT JOIN employees e ON m.employee_id = e.id WHERE e.company_id = ?`;
+    const params = [req.employee.company_id];
+    if (!canSeeAll(req.employee)) { baseSql += ' AND m.employee_id = ?'; params.push(req.employee.id); }
+
+    const status = String(req.query.status || '').toLowerCase().trim();
+    if (editableStatuses.includes(status)) {
+      baseSql += ' AND m.status = ?';
+      params.push(status);
+    }
+
+    const search = String(req.query.search || '').trim();
+    if (search) {
+      const term = `%${search}%`;
+      baseSql += ' AND (m.title LIKE ? OR m.description LIKE ? OR m.location LIKE ? OR e.name LIKE ?)';
+      params.push(term, term, term, term);
+    }
+
+    switch (String(req.query.date_filter || '').toLowerCase().trim()) {
+      case 'today':
+        baseSql += ' AND DATE(m.meeting_date) = CURDATE()';
+        break;
+      case 'week':
+        baseSql += ' AND YEARWEEK(m.meeting_date, 1) = YEARWEEK(CURDATE(), 1)';
+        break;
+      case 'month':
+        baseSql += ' AND YEAR(m.meeting_date) = YEAR(CURDATE()) AND MONTH(m.meeting_date) = MONTH(CURDATE())';
+        break;
+      case 'upcoming':
+        baseSql += ' AND m.meeting_date >= NOW()';
+        break;
+      default:
+        break;
+    }
+
+    const selectSql = `SELECT m.id, m.lead_id, m.employee_id, m.meeting_type, m.duration_minutes, m.title, m.description, m.meeting_date, m.location, m.status, m.notes, m.created_at, m.updated_at, l.company_name, e.name as employee_name ${baseSql}`;
+    const orderBy = ' ORDER BY m.meeting_date DESC, m.created_at DESC';
+
+    if (!usePagination) {
+      const rows = await query(`${selectSql}${orderBy}`, params);
+      return res.json({ success: true, data: rows || [] });
+    }
+
+    const offset = (page - 1) * limit;
+    const pageRows = await query(`${selectSql}${orderBy} LIMIT ? OFFSET ?`, [...params, limit, offset]);
+    const countRows = await query(`SELECT COUNT(*) as total ${baseSql}`, params);
+    const total = Number(countRows && countRows[0] && countRows[0].total) || 0;
+
+    return res.json({
+      success: true,
+      data: pageRows || [],
+      page,
+      limit,
+      total,
+      has_next: offset + (Array.isArray(pageRows) ? pageRows.length : 0) < total,
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
 router.post('/', verifyToken, async (req, res) => {
+  let conn;
   try {
     const b = req.body || {};
-    if (!b.title || !b.meeting_date) return res.status(400).json({ success: false, message: 'Title and meeting date required' });
-    let meetingDate = b.meeting_date;
-    if (String(meetingDate).indexOf('T') !== -1) meetingDate = String(meetingDate).replace('T', ' ').slice(0, 19);
-    const conn = await getConnection();
+    const title = String(b.title || '').trim();
+    const meetingDate = normalizeMeetingDate(b.meeting_date);
+    if (!title || !meetingDate) return res.status(400).json({ success: false, message: 'Title and meeting date required' });
+    conn = await getConnection();
     const [r] = await conn.execute(
-      'INSERT INTO meetings (lead_id, employee_id, meeting_type, title, description, meeting_date, duration_minutes, location, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [b.lead_id || null, req.employee.id, b.meeting_type || 'group', b.title, b.description || null, meetingDate, b.duration_minutes || 60, b.location || null, 'scheduled', b.notes || null]
+      'INSERT INTO meetings (company_id, lead_id, employee_id, meeting_type, title, description, meeting_date, duration_minutes, location, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      [req.employee.company_id, b.lead_id || null, req.employee.id, normalizeMeetingType(b.meeting_type), title, b.description || null, meetingDate, normalizeDuration(b.duration_minutes), b.location || null, 'scheduled', b.notes || null]
     );
-    conn.release();
     return res.json({ success: true, message: 'Meeting created', data: { id: r.insertId } });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    if (conn) conn.release();
   }
 });
 
 router.put('/:id', verifyToken, async (req, res) => {
   try {
     const b = req.body || {};
+    const title = String(b.title || '').trim();
+    const meetingDate = normalizeMeetingDate(b.meeting_date);
+    if (!title || !meetingDate) return res.status(400).json({ success: false, message: 'Title and meeting date required' });
     // HR/Admin/Manager can update any meeting; others only their own.
     const canAll = canSeeAll(req.employee);
-    const params = [b.title, b.description, b.meeting_date, b.location, b.status, b.notes, req.params.id];
-    let sql = 'UPDATE meetings SET title=?, description=?, meeting_date=?, location=?, status=?, notes=?, updated_at=NOW() WHERE id=?';
+    const params = [title, b.description || null, meetingDate, normalizeMeetingType(b.meeting_type), normalizeDuration(b.duration_minutes), b.location || null, normalizeStatus(b.status), b.notes || null, req.params.id];
+    let sql = 'UPDATE meetings SET title=?, description=?, meeting_date=?, meeting_type=?, duration_minutes=?, location=?, status=?, notes=?, updated_at=NOW() WHERE id=?';
     if (!canAll) {
       sql += ' AND employee_id=?';
       params.push(req.employee.id);
@@ -67,8 +151,7 @@ router.patch('/:id/status', verifyToken, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid meeting id' });
     }
     const status = String(req.body?.status || '').toLowerCase().trim();
-    const allowed = ['scheduled', 'completed', 'cancelled'];
-    if (!allowed.includes(status)) {
+    if (!editableStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
     }
 

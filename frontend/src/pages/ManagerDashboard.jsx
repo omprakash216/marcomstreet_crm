@@ -42,8 +42,13 @@ const IconCheckCircle = () => (
 );
 
 const IconCurrency = () => (
-  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8 7h8" />
+    <path d="M8 10h8" />
+    <path d="m8 13 5.5 5" />
+    <path d="M8 13h2" />
+    <path d="M10 13c4.5 0 4.5-6 0-6" />
   </svg>
 );
 
@@ -173,32 +178,15 @@ export default function ManagerDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
-      {/* Manager Header */}
-      <div className="bg-gradient-to-r from-purple-600 via-purple-700 to-indigo-800 rounded-xl shadow-lg mb-6 p-6 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }}></div>
-        </div>
-        <div className="relative z-10 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg text-white">
-              <IconBriefcase />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-white mb-1">Manager Portal</h1>
-              <p className="text-purple-100 text-sm">Welcome back, {employee?.name}! Manage your team and monitor performance.</p>
-            </div>
-          </div>
-
-          <button
-            onClick={openTargetModal}
-            className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg backdrop-blur-sm transition-all font-semibold flex items-center space-x-2"
-          >
-            <IconTarget />
-            <span>Set Team Targets</span>
-          </button>
-        </div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Dashboard Overview</h2>
+        <button
+          onClick={openTargetModal}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all font-semibold flex items-center space-x-2 shadow-md hover:shadow-lg"
+        >
+          <IconTarget />
+          <span>Set Team Targets</span>
+        </button>
       </div>
 
       <WorkingHoursCard className="mb-8" />

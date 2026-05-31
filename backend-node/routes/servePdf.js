@@ -6,10 +6,13 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const PDFDocument = require('pdfkit');
 
 const router = express.Router();
 const UPLOADS_ROOT = path.join(__dirname, '../../uploads');
-const ALLOWED_DIRS = ['hr_documents', 'salary_slips'];
+// Allow-list of folders under /uploads that can be served via /serve-pdf.
+// Note: `hr_docs` exists in some legacy deployments.
+const ALLOWED_DIRS = ['hr_documents', 'hr_docs', 'salary_slips'];
 
 router.get('/', (req, res) => {
   const fileParam = req.query.file;
@@ -42,14 +45,44 @@ router.get('/', (req, res) => {
   // Allow callers to omit the "uploads/" prefix (older UI/DB values)
   if (normalized.startsWith('salary_slips/')) normalized = 'uploads/' + normalized;
   if (normalized.startsWith('hr_documents/')) normalized = 'uploads/' + normalized;
+  if (normalized.startsWith('hr_docs/')) normalized = 'uploads/' + normalized;
+
+  // Some legacy DB rows store an absolute path (e.g. "D:/.../uploads/hr_documents/file.pdf").
+  // Extract the safe relative segment if present.
+  const lower = normalized.toLowerCase();
+  const idxHr = lower.indexOf('uploads/hr_documents/');
+  const idxHrDocs = lower.indexOf('uploads/hr_docs/');
+  const idxSalary = lower.indexOf('uploads/salary_slips/');
+  if (idxHr >= 0) normalized = normalized.slice(idxHr);
+  if (idxHrDocs >= 0) normalized = normalized.slice(idxHrDocs);
+  if (idxSalary >= 0) normalized = normalized.slice(idxSalary);
+
+  // Also allow callers to pass "hr_documents/<file>.pdf" (no uploads prefix).
+  // (We still keep the allow-list strict: only these two folders.)
+  const lower2 = normalized.toLowerCase();
+  const idxHr2 = lower2.indexOf('hr_documents/');
+  const idxHrDocs2 = lower2.indexOf('hr_docs/');
+  const idxSalary2 = lower2.indexOf('salary_slips/');
+  if (idxHr2 >= 0) normalized = 'uploads/' + normalized.slice(idxHr2);
+  if (idxHrDocs2 >= 0) normalized = 'uploads/' + normalized.slice(idxHrDocs2);
+  if (idxSalary2 >= 0) normalized = 'uploads/' + normalized.slice(idxSalary2);
+
+  // Normalize casing for folder names.
+  normalized = normalized.replace(/^uploads\/hr_documents\//i, 'uploads/hr_documents/');
+  normalized = normalized.replace(/^uploads\/hr_docs\//i, 'uploads/hr_docs/');
+  normalized = normalized.replace(/^uploads\/salary_slips\//i, 'uploads/salary_slips/');
 
   // Security: only allow uploads/hr_documents/ or uploads/salary_slips/
   const allowed =
     normalized.startsWith('uploads/hr_documents/') ||
+    normalized.startsWith('uploads/hr_docs/') ||
     normalized.startsWith('uploads/salary_slips/');
   if (!allowed) {
-    res.set('Content-Type', 'application/pdf');
-    return res.status(403).end();
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[serve-pdf] blocked path:', { fileParam, decodedPath, normalized });
+    }
+    return res.status(403).send('Access denied. Invalid file path.');
   }
 
   const joinedPath = path.join(__dirname, '../../', normalized);
@@ -135,11 +168,29 @@ router.get('/', (req, res) => {
   }
 
   if (!fs.existsSync(fullPath)) {
-    res.set('Content-Type', 'text/plain; charset=utf-8');
     if (process.env.NODE_ENV !== 'production') {
       console.warn('[serve-pdf] not found:', { fileParam, normalized, fullPath });
     }
-    return res.status(404).send('PDF file not found.');
+    // Return a friendly "Document not found" PDF instead of raw 404 for better UX
+    const doc = new PDFDocument({ margin: 50 });
+    const chunks = [];
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => {
+      const pdfBuffer = Buffer.concat(chunks);
+      res.status(200);
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Length', pdfBuffer.length);
+      res.set('Content-Disposition', 'inline; filename="document-not-found.pdf"');
+      res.set('X-Document-Status', 'not-found');
+      res.send(pdfBuffer);
+    });
+    doc.fontSize(18).text('Document Not Found', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(12).text('This document file could not be found on the server. It may have been deleted or the path is invalid.', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(11).text('Please regenerate the document from the HR Documents page if needed.', { align: 'center' });
+    doc.end();
+    return;
   }
 
   const ext = path.extname(fullPath).toLowerCase();

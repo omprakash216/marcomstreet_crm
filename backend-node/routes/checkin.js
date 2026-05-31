@@ -7,6 +7,7 @@ const {
   startBreak,
   endBreak,
   clockOut,
+  resetTimer,
   getAttendanceHistory,
 } = require('../services/workTimer');
 
@@ -33,6 +34,7 @@ function buildSafeTodaySummary() {
     attendance: null,
     goal_seconds: 28800,
     goal_time: '08:00:00',
+    server_time_ms: Date.now(),
   };
 }
 
@@ -79,9 +81,9 @@ router.post('/clock-in', verifyToken, async (req, res) => {
   try {
     const attendance = await clockIn(req.employee, req.body || {});
     await logActivity(req.employee.id, 'attendance_clock_in', 'employee_checkins', attendance.id, 'Employee clocked in', req);
-    return res.json({ success: true, message: 'Clock in recorded successfully.', data: attendance });
+    return res.json({ success: true, message: 'Punch in recorded successfully.', data: attendance });
   } catch (err) {
-    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Clock in failed') });
+    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Punch in failed') });
   }
 });
 
@@ -109,9 +111,19 @@ router.post('/clock-out', verifyToken, async (req, res) => {
   try {
     const attendance = await clockOut(req.employee.id, req.body || {});
     await logActivity(req.employee.id, 'attendance_clock_out', 'employee_checkins', attendance.id, 'Employee clocked out', req);
-    return res.json({ success: true, message: 'Clock out recorded successfully.', data: attendance });
+    return res.json({ success: true, message: 'Punch out recorded successfully.', data: attendance });
   } catch (err) {
-    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Clock out failed') });
+    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Punch out failed') });
+  }
+});
+
+router.post('/reset-timer', verifyToken, async (req, res) => {
+  try {
+    const attendance = await resetTimer(req.employee.id, req.body || {});
+    await logActivity(req.employee.id, 'attendance_timer_reset', 'employee_checkins', attendance.id, 'Employee reset work timer', req);
+    return res.json({ success: true, message: 'Timer reset successfully.', data: attendance });
+  } catch (err) {
+    return res.status(400).json({ success: false, message: getErrorMessage(err, 'Timer reset failed') });
   }
 });
 
@@ -119,14 +131,19 @@ router.post('/clock-out', verifyToken, async (req, res) => {
 router.post('/checkin', verifyToken, async (req, res) => {
   const action = String(req.body?.action || 'check_in').toLowerCase();
   try {
+    if (action === 'reset_timer' || action === 'reset') {
+      const attendance = await resetTimer(req.employee.id, req.body || {});
+      await logActivity(req.employee.id, 'attendance_timer_reset', 'employee_checkins', attendance.id, 'Employee reset work timer', req);
+      return res.json({ success: true, message: 'Timer reset successfully.', data: attendance });
+    }
     if (action === 'check_out' || action === 'clock_out') {
       const attendance = await clockOut(req.employee.id, req.body || {});
       await logActivity(req.employee.id, 'attendance_clock_out', 'employee_checkins', attendance.id, 'Employee clocked out', req);
-      return res.json({ success: true, message: 'Checked out. Attendance complete.', data: attendance });
+      return res.json({ success: true, message: 'Punched out. Attendance complete.', data: attendance });
     }
     const attendance = await clockIn(req.employee, req.body || {});
     await logActivity(req.employee.id, 'attendance_clock_in', 'employee_checkins', attendance.id, 'Employee checked in', req);
-    return res.json({ success: true, message: 'Checked in successfully.', data: attendance });
+    return res.json({ success: true, message: 'Punched in successfully.', data: attendance });
   } catch (err) {
     return res.status(400).json({ success: false, message: getErrorMessage(err, 'Attendance update failed') });
   }

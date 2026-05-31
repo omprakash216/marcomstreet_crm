@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import api from '../utils/api';
 import ExperienceLetterPDF from './ExperienceLetterPDF';
+import { buildPdfBlobFromPreview } from '../utils/previewPdf';
 
-const ExperienceLetterGenerator = ({ employeeData }) => {
+const ExperienceLetterGenerator = ({ allEmployees = [], employeeData, onSaved }) => {
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(employeeData?.id || employeeData?.employee_id || '');
   const [formData, setFormData] = useState({
     employeeName: employeeData?.name || '',
     employeeCode: employeeData?.employee_code || '',
@@ -17,10 +20,9 @@ const ExperienceLetterGenerator = ({ employeeData }) => {
     hrEmail: 'hrthevanygroup@gmail.com'
   });
 
-  // Update form data when employeeData changes
   useEffect(() => {
     if (employeeData) {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
         employeeName: employeeData.name || '',
         employeeCode: employeeData.employee_code || '',
@@ -28,10 +30,13 @@ const ExperienceLetterGenerator = ({ employeeData }) => {
         joiningDate: employeeData.joining_date || '',
         gender: employeeData.gender || 'male'
       }));
+      setSelectedEmployeeId(employeeData.id || employeeData.employee_id || '');
     }
   }, [employeeData]);
 
   const [showPreview, setShowPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const previewRef = useRef(null);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -45,8 +50,58 @@ const ExperienceLetterGenerator = ({ employeeData }) => {
     setShowPreview(true);
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handleEmployeeSelect = (emp) => {
+    if (!emp) {
+      setSelectedEmployeeId('');
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      employeeName: emp.name || '',
+      employeeCode: emp.employee_code || '',
+      designation: emp.designation || '',
+      joiningDate: emp.joining_date || prev.joiningDate,
+      gender: emp.gender || 'male'
+    }));
+    setSelectedEmployeeId(emp.id || emp.employee_id || '');
+  };
+
+  const handleSave = async () => {
+    const employeeId = selectedEmployeeId || employeeData?.id || employeeData?.employee_id;
+    if (!employeeId) {
+      alert('Please select an employee to save this document.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const pdfBlob = await buildPdfBlobFromPreview({
+        root: previewRef.current,
+        pageSelector: '.experience-letter-doc',
+      });
+
+      const safeName = String(formData.employeeName || 'Employee')
+        .trim()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9_-]/g, '');
+      const fileName = `Experience_Letter_${safeName || 'Employee'}_${Date.now()}.pdf`;
+      const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+      const uploadData = new FormData();
+      uploadData.append('employee_id', String(employeeId));
+      uploadData.append('title', `Experience Letter - ${formData.employeeName || 'Employee'}`);
+      uploadData.append('type', 'experience_letter');
+      uploadData.append('file', pdfFile);
+
+      await api.post('/hrms/documents', uploadData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      alert('Experience letter saved to Document Library.');
+      if (onSaved) onSaved();
+    } catch (err) {
+      alert(err.response?.data?.message || err.message || 'Failed to save experience letter');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const formatDate = (dateString) => {
@@ -70,30 +125,34 @@ const ExperienceLetterGenerator = ({ employeeData }) => {
             ← Back to Edit
           </button>
           <button
-            onClick={handlePrint}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md"
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md disabled:opacity-60"
           >
-            🖨️ Print PDF
+            {saving ? 'Saving...' : 'Save to Library'}
           </button>
         </div>
-        <ExperienceLetterPDF
-          employeeName={formData.employeeName}
-          employeeCode={formData.employeeCode}
-          designation={formData.designation}
-          joiningDate={formatDate(formData.joiningDate)}
-          relievingDate={formatDate(formData.relievingDate)}
-          gender={formData.gender}
-          companyName={formData.companyName}
-          companyAddress={formData.companyAddress}
-          hrName={formData.hrName}
-          hrContact={formData.hrContact}
-          hrEmail={formData.hrEmail}
-          currentDate={new Date().toLocaleDateString('en-GB', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric'
-          })}
-        />
+        <div ref={previewRef}>
+          <ExperienceLetterPDF
+            employeeName={formData.employeeName}
+            employeeCode={formData.employeeCode}
+            designation={formData.designation}
+            joiningDate={formatDate(formData.joiningDate)}
+            relievingDate={formatDate(formData.relievingDate)}
+            gender={formData.gender}
+            companyName={formData.companyName}
+            companyAddress={formData.companyAddress}
+            hrName={formData.hrName}
+            hrContact={formData.hrContact}
+            hrEmail={formData.hrEmail}
+            showPrintButton={false}
+            currentDate={new Date().toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric'
+            })}
+          />
+        </div>
       </div>
     );
   }
@@ -109,6 +168,28 @@ const ExperienceLetterGenerator = ({ employeeData }) => {
         {/* Employee Information */}
         <div className="space-y-4">
           <h3 className="text-lg font-semibold text-gray-700 border-b pb-2">Employee Information</h3>
+
+          {allEmployees.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Select Employee <span className="text-red-500">*</span></label>
+              <select
+                value={selectedEmployeeId || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const emp = val ? allEmployees.find((emp) => String(emp.id) === String(val)) : null;
+                  handleEmployeeSelect(emp);
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">— Select an employee —</option>
+                {allEmployees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} {emp.employee_code ? `(${emp.employee_code})` : ''} {emp.designation ? `- ${emp.designation}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Employee Name</label>

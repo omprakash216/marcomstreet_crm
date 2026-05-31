@@ -42,6 +42,13 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Runtime uploads / generated artifacts
+uploads/
+backend-node/scripts/*.txt
+backend-node/tables.txt
+backend-node/tmp-server.*.log
+frontend/vite-dev.*.log
+
 # PHP
 vendor/
 composer.lock

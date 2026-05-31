@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const mysql = require('mysql2');
 const multer = require('multer');
 const { query } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
@@ -22,9 +23,11 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // Accept common HR role variants stored in DB (some older records use spaces, underscores, or short codes).
-// Note: managers are intentionally excluded; only HR & admin get elevated access.
 const allowedRoles = [
   'admin',
+  'superadmin',
+  'super_admin',
+  'super admin',
   'human_resources',
   'human resources',
   'human resource',
@@ -40,6 +43,35 @@ function canAccessAll(employee) {
   return allowedRoles.includes(role);
 }
 
+function isSuperAdmin(employee) {
+  const role = String(employee?.role || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_');
+  return role === 'superadmin' || role === 'super_admin';
+}
+
+function canAccessSalaryCompany(employee, companyId) {
+  if (isSuperAdmin(employee)) return true;
+  const requesterCompanyId = Number(employee?.company_id);
+  const targetCompanyId = Number(companyId);
+  return Number.isFinite(requesterCompanyId) &&
+    requesterCompanyId > 0 &&
+    requesterCompanyId === targetCompanyId;
+}
+
+const salaryStatuses = new Set(['generated', 'paid']);
+
+function normalizeSalaryStatus(value, fallback = 'generated') {
+  const status = String(value || '').toLowerCase().trim();
+  return salaryStatuses.has(status) ? status : fallback;
+}
+
+// HR Documents: allow all authenticated users (super admin, admin, HR, manager, employee, etc.)
+function canAccessDocuments(_employee) {
+  return true;
+}
+
 const attendanceRules = require('../services/attendanceRules');
 const workTimer = require('../services/workTimer');
 
@@ -49,6 +81,31 @@ function getMonthBounds(dateStr) {
   const lastDay = new Date(y, m, 0).getDate();
   const last = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   return { first, last };
+}
+
+async function ensureJoiningFormSubmissionsTable() {
+  await query(
+    `CREATE TABLE IF NOT EXISTS joining_form_submissions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      unique_token VARCHAR(128) NOT NULL UNIQUE,
+      company_name VARCHAR(255) NULL,
+      full_name VARCHAR(255) NULL,
+      email VARCHAR(255) NULL,
+      contact_number VARCHAR(50) NULL,
+      education_json JSON NULL,
+      employment_json JSON NULL,
+      status ENUM('pending','verified','rejected') NOT NULL DEFAULT 'pending',
+      submission_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      verification_date DATETIME NULL,
+      verified_by INT NULL,
+      rejection_reason TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_joining_unique_token (unique_token),
+      INDEX idx_joining_status (status),
+      INDEX idx_joining_verified_by (verified_by)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+  );
 }
 
 // Debug endpoint to verify correct backend/routes are running (no auth).
@@ -94,21 +151,27 @@ router.get('/__routes', (req, res) => {
 router.get('/documents', verifyToken, async (req, res) => {
   try {
     let sql = `SELECT d.*, e.name as employee_name 
-               FROM hr_documents d 
-               JOIN employees e ON d.employee_id = e.id 
-               WHERE 1=1`;
+               FROM hr_documents d JOIN employees e ON d.employee_id = e.id WHERE e.company_id = ?`;
     const params = [];
-    if (!canAccessAll(req.employee)) {
-      sql += ' AND d.employee_id = ?';
-      params.push(req.employee.id);
-    }
     if (req.query.employee_id) {
       sql += ' AND d.employee_id = ?';
       params.push(req.query.employee_id);
     }
     sql += ' ORDER BY d.created_at DESC';
-    const docs = await query(sql, params);
-    return res.json({ success: true, data: docs });
+    const docs = await query(sql, [req.employee.company_id, ...params]);
+
+    const uploadsRoot = path.resolve(path.join(__dirname, '../../uploads'));
+    const safeDocs = (docs || []).filter((doc) => {
+      const fp = String(doc.file_path || '').replace(/\\/g, '/').trim();
+      if (!fp) return false;
+      const normalized = fp.startsWith('uploads/') ? fp : `uploads/${fp.replace(/^\/+/, '')}`;
+      const abs = path.resolve(path.join(__dirname, '../../', normalized));
+      if (!abs.startsWith(uploadsRoot)) return false;
+      if (!fs.existsSync(abs)) return false;
+      return true;
+    });
+
+    return res.json({ success: true, data: safeDocs });
   } catch (err) {
     console.error('HR documents GET:', err);
     return res.status(500).json({ success: false, message: err.message });
@@ -117,7 +180,7 @@ router.get('/documents', verifyToken, async (req, res) => {
 
 // POST /hrms/documents - upload document
 router.post('/documents', verifyToken, upload.single('file'), async (req, res) => {
-  if (!canAccessAll(req.employee)) {
+  if (!canAccessDocuments(req.employee)) {
     return res.status(403).json({ success: false, message: 'Unauthorized' });
   }
   const { employee_id, title, type } = req.body || {};
@@ -130,8 +193,8 @@ router.post('/documents', verifyToken, upload.single('file'), async (req, res) =
   try {
     const filePath = 'uploads/hr_documents/' + req.file.filename;
     await query(
-      'INSERT INTO hr_documents (employee_id, title, type, file_path) VALUES (?, ?, ?, ?)',
-      [employee_id, title, type, filePath]
+      'INSERT INTO hr_documents (company_id, employee_id, title, type, file_path) VALUES (?, ?, ?, ?, ?)',
+      [req.employee.company_id, employee_id, title, type, filePath]
     );
     return res.json({ success: true, message: 'Document uploaded successfully' });
   } catch (err) {
@@ -141,7 +204,7 @@ router.post('/documents', verifyToken, upload.single('file'), async (req, res) =
 
 // DELETE /hrms/documents/:id - delete uploaded/generated document (DB + file)
 router.delete('/documents/:id', verifyToken, async (req, res) => {
-  if (!canAccessAll(req.employee)) {
+  if (!canAccessDocuments(req.employee)) {
     return res.status(403).json({ success: false, message: 'Unauthorized' });
   }
   const id = Number(req.params.id);
@@ -178,7 +241,7 @@ router.delete('/documents/:id', verifyToken, async (req, res) => {
 
 // POST /hrms/generate_document - generate offer/experience/joining PDF
 router.post('/generate_document', verifyToken, async (req, res) => {
-  if (!canAccessAll(req.employee)) {
+  if (!canAccessDocuments(req.employee)) {
     return res.status(403).json({ success: false, message: 'Unauthorized' });
   }
   const { type, employee_id, ...data } = req.body || {};
@@ -220,12 +283,18 @@ router.post('/generate_document', verifyToken, async (req, res) => {
     } else if (type === 'experience_letter') {
       pdfBuffer = await documentGenerator.generateExperienceLetter(docData);
       fileName = `Experience_Letter_${safeName}_${Date.now()}.pdf`;
-    } else if (type === 'joining_form') {
-      pdfBuffer = await documentGenerator.generateJoiningForm(docData);
-      fileName = `Joining_Form_${safeName}_${Date.now()}.pdf`;
-    } else {
-      return res.status(400).json({ success: false, message: `Unsupported document type: ${type}` });
-    }
+      } else if (type === 'joining_form') {
+        pdfBuffer = await documentGenerator.generateJoiningForm(docData);
+        fileName = `Joining_Form_${safeName}_${Date.now()}.pdf`;
+      } else if (type === 'full_and_final') {
+        pdfBuffer = await documentGenerator.generateFullAndFinalLetter({
+          ...docData,
+          last_working_date: data.last_working_date || data.relieving_date || docData.relieving_date,
+        });
+        fileName = `Full_And_Final_${safeName}_${Date.now()}.pdf`;
+      } else {
+        return res.status(400).json({ success: false, message: `Unsupported document type: ${type}` });
+      }
 
     if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer) || pdfBuffer.length < 100) {
       return res.status(500).json({ success: false, message: 'Failed to generate PDF' });
@@ -237,22 +306,103 @@ router.post('/generate_document', verifyToken, async (req, res) => {
     fs.writeFileSync(fullPathWritten, pdfBuffer);
 
     // hr_documents: only columns (employee_id, title, type, file_path). type ENUM = offer_letter, experience_letter, policy, other
-    const dbType = type === 'joining_form' ? 'other' : type;
+    const dbType = (type === 'joining_form' || type === 'full_and_final') ? 'other' : type;
     const title = (type.replace(/_/g, ' ') + ' - ' + (target.name || 'Employee')).slice(0, 255);
+    const companyId = Number(req.employee?.company_id || target.company_id) || null;
+
     try {
-      await query(
-        'INSERT INTO hr_documents (employee_id, title, type, file_path) VALUES (?, ?, ?, ?)',
-        [Number(employee_id), title, dbType, filePath]
-      );
+      if (companyId !== null) {
+        await query(
+          'INSERT INTO hr_documents (company_id, employee_id, title, type, file_path) VALUES (?, ?, ?, ?, ?)',
+          [companyId, Number(employee_id), title, dbType, filePath]
+        );
+      } else {
+        await query(
+          'INSERT INTO hr_documents (employee_id, title, type, file_path) VALUES (?, ?, ?, ?)',
+          [Number(employee_id), title, dbType, filePath]
+        );
+      }
     } catch (insertErr) {
       const imsg = (insertErr && insertErr.message) ? String(insertErr.message) : '';
-      if (fullPathWritten && fs.existsSync(fullPathWritten)) {
-        try { fs.unlinkSync(fullPathWritten); } catch (_) { }
+
+      // Fallbacks for legacy schemas or drivers that dislike prepared statements
+      if (imsg.includes('Incorrect arguments to mysqld_stmt_execute')) {
+        const rawInsert = async (useCompany) => {
+          const cols = useCompany
+            ? 'company_id, employee_id, title, type, file_path'
+            : 'employee_id, title, type, file_path';
+          const vals = useCompany
+            ? [companyId, Number(employee_id), title, dbType, filePath]
+            : [Number(employee_id), title, dbType, filePath];
+          const rawValues = vals.map((v) => mysql.escape(v));
+          const rawSql = `INSERT INTO hr_documents (${cols}) VALUES (${rawValues.join(',')})`;
+          await query(rawSql);
+        };
+
+        try {
+          if (companyId !== null) {
+            await rawInsert(true);
+          } else {
+            await rawInsert(false);
+          }
+        } catch (rawErr) {
+          const rmsg = (rawErr && rawErr.message) ? String(rawErr.message) : '';
+          if (companyId !== null) {
+            try {
+              await rawInsert(false);
+            } catch (rawErr2) {
+              const rmsg2 = (rawErr2 && rawErr2.message) ? String(rawErr2.message) : '';
+              if (fullPathWritten && fs.existsSync(fullPathWritten)) {
+                try { fs.unlinkSync(fullPathWritten); } catch (_) { }
+              }
+              return res.status(500).json({
+                success: false,
+                message: rmsg2.includes('generated_by')
+                  ? 'Database missing column. Run migration 006 or use a DB with hr_documents (employee_id, title, type, file_path) only.'
+                  : ('Save failed: ' + rmsg2),
+              });
+            }
+          } else {
+            if (fullPathWritten && fs.existsSync(fullPathWritten)) {
+              try { fs.unlinkSync(fullPathWritten); } catch (_) { }
+            }
+            return res.status(500).json({
+              success: false,
+              message: rmsg.includes('generated_by')
+                ? 'Database missing column. Run migration 006 or use a DB with hr_documents (employee_id, title, type, file_path) only.'
+                : ('Save failed: ' + rmsg),
+            });
+          }
+        }
+      } else if (imsg.includes("Unknown column 'company_id'")) {
+        try {
+          await query(
+            'INSERT INTO hr_documents (employee_id, title, type, file_path) VALUES (?, ?, ?, ?)',
+            [Number(employee_id), title, dbType, filePath]
+          );
+        } catch (fallbackErr) {
+          const fmsg = (fallbackErr && fallbackErr.message) ? String(fallbackErr.message) : '';
+          if (fullPathWritten && fs.existsSync(fullPathWritten)) {
+            try { fs.unlinkSync(fullPathWritten); } catch (_) { }
+          }
+          return res.status(500).json({
+            success: false,
+            message: fmsg.includes('generated_by')
+              ? 'Database missing column. Run migration 006 or use a DB with hr_documents (employee_id, title, type, file_path) only.'
+              : ('Save failed: ' + fmsg),
+          });
+        }
+      } else {
+        if (fullPathWritten && fs.existsSync(fullPathWritten)) {
+          try { fs.unlinkSync(fullPathWritten); } catch (_) { }
+        }
+        return res.status(500).json({
+          success: false,
+          message: imsg.includes('generated_by')
+            ? 'Database missing column. Run migration 006 or use a DB with hr_documents (employee_id, title, type, file_path) only.'
+            : ('Save failed: ' + imsg),
+        });
       }
-      return res.status(500).json({
-        success: false,
-        message: imsg.includes('generated_by') ? 'Database missing column. Run migration 006 or use a DB with hr_documents (employee_id, title, type, file_path) only.' : ('Save failed: ' + imsg),
-      });
     }
 
     return res.json({
@@ -281,15 +431,22 @@ router.post('/generate_document', verifyToken, async (req, res) => {
 router.get('/salary', verifyToken, async (req, res) => {
   try {
     let sql = `SELECT s.*, e.name as employee_name, e.employee_code, e.designation, e.bank_account, e.bank_name, e.ifsc_code, e.branch_name, e.account_holder_name, e.pan_number, d.name as department
-               FROM salary_slips s 
-               JOIN employees e ON s.employee_id = e.id 
-               LEFT JOIN departments d ON e.department_id = d.id
-               WHERE 1=1`;
+               FROM salary_slips s JOIN employees e ON s.employee_id = e.id
+               LEFT JOIN departments d ON e.department_id = d.id`;
+    const where = [];
     const params = [];
+    if (!isSuperAdmin(req.employee)) {
+      if (!Number(req.employee?.company_id)) {
+        return res.json({ success: true, data: [] });
+      }
+      where.push('e.company_id = ?');
+      params.push(req.employee.company_id);
+    }
     if (!canAccessAll(req.employee)) {
-      sql += ' AND s.employee_id = ?';
+      where.push('s.employee_id = ?');
       params.push(req.employee.id);
     }
+    if (where.length) sql += ' WHERE ' + where.join(' AND ');
     sql += ' ORDER BY s.month DESC, s.created_at DESC';
     const slips = await query(sql, params);
     return res.json({ success: true, data: slips || [] });
@@ -312,9 +469,8 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
     }
 
     const rows = await query(
-      `SELECT s.*, e.name as employee_name, e.employee_code, e.designation, e.bank_account, e.pan_number, d.name as department
-       FROM salary_slips s
-       JOIN employees e ON s.employee_id = e.id
+      `SELECT s.*, e.company_id as employee_company_id, e.name as employee_name, e.employee_code, e.designation, e.joining_date, e.bank_account, e.ifsc_code, e.account_holder_name, e.pan_number, d.name as department
+       FROM salary_slips s JOIN employees e ON s.employee_id = e.id
        LEFT JOIN departments d ON e.department_id = d.id
        WHERE s.id = ?`,
       [id]
@@ -322,6 +478,10 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
     const slip = Array.isArray(rows) ? rows[0] : null;
     if (!slip) {
       return res.status(404).json({ success: false, message: 'Salary slip not found' });
+    }
+
+    if (!canAccessSalaryCompany(req.employee, slip.employee_company_id)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
     // Access control: employees can only access their own slips.
@@ -335,12 +495,18 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
       req.query.regen === '1' ||
       req.query.regen === 'true' ||
       req.query.force === '1' ||
-      req.query.force === 'true';
+      req.query.force === 'true' ||
+      Boolean(req.query.ts);
 
     const ensureAndSend = (absPath) => {
       const stat = fs.statSync(absPath);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Length', stat.size);
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
+      res.setHeader('X-Salary-PDF-Generated-At', new Date().toISOString());
       res.setHeader(
         'Content-Disposition',
         `${wantsDownload ? 'attachment' : 'inline'}; filename="${path.basename(absPath).replace(/[^a-zA-Z0-9._-]/g, '_')}"`
@@ -371,12 +537,16 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
       name: slip.employee_name || 'Employee',
       employee_code: slip.employee_code || code,
       designation: slip.designation || '',
+      joining_date: slip.joining_date || '',
       department: slip.department || '',
       bank_account: slip.bank_account || '',
+      ifsc_code: slip.ifsc_code || '',
+      account_holder_name: slip.account_holder_name || '',
       pan_number: slip.pan_number || '',
     };
 
     const salaryData = {
+      month: monthStr,
       pay_period_start: slip.pay_period_start,
       pay_period_end: slip.pay_period_end,
       basic_salary: slip.basic_salary,
@@ -393,6 +563,7 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
       other_deductions: slip.other_deductions,
       total_deductions: slip.total_deductions,
       net_salary: slip.net_salary,
+      payment_mode: slip.payment_mode || '',
     };
 
     const pdfBuffer = await documentGenerator.generateSalarySlip(employeeData, salaryData);
@@ -402,6 +573,13 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
     fs.writeFileSync(absOut, pdfBuffer);
     try {
       await query('UPDATE salary_slips SET file_path = ? WHERE id = ?', [newRelPath, id]);
+      if (filePath.startsWith('uploads/salary_slips/')) {
+        const absOld = path.resolve(path.join(__dirname, '../../', filePath));
+        const uploadsRoot = path.resolve(path.join(__dirname, '../../uploads'));
+        if (absOld !== absOut && absOld.startsWith(uploadsRoot) && fs.existsSync(absOld)) {
+          try { fs.unlinkSync(absOld); } catch (_) { }
+        }
+      }
     } catch (_) { }
 
     return ensureAndSend(absOut);
@@ -446,9 +624,8 @@ router.put('/salary/:id', verifyToken, async (req, res) => {
 
   try {
     const rows = await query(
-      `SELECT s.*, e.name as employee_name, e.employee_code, e.designation, e.bank_account, e.pan_number, d.name as department
-       FROM salary_slips s
-       JOIN employees e ON s.employee_id = e.id
+      `SELECT s.*, e.company_id as employee_company_id, e.name as employee_name, e.employee_code, e.designation, e.joining_date, e.bank_account, e.ifsc_code, e.account_holder_name, e.pan_number, d.name as department
+       FROM salary_slips s JOIN employees e ON s.employee_id = e.id
        LEFT JOIN departments d ON e.department_id = d.id
        WHERE s.id = ?`,
       [id]
@@ -456,6 +633,9 @@ router.put('/salary/:id', verifyToken, async (req, res) => {
     const slip = Array.isArray(rows) ? rows[0] : null;
     if (!slip) {
       return res.status(404).json({ success: false, message: 'Salary slip not found' });
+    }
+    if (!canAccessSalaryCompany(req.employee, slip.employee_company_id)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
     // Update DB first (file_path will be updated after regeneration)
@@ -484,7 +664,7 @@ router.put('/salary/:id', verifyToken, async (req, res) => {
         grossSalary,
         totalDeductions,
         netSalary,
-        d.status || slip.status || 'generated',
+        normalizeSalaryStatus(d.status, normalizeSalaryStatus(slip.status)),
         id,
       ]
     );
@@ -502,11 +682,15 @@ router.put('/salary/:id', verifyToken, async (req, res) => {
       name: slip.employee_name || 'Employee',
       employee_code: slip.employee_code || code,
       designation: slip.designation || '',
+      joining_date: slip.joining_date || '',
       department: slip.department || '',
       bank_account: slip.bank_account || '',
+      ifsc_code: slip.ifsc_code || '',
+      account_holder_name: slip.account_holder_name || '',
       pan_number: slip.pan_number || '',
     };
     const salaryData = {
+      month: monthStr,
       pay_period_start: d.pay_period_start || slip.pay_period_start,
       pay_period_end: d.pay_period_end || slip.pay_period_end,
       basic_salary: basicSalary,
@@ -523,6 +707,7 @@ router.put('/salary/:id', verifyToken, async (req, res) => {
       other_deductions: otherDeductions,
       total_deductions: totalDeductions,
       net_salary: netSalary,
+      payment_mode: d.payment_mode || slip.payment_mode || '',
     };
 
     const pdfBuffer = await documentGenerator.generateSalarySlip(employeeData, salaryData);
@@ -561,10 +746,18 @@ router.delete('/salary/:id', verifyToken, async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid salary slip id' });
   }
   try {
-    const rows = await query('SELECT id, file_path FROM salary_slips WHERE id = ?', [id]);
+    const rows = await query(
+      `SELECT s.id, s.file_path, e.company_id as employee_company_id
+       FROM salary_slips s JOIN employees e ON s.employee_id = e.id
+       WHERE s.id = ?`,
+      [id]
+    );
     const slip = Array.isArray(rows) ? rows[0] : null;
     if (!slip) {
       return res.status(404).json({ success: false, message: 'Salary slip not found' });
+    }
+    if (!canAccessSalaryCompany(req.employee, slip.employee_company_id)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
     await query('DELETE FROM salary_slips WHERE id = ?', [id]);
@@ -614,6 +807,7 @@ router.post('/salary', verifyToken, async (req, res) => {
     return res.status(400).json({ success: false, message: 'Gross salary must be greater than zero' });
   }
 
+  let generatedFilePath = null;
   try {
     const empRows = await query(
       'SELECT e.*, d.name as department FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.id = ?',
@@ -622,6 +816,9 @@ router.post('/salary', verifyToken, async (req, res) => {
     const employeeData = Array.isArray(empRows) ? empRows[0] : null;
     if (!employeeData) {
       return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+    if (!canAccessSalaryCompany(req.employee, employeeData.company_id)) {
+      return res.status(403).json({ success: false, message: 'Employee is outside your company' });
     }
 
     // Last day of month for pay_period_end (avoid timezone issues)
@@ -635,6 +832,7 @@ router.post('/salary', verifyToken, async (req, res) => {
     }
 
     const salaryData = {
+      month: monthStr,
       pay_period_start: payPeriodStart,
       pay_period_end: payPeriodEnd || payPeriodStart,
       basic_salary: basicSalary,
@@ -651,6 +849,7 @@ router.post('/salary', verifyToken, async (req, res) => {
       other_deductions: otherDeductions,
       total_deductions: totalDeductions,
       net_salary: netSalary,
+      payment_mode: d.payment_mode || employeeData.payment_mode || '',
     };
 
     const pdfBuffer = await documentGenerator.generateSalarySlip(employeeData, salaryData);
@@ -663,6 +862,7 @@ router.post('/salary', verifyToken, async (req, res) => {
     const filePath = 'uploads/salary_slips/' + fileName;
     const fullPath = path.join(__dirname, '../../', filePath);
     fs.writeFileSync(fullPath, pdfBuffer);
+    generatedFilePath = fullPath;
 
     const salaryInsert = {
       employee_id: d.employee_id,
@@ -685,14 +885,14 @@ router.post('/salary', verifyToken, async (req, res) => {
       net_salary: netSalary,
       amount: grossSalary,
       file_path: filePath,
-      status: d.status || 'generated',
+      status: normalizeSalaryStatus(d.status),
     };
     const insertColumns = Object.keys(salaryInsert);
     const insertValues = Object.values(salaryInsert);
     const insertPlaceholders = insertColumns.map(() => '?').join(', ');
+    const salaryCompanyId = employeeData.company_id || req.employee.company_id;
     await query(
-      `INSERT INTO salary_slips (${insertColumns.join(', ')}) VALUES (${insertPlaceholders})`,
-      insertValues
+      `INSERT INTO salary_slips (company_id, ${insertColumns.join(', ')}) VALUES (?, ${insertPlaceholders})`, [salaryCompanyId, ...insertValues]
     );
 
     return res.json({
@@ -705,6 +905,9 @@ router.post('/salary', verifyToken, async (req, res) => {
       },
     });
   } catch (err) {
+    if (generatedFilePath && fs.existsSync(generatedFilePath)) {
+      try { fs.unlinkSync(generatedFilePath); } catch (_) { }
+    }
     console.error('Salary POST:', err);
     let msg = (err && err.message) ? String(err.message) : 'Salary slip generation failed';
     if (msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR')) {
@@ -718,11 +921,24 @@ router.post('/salary', verifyToken, async (req, res) => {
 router.get('/leaves', verifyToken, async (req, res) => {
   try {
     let sql = `SELECT l.*, e.name as employee_name, e.role as employee_role, e.designation, a.name as approved_by_name
-      FROM leaves l JOIN employees e ON l.employee_id = e.id LEFT JOIN employees a ON l.approved_by = a.id WHERE 1=1`;
-    const params = [];
+      FROM leaves l JOIN employees e ON l.employee_id = e.id LEFT JOIN employees a ON l.approved_by = a.id WHERE e.company_id = ?`; const params = [req.employee.company_id];
     if (!canAccessAll(req.employee)) { sql += ' AND l.employee_id = ?'; params.push(req.employee.id); }
     sql += ' ORDER BY l.created_at DESC';
-    const rows = await query(sql, params);
+    let rows = [];
+    try {
+      rows = await query(sql, params);
+    } catch (err) {
+      // Fallback for older schemas missing e.role / e.designation columns
+      const msg = (err && err.message) ? String(err.message) : '';
+      if (!(msg.includes("Unknown column") || msg.includes("doesn't exist") || msg.includes('ER_BAD_FIELD_ERROR'))) throw err;
+
+      let sql2 = `SELECT l.*, e.name as employee_name, 'employee' as employee_role, NULL as designation, a.name as approved_by_name
+        FROM leaves l JOIN employees e ON l.employee_id = e.id LEFT JOIN employees a ON l.approved_by = a.id WHERE e.company_id = ?`;
+      const params2 = [req.employee.company_id];
+      if (!canAccessAll(req.employee)) { sql2 += ' AND l.employee_id = ?'; params2.push(req.employee.id); }
+      sql2 += ' ORDER BY l.created_at DESC';
+      rows = await query(sql2, params2).catch(() => []);
+    }
     return res.json({ success: true, data: rows });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -733,7 +949,10 @@ router.post('/leaves', verifyToken, async (req, res) => {
   try {
     const b = req.body || {};
     if (!b.type || !b.start_date || !b.end_date) return res.status(400).json({ success: false, message: 'Missing required fields' });
-    await query('INSERT INTO leaves (employee_id, type, start_date, end_date, reason, status) VALUES (?,?,?,?,?,\'pending\')', [req.employee.id, b.type, b.start_date, b.end_date, b.reason || '']);
+    await query(
+      'INSERT INTO leaves (employee_id, type, start_date, end_date, reason, status) VALUES (?,?,?,?,?,\'pending\')',
+      [req.employee.id, b.type, b.start_date, b.end_date, b.reason || '']
+    );
     return res.json({ success: true, message: 'Leave application submitted successfully' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -745,7 +964,17 @@ router.put('/leaves', verifyToken, async (req, res) => {
     if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
     const b = req.body || {};
     if (!b.id || !b.status) return res.status(400).json({ success: false, message: 'Missing required fields' });
-    await query('UPDATE leaves SET status = ?, approved_by = ?, admin_reason = ? WHERE id = ?', [b.status, req.employee.id, b.admin_reason || null, b.id]);
+    // Some DBs don't have admin_reason column; update it best-effort.
+    try {
+      await query(
+        'UPDATE leaves SET status = ?, approved_by = ?, admin_reason = ? WHERE id = ?',
+        [b.status, req.employee.id, b.admin_reason || null, b.id]
+      );
+    } catch (err) {
+      const msg = (err && err.message) ? String(err.message) : '';
+      if (!(msg.includes("Unknown column") || msg.includes('ER_BAD_FIELD_ERROR'))) throw err;
+      await query('UPDATE leaves SET status = ?, approved_by = ? WHERE id = ?', [b.status, req.employee.id, b.id]);
+    }
     // Update leave balance if approved and balance table exists
     if (String(b.status).toLowerCase() === 'approved') {
       try {
@@ -775,38 +1004,53 @@ router.put('/leaves', verifyToken, async (req, res) => {
 // GET/POST hrms/attendance (history + punch in/out)
 router.get('/attendance', verifyToken, async (req, res) => {
   try {
-    let sql = `SELECT c.*, e.name as employee_name, d.name as department,
-      CASE WHEN c.check_in_time IS NOT NULL AND c.check_out_time IS NOT NULL THEN 'completed' WHEN c.check_in_time IS NOT NULL THEN 'checked_in' ELSE 'not_checked_in' END as attendance_status,
-      CASE WHEN c.check_in_time IS NOT NULL AND c.check_out_time IS NOT NULL THEN ROUND(TIMESTAMPDIFF(MINUTE, CONCAT(c.date, ' ', c.check_in_time), CONCAT(c.date, ' ', c.check_out_time)) / 60.0, 1) ELSE NULL END as total_hours
-      FROM employee_checkins c JOIN employees e ON c.employee_id = e.id LEFT JOIN departments d ON e.department_id = d.id WHERE 1=1`;
-    const params = [];
+      let sql = `SELECT c.*, e.name as employee_name, d.name as department,
+        CASE WHEN c.check_in_time IS NOT NULL AND c.check_out_time IS NOT NULL THEN 'completed' WHEN c.check_in_time IS NOT NULL THEN 'checked_in' ELSE 'not_checked_in' END as attendance_status,
+        CASE
+          WHEN c.total_hours IS NOT NULL AND c.total_hours > 0 THEN c.total_hours
+          WHEN c.worked_seconds IS NOT NULL AND c.worked_seconds > 0 THEN ROUND(c.worked_seconds / 3600, 2)
+          WHEN c.check_in_time IS NOT NULL AND c.check_out_time IS NOT NULL THEN ROUND(TIMESTAMPDIFF(MINUTE, CONCAT(c.date, ' ', c.check_in_time), CONCAT(c.date, ' ', c.check_out_time)) / 60.0, 2)
+          WHEN c.check_in_time IS NOT NULL AND c.check_out_time IS NULL THEN ROUND(GREATEST(TIMESTAMPDIFF(SECOND, CONCAT(c.date, ' ', c.check_in_time), NOW()) - COALESCE(c.break_seconds, 0), 0) / 3600, 2)
+          ELSE NULL
+        END as total_hours
+        FROM employee_checkins c JOIN employees e ON c.employee_id = e.id LEFT JOIN departments d ON e.department_id = d.id WHERE e.company_id = ?`; const params = [req.employee.company_id];
     if (!canAccessAll(req.employee)) { sql += ' AND c.employee_id = ?'; params.push(req.employee.id); }
     else if (req.query.employee_id) { sql += ' AND c.employee_id = ?'; params.push(req.query.employee_id); }
     if (req.query.date_from) { sql += ' AND c.date >= ?'; params.push(req.query.date_from); }
     if (req.query.date_to) { sql += ' AND c.date <= ?'; params.push(req.query.date_to); }
-    sql += ' ORDER BY c.date DESC, c.created_at DESC';
+    // Some DBs don't have created_at on employee_checkins; id ordering is always safe.
+    sql += ' ORDER BY c.date DESC, c.id DESC';
     let rows;
-    try {
-      rows = await query(sql, params);
-    } catch (e) {
-      const msg = String((e && e.message) || '');
-      // Backward compatibility for old DB schema without check_in/check_out columns.
-      if (msg.includes("Unknown column 'c.check_in_time'") || msg.includes("Unknown column 'check_in_time'")) {
-        let fallbackSql = `SELECT c.*, e.name as employee_name, d.name as department,
-          CASE WHEN c.time IS NOT NULL THEN 'checked_in' ELSE 'not_checked_in' END as attendance_status,
-          NULL as total_hours
-          FROM employee_checkins c JOIN employees e ON c.employee_id = e.id LEFT JOIN departments d ON e.department_id = d.id WHERE 1=1`;
-        const fallbackParams = [];
-        if (!canAccessAll(req.employee)) { fallbackSql += ' AND c.employee_id = ?'; fallbackParams.push(req.employee.id); }
-        else if (req.query.employee_id) { fallbackSql += ' AND c.employee_id = ?'; fallbackParams.push(req.query.employee_id); }
-        if (req.query.date_from) { fallbackSql += ' AND c.date >= ?'; fallbackParams.push(req.query.date_from); }
-        if (req.query.date_to) { fallbackSql += ' AND c.date <= ?'; fallbackParams.push(req.query.date_to); }
-        fallbackSql += ' ORDER BY c.date DESC, c.created_at DESC';
-        rows = await query(fallbackSql, fallbackParams);
-      } else {
-        throw e;
+      try {
+        rows = await query(sql, params);
+      } catch (e) {
+        const msg = String((e && e.message) || '');
+        // Backward compatibility for old DB schema without check_in/check_out columns or new timer columns.
+        if (
+          msg.includes("Unknown column 'c.check_in_time'") ||
+          msg.includes("Unknown column 'check_in_time'") ||
+          msg.includes("Unknown column 'c.worked_seconds'") ||
+          msg.includes("Unknown column 'worked_seconds'") ||
+          msg.includes("Unknown column 'c.break_seconds'") ||
+          msg.includes("Unknown column 'break_seconds'") ||
+          msg.includes("Unknown column 'c.total_hours'") ||
+          msg.includes("Unknown column 'total_hours'")
+        ) {
+          let fallbackSql = `SELECT c.*, e.name as employee_name, d.name as department,
+            CASE WHEN c.time IS NOT NULL THEN 'checked_in' ELSE 'not_checked_in' END as attendance_status,
+            CASE WHEN c.check_in_time IS NOT NULL AND c.check_out_time IS NOT NULL THEN ROUND(TIMESTAMPDIFF(MINUTE, CONCAT(c.date, ' ', c.check_in_time), CONCAT(c.date, ' ', c.check_out_time)) / 60.0, 2) ELSE NULL END as total_hours
+            FROM employee_checkins c JOIN employees e ON c.employee_id = e.id LEFT JOIN departments d ON e.department_id = d.id WHERE e.company_id = ?`;
+          const fallbackParams = [req.employee.company_id];
+          if (!canAccessAll(req.employee)) { fallbackSql += ' AND c.employee_id = ?'; fallbackParams.push(req.employee.id); }
+          else if (req.query.employee_id) { fallbackSql += ' AND c.employee_id = ?'; fallbackParams.push(req.query.employee_id); }
+          if (req.query.date_from) { fallbackSql += ' AND c.date >= ?'; fallbackParams.push(req.query.date_from); }
+          if (req.query.date_to) { fallbackSql += ' AND c.date <= ?'; fallbackParams.push(req.query.date_to); }
+          fallbackSql += ' ORDER BY c.date DESC, c.id DESC';
+          rows = await query(fallbackSql, fallbackParams);
+        } else {
+          throw e;
+        }
       }
-    }
     // Apply official rules to ALL records: 09:30–10:00 = on time = full_day; after 10:00 = late, 4th late in month = half_day
     attendanceRules.applyAttendanceRulesToRows(rows);
     return res.json({ success: true, data: rows });
@@ -980,7 +1224,7 @@ router.post('/attendance', verifyToken, async (req, res) => {
     const action = String(b.action || 'check_in').toLowerCase();
     if (action === 'check_in' || action === 'clock_in') {
       const attendance = await workTimer.clockIn(req.employee, b);
-      return res.json({ success: true, message: 'Checked in successfully.', data: attendance });
+      return res.json({ success: true, message: 'Punched in successfully.', data: attendance });
     }
     if (action === 'break' || action === 'start_break') {
       const attendance = await workTimer.startBreak(req.employee.id);
@@ -990,15 +1234,24 @@ router.post('/attendance', verifyToken, async (req, res) => {
       const attendance = await workTimer.endBreak(req.employee.id);
       return res.json({ success: true, message: 'Work resumed.', data: attendance });
     }
+    if (action === 'reset_timer' || action === 'reset') {
+      const attendance = await workTimer.resetTimer(req.employee.id, b);
+      return res.json({ success: true, message: 'Timer reset successfully.', data: attendance });
+    }
     const attendance = await workTimer.clockOut(req.employee.id, b);
-    return res.json({ success: true, message: 'Checked out. Attendance complete.', data: attendance });
+    return res.json({ success: true, message: 'Punched out. Attendance complete.', data: attendance });
   } catch (err) {
     const msg = (err && err.message) ? String(err.message) : 'Attendance update failed';
     let userMsg = msg;
+    if (msg.includes('Already clocked in today') || msg.includes('Already checked in')) {
+      return res.status(409).json({ success: false, message: 'Already clocked in today.' });
+    }
     if (msg.includes("Unknown column 'check_in_time'") || msg.includes("Unknown column 'attendance_type'") || msg.includes('Unknown column') || msg.includes("doesn't exist")) {
       userMsg = 'Database schema outdated. Run: node backend-node/scripts/ensure-demo-schema.js';
     } else if (msg.includes('ECONNREFUSED') || msg.includes('connect')) {
-      userMsg = 'Database connection failed. Check backend .env and MySQL.';
+      const host = process.env.DB_HOST || '127.0.0.1';
+      const port = Number(process.env.DB_PORT) || 3306;
+      userMsg = `Database connection failed at ${host}:${port}. Check backend-node/.env and MySQL service.`;
     }
     console.error('POST /hrms/attendance error:', err && err.message);
     return res.status(500).json({ success: false, message: userMsg });
@@ -1087,6 +1340,7 @@ router.get('/stats', verifyToken, async (req, res) => {
 router.get('/joining_submissions', verifyToken, async (req, res) => {
   try {
     if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+    await ensureJoiningFormSubmissionsTable();
     const status = req.query.status || '';
     const search = req.query.search || '';
     let sql = 'SELECT js.*, e.name as verified_by_name FROM joining_form_submissions js LEFT JOIN employees e ON js.verified_by = e.id WHERE 1=1';
@@ -1112,6 +1366,7 @@ router.get('/joining_submissions', verifyToken, async (req, res) => {
 router.post('/verify_joining', verifyToken, async (req, res) => {
   try {
     if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+    await ensureJoiningFormSubmissionsTable();
     const b = req.body || {};
     const submissionId = parseInt(b.submission_id, 10);
     const action = b.action;
@@ -1129,6 +1384,7 @@ router.post('/verify_joining', verifyToken, async (req, res) => {
 router.post('/generate_qr', verifyToken, async (req, res) => {
   try {
     if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+    await ensureJoiningFormSubmissionsTable();
     const token = require('crypto').randomBytes(32).toString('hex');
     const { getConnection } = require('../config/database');
     const conn = await getConnection();
@@ -1253,8 +1509,7 @@ router.get('/shifts/assignments', verifyToken, async (req, res) => {
     let sql = `SELECT sa.*, s.name as shift_name, s.start_time, s.end_time, e.name as employee_name
                FROM hr_shift_assignments sa
                JOIN hr_shifts s ON sa.shift_id = s.id
-               JOIN employees e ON sa.employee_id = e.id WHERE 1=1`;
-    const params = [];
+               JOIN employees e ON sa.employee_id = e.id WHERE e.company_id = ?`; const params = [req.employee.company_id];
     if (!canAccessAll(req.employee)) {
       sql += ' AND sa.employee_id = ?';
       params.push(req.employee.id);
@@ -1282,6 +1537,60 @@ router.post('/shifts/assign', verifyToken, async (req, res) => {
       [employee_id, shift_id, effective_from, effective_to || null]
     );
     return res.json({ success: true, message: 'Shift assigned' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/shifts/assignments/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  const { employee_id, shift_id, effective_from, effective_to } = req.body || {};
+  if (!employee_id || !shift_id || !effective_from) {
+    return res.status(400).json({ success: false, message: 'employee_id, shift_id, effective_from are required' });
+  }
+  try {
+    // Ensure target employee belongs to same company.
+    const empRows = await query('SELECT id FROM employees WHERE id = ? AND company_id = ?', [employee_id, req.employee.company_id]).catch(() => []);
+    if (!empRows || empRows.length === 0) return res.status(403).json({ success: false, message: 'Invalid employee for this company' });
+
+    // Ensure shift exists.
+    const shiftRows = await query('SELECT id FROM hr_shifts WHERE id = ?', [shift_id]).catch(() => []);
+    if (!shiftRows || shiftRows.length === 0) return res.status(400).json({ success: false, message: 'Invalid shift' });
+
+    // Update only if the existing assignment belongs to this company (via current employee_id).
+    const result = await query(
+      `UPDATE hr_shift_assignments sa
+       JOIN employees e ON e.id = sa.employee_id
+       SET sa.employee_id = ?, sa.shift_id = ?, sa.effective_from = ?, sa.effective_to = ?
+       WHERE sa.id = ? AND e.company_id = ?`,
+      [employee_id, shift_id, effective_from, effective_to || null, id, req.employee.company_id]
+    );
+
+    const affected = Number(result?.affectedRows || result?.[0]?.affectedRows || 0);
+    if (!affected) return res.status(404).json({ success: false, message: 'Assignment not found' });
+
+    return res.json({ success: true, message: 'Assignment updated' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/shifts/assignments/:id', verifyToken, async (req, res) => {
+  if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
+  try {
+    const result = await query(
+      `DELETE sa FROM hr_shift_assignments sa
+       JOIN employees e ON e.id = sa.employee_id
+       WHERE sa.id = ? AND e.company_id = ?`,
+      [id, req.employee.company_id]
+    );
+    const affected = Number(result?.affectedRows || result?.[0]?.affectedRows || 0);
+    if (!affected) return res.status(404).json({ success: false, message: 'Assignment not found' });
+    return res.json({ success: true, message: 'Assignment deleted' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -1485,8 +1794,7 @@ router.get('/leave-balances', verifyToken, async (req, res) => {
     let sql = `SELECT b.*, e.name as employee_name, t.name as leave_type
                FROM hr_leave_balances b
                JOIN employees e ON b.employee_id = e.id
-               JOIN hr_leave_types t ON b.leave_type_id = t.id WHERE 1=1`;
-    const params = [];
+               JOIN hr_leave_types t ON b.leave_type_id = t.id WHERE e.company_id = ?`; const params = [req.employee.company_id];
     if (!canAccessAll(req.employee)) {
       sql += ' AND b.employee_id = ?';
       params.push(req.employee.id);
@@ -1524,8 +1832,7 @@ router.get('/performance', verifyToken, async (req, res) => {
     let sql = `SELECT pr.*, e.name as employee_name, r.name as reviewer_name
                FROM performance_reviews pr
                JOIN employees e ON pr.employee_id = e.id
-               JOIN employees r ON pr.reviewer_id = r.id WHERE 1=1`;
-    const params = [];
+               JOIN employees r ON pr.reviewer_id = r.id WHERE e.company_id = ?`; const params = [req.employee.company_id];
     if (!canAccessAll(req.employee)) {
       sql += ' AND pr.employee_id = ?';
       params.push(req.employee.id);

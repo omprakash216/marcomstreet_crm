@@ -136,6 +136,7 @@ export default function Holidays() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SL</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Date</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Holiday</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Description</th>
@@ -143,8 +144,9 @@ export default function Holidays() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {holidays.map((item) => (
+                  {holidays.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-slate-50/60">
+                      <td className="px-4 py-3 text-slate-600">{idx + 1}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{String(item.date || '').slice(0, 10)}</td>
                       <td className="px-4 py-3 text-slate-700">{item.name}</td>
                       <td className="px-4 py-3 text-slate-600">{item.description || '-'}</td>

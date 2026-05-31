@@ -101,19 +101,19 @@ router.post('/', verifyToken, async (req, res) => {
         }
 
         const result = await query(
-            `INSERT INTO inventory (
+            `INSERT INTO inventory (company_id, 
                 name, item_code, barcode, category, sub_category, location, quantity,
                 minimum_stock_level, unit_price, supplier, purchase_date, description,
                 status, assigned_to_id
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                d.name, d.item_code || 'PENDING', d.barcode, d.category, d.sub_category, d.location, d.quantity,
+                req.employee.company_id, d.name, d.item_code || 'PENDING', d.barcode, d.category, d.sub_category, d.location, d.quantity,
                 d.minimum_stock_level, d.unit_price, d.supplier, d.purchase_date, d.description,
                 d.status, d.assigned_to_id
             ]
         );
         if (!d.item_code) {
-            await query('UPDATE inventory SET item_code = ? WHERE id = ?', [buildItemCode(result.insertId), result.insertId]);
+            await query('UPDATE inventory SET item_code = ? WHERE id = ? AND company_id = ?', [buildItemCode(result.insertId), result.insertId, req.employee.company_id]);
         }
         res.json({ success: true, message: 'Inventory item added' });
     } catch (err) {

@@ -1,6 +1,13 @@
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { getEmployee, clearAuth } from "../utils/auth";
+import {
+  getEmployee,
+  clearAuth,
+  hasCrmModuleAccess,
+  hasHrmsModuleAccess,
+  hasModuleAccess,
+  normalizeRole,
+} from "../utils/auth";
 import api from "../utils/api";
 import MarcomLogo from "./MarcomLogo";
 import NotificationDropdown from "./NotificationDropdown";
@@ -22,8 +29,13 @@ export default function Layout() {
     (employee.role === "designer" ||
       employee.designation?.toLowerCase().includes("designer") ||
       employee.email?.includes(".designer"));
-  const role = (employee?.role || "").toLowerCase();
+  const role = normalizeRole(employee?.role);
+  const canCRM = !isCompanyRoute && employee ? hasCrmModuleAccess(employee) : false;
+  const canHRMS = !isCompanyRoute && employee ? hasHrmsModuleAccess(employee) : false;
   const isHRorAdmin = role === "human_resources" || role === "admin";
+  const isHrPanel = location.pathname.startsWith("/hr");
+  const showHrManagementNav = canHRMS && (isHrPanel || role === "human_resources" || !canCRM);
+  const showCrmNav = canCRM && !showHrManagementNav;
 
   useEffect(() => {
     if (isCompanyRoute) {
@@ -209,221 +221,198 @@ export default function Layout() {
   if (isCompanyRoute && !company) return null;
   if (!isCompanyRoute && !employee) return null;
 
+  const panelInfo = getPanelHeaderInfo({ isCompanyRoute, company, employee, pathname: location.pathname });
+  const accountInitial = isCompanyRoute
+    ? (company?.company_name || "C").charAt(0).toUpperCase()
+    : (employee?.name || "E").charAt(0).toUpperCase();
+  const accountName = isCompanyRoute
+    ? company?.company_name || "Company"
+    : employee?.name || "Employee";
+  const accountEmail = isCompanyRoute
+    ? company?.email || "Company Email"
+    : employee?.email || "Employee Email";
+  const accountRoleLabel = isCompanyRoute ? "Company" : employee?.role || "Employee";
+  const portalHome = getPanelHomePath({ isCompanyRoute, pathname: location.pathname });
+  const calendarPath = getPanelCalendarPath(location.pathname);
+  const chatPath = getPanelChatPath(location.pathname);
+
   return (
     // Keep navbar + sidebar fixed; only the main content scrolls.
     <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50">
-      {/* Professional Header (fixed) */}
-      <header className="fixed top-0 left-0 right-0 bg-white shadow-lg border-b border-gray-200/50 backdrop-blur-sm z-50">
-        <div className="max-w-full">
-          <div className="flex justify-between items-center h-24">
-            <div className="flex items-center h-full">
-              {/* Branding Integrated with Sidebar Width */}
-              <div className="w-40 sm:w-64 h-full border-r border-gray-100 flex items-center justify-center px-4 sm:px-6 relative z-50">
-                <MarcomLogo className="w-20 h-20 sm:w-[137px] sm:h-[8rem] transition-transform duration-300 hover:scale-110 select-none" />
-              </div>
+      {/* Shared panel header (matches Company Admin) */}
+      <header className="fixed top-0 left-0 right-0 h-24 bg-[#2c86ab] shadow-lg border-b border-[#247596] backdrop-blur-sm z-50 px-4 sm:px-6 overflow-visible">
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage:
+              "url(\"data:image/svg+xml,%3Csvg width='22' height='22' viewBox='0 0 22 22' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 7v8M7 11h8' stroke='rgba(255,255,255,0.18)' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E\")",
+            backgroundSize: "22px 22px",
+          }}
+        />
+
+        <div className="h-full flex items-center justify-between max-w-[1600px] mx-auto w-full relative z-10">
+          <div className="flex items-center h-full gap-4">
+            <div className="w-40 sm:w-64 h-full flex items-center justify-center border-r border-white/10 pr-4">
+              <Link to={portalHome} className="flex items-center shrink-0">
+                <MarcomLogo className="w-[86px] h-[86px] transition-transform duration-300 hover:scale-110 select-none" />
+              </Link>
             </div>
+          </div>
 
-            {/* Right Side Actions */}
-            <div className="flex items-center space-x-4 relative z-50">
-              {/* Notification Bell */}
-              {!isCompanyRoute && (
-                <Link
-                  to="/notifications"
-                  className="relative p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-xl transition-all duration-200 group"
-                  title="Notifications"
+          <div className="hidden md:flex flex-1 items-center gap-4 px-6 h-full">
+            <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-white bg-white/10 border border-white/20 shadow-inner">
+              <i className={`fas ${panelInfo.icon} text-lg`}></i>
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[22px] font-extrabold tracking-wide text-white leading-tight">
+                {panelInfo.title}
+              </h1>
+              <p className="text-xs font-semibold text-blue-100 truncate">
+                {panelInfo.subtitle}
+              </p>
+            </div>
+            <span className="flex-shrink-0 inline-flex items-center px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest uppercase text-white bg-white/15 border border-white/30">
+              {panelInfo.badge}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 sm:gap-6">
+            {!isCompanyRoute && (
+              <div className="hidden xl:flex items-center gap-2">
+                <TopNavButton to={portalHome} icon="fas fa-home" label="Home" />
+                <TopNavButton to={calendarPath} icon="fas fa-calendar-alt" label="Calendar" />
+                <TopNavButton to={chatPath} icon="fas fa-comments" label="Chat" />
+              </div>
+            )}
+
+            {!isCompanyRoute && <NotificationDropdown theme="light" />}
+
+            {/* Profile Dropdown */}
+            <div className="relative profile-dropdown-container z-[9999]">
+              <button
+                type="button"
+                onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                aria-haspopup="menu"
+                aria-expanded={showProfileDropdown}
+                className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-white/10 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 relative z-[9999]"
+              >
+                <div className="w-10 h-10 rounded-full bg-white text-[#2c86ab] flex items-center justify-center text-sm font-bold shadow-md hover:shadow-lg transition-shadow">
+                  {accountInitial}
+                </div>
+                <svg
+                  className={`w-4 h-4 text-white transition-transform ${showProfileDropdown ? "rotate-180" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  <svg
-                    className={`w-7 h-7 transition-colors ${unreadChatCount > 0 ? "text-blue-600" : "text-gray-500 group-hover:text-blue-600"
-                      }`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                    />
-                  </svg>
-                  {unreadChatCount > 0 && (
-                    <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow-lg border-2 border-white animate-pulse">
-                      {unreadChatCount > 9 ? "9+" : unreadChatCount}
-                    </span>
-                  )}
-                </Link>
-              )}
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
 
-              {/* Profile Dropdown */}
-              <div className="relative profile-dropdown-container z-[9999]">
-                <button
-                  onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                  className="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-gray-50 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 relative z-[9999]"
-                >
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-md hover:shadow-lg transition-shadow">
-                    {isCompanyRoute
-                      ? company
-                        ? company.company_name.charAt(0).toUpperCase()
-                        : "C"
-                      : employee
-                        ? employee.name.charAt(0).toUpperCase()
-                        : "E"}
-                  </div>
-                  <svg
-                    className={`w-4 h-4 text-gray-600 transition-transform ${showProfileDropdown ? "rotate-180" : ""
-                      }`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                </button>
-
-                {/* Dropdown Menu */}
-                {showProfileDropdown && (
-                  <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-[9999]">
-                    {/* User Info Section */}
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-lg font-bold shadow-md">
-                          {isCompanyRoute
-                            ? company
-                              ? company.company_name.charAt(0).toUpperCase()
-                              : "C"
-                            : employee
-                              ? employee.name.charAt(0).toUpperCase()
-                              : "E"}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 truncate">
-                            {isCompanyRoute
-                              ? company
-                                ? company.company_name
-                                : "Company"
-                              : employee
-                                ? employee.name
-                                : "Employee"}
-                          </p>
-                          <p className="text-xs text-gray-500 truncate">
-                            {isCompanyRoute
-                              ? company?.email || "Company Email"
-                              : employee?.email || "Employee Email"}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {isCompanyRoute
-                              ? "Company"
-                              : employee?.role || "Employee"}
-                          </p>
-                        </div>
+              {/* Dropdown Menu */}
+              {showProfileDropdown && (
+                <div className="absolute right-0 top-full mt-2 w-[min(18rem,calc(100vw-2rem))] bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-[10000]">
+                  {/* User Info Section */}
+                  <div className="px-4 py-3 border-b border-gray-200">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-lg font-bold shadow-md">
+                        {accountInitial}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">
+                          {accountName}
+                        </p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {accountEmail}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {accountRoleLabel}
+                        </p>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Additional Info for Employee */}
-                    {!isCompanyRoute && employee && (
-                      <div className="px-4 py-2 border-b border-gray-200">
-                        {employee.employee_code && (
-                          <div className="flex items-center justify-between py-1">
-                            <span className="text-xs text-gray-500">
-                              Employee Code:
-                            </span>
-                            <span className="text-xs font-medium text-gray-900">
-                              {employee.employee_code}
-                            </span>
-                          </div>
-                        )}
-                        {employee.phone && (
-                          <div className="flex items-center justify-between py-1">
-                            <span className="text-xs text-gray-500">
-                              Phone:
-                            </span>
-                            <span className="text-xs font-medium text-gray-900">
-                              {employee.phone}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                  {/* Additional Info for Employee */}
+                  {!isCompanyRoute && employee && (
+                    <div className="px-4 py-2 border-b border-gray-200">
+                      {employee.employee_code && (
+                        <div className="flex items-center justify-between py-1">
+                          <span className="text-xs text-gray-500">
+                            Employee Code:
+                          </span>
+                          <span className="text-xs font-medium text-gray-900">
+                            {employee.employee_code}
+                          </span>
+                        </div>
+                      )}
+                      {employee.phone && (
+                        <div className="flex items-center justify-between py-1">
+                          <span className="text-xs text-gray-500">
+                            Phone:
+                          </span>
+                          <span className="text-xs font-medium text-gray-900">
+                            {employee.phone}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                    {/* Additional Info for Company */}
-                    {isCompanyRoute && company && (
-                      <div className="px-4 py-2 border-b border-gray-200">
-                        {company.company_code && (
-                          <div className="flex items-center justify-between py-1">
-                            <span className="text-xs text-gray-500">
-                              Company Code:
-                            </span>
-                            <span className="text-xs font-medium text-gray-900">
-                              {company.company_code}
-                            </span>
-                          </div>
-                        )}
-                        {company.client_code && (
-                          <div className="flex items-center justify-between py-1">
-                            <span className="text-xs text-gray-500">
-                              Client Code:
-                            </span>
-                            <span className="text-xs font-medium text-gray-900">
-                              {company.client_code}
-                            </span>
-                          </div>
-                        )}
-                        {company.phone && (
-                          <div className="flex items-center justify-between py-1">
-                            <span className="text-xs text-gray-500">
-                              Phone:
-                            </span>
-                            <span className="text-xs font-medium text-gray-900">
-                              {company.phone}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                  {/* Additional Info for Company */}
+                  {isCompanyRoute && company && (
+                    <div className="px-4 py-2 border-b border-gray-200">
+                      {company.company_code && (
+                        <div className="flex items-center justify-between py-1">
+                          <span className="text-xs text-gray-500">
+                            Company Code:
+                          </span>
+                          <span className="text-xs font-medium text-gray-900">
+                            {company.company_code}
+                          </span>
+                        </div>
+                      )}
+                      {company.client_code && (
+                        <div className="flex items-center justify-between py-1">
+                          <span className="text-xs text-gray-500">
+                            Client Code:
+                          </span>
+                          <span className="text-xs font-medium text-gray-900">
+                            {company.client_code}
+                          </span>
+                        </div>
+                      )}
+                      {company.phone && (
+                        <div className="flex items-center justify-between py-1">
+                          <span className="text-xs text-gray-500">
+                            Phone:
+                          </span>
+                          <span className="text-xs font-medium text-gray-900">
+                            {company.phone}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                    {/* Check-In Section for Employees */}
-                    {!isCompanyRoute && (
-                      <div className="px-4 py-2 border-b border-gray-200">
-                        {checkingStatus ? (
-                          <div className="flex items-center justify-center py-2">
-                            <div className="text-xs text-gray-500">
-                              Loading check-in status...
-                            </div>
+                  {/* Check-In Section for Employees */}
+                  {!isCompanyRoute && (
+                    <div className="px-4 py-2 border-b border-gray-200">
+                      {checkingStatus ? (
+                        <div className="flex items-center justify-center py-2">
+                          <div className="text-xs text-gray-500">
+                            Loading check-in status...
                           </div>
-                        ) : checkedIn ? (
-                          <div className="flex items-center justify-between py-2 px-3 bg-green-50 border border-green-200 rounded-lg">
-                            <div className="flex items-center space-x-2">
-                              <svg
-                                className="w-4 h-4 text-green-600"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M5 13l4 4L19 7"
-                                />
-                              </svg>
-                              <span className="text-xs font-medium text-green-700">
-                                Checked In
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={handleCheckIn}
-                            disabled={checkInLoading}
-                            className="w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-green-600 to-green-700 rounded-lg hover:from-green-700 hover:to-green-800 disabled:opacity-50 transition-all duration-200 shadow-md hover:shadow-lg"
-                          >
+                        </div>
+                      ) : checkedIn ? (
+                        <div className="flex items-center justify-between py-2 px-3 bg-green-50 border border-green-200 rounded-lg">
+                          <div className="flex items-center space-x-2">
                             <svg
-                              className="w-4 h-4"
+                              className="w-4 h-4 text-green-600"
                               fill="none"
                               stroke="currentColor"
                               viewBox="0 0 24 24"
@@ -435,39 +424,64 @@ export default function Layout() {
                                 d="M5 13l4 4L19 7"
                               />
                             </svg>
-                            <span>
-                              {checkInLoading ? "Checking In..." : "Check In"}
+                            <span className="text-xs font-medium text-green-700">
+                              Checked In
                             </span>
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Logout Button */}
-                    <div className="px-2 py-2">
-                      <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-red-600 to-red-700 rounded-lg hover:from-red-700 hover:to-red-800 transition-all duration-200 shadow-md hover:shadow-lg"
-                      >
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleCheckIn}
+                          disabled={checkInLoading}
+                          className="w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-green-600 to-green-700 rounded-lg hover:from-green-700 hover:to-green-800 disabled:opacity-50 transition-all duration-200 shadow-md hover:shadow-lg"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                          />
-                        </svg>
-                        <span>Logout</span>
-                      </button>
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                          <span>
+                            {checkInLoading ? "Checking In..." : "Check In"}
+                          </span>
+                        </button>
+                      )}
                     </div>
+                  )}
+
+                  {/* Logout Button */}
+                  <div className="px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-red-600 to-red-700 rounded-lg hover:from-red-700 hover:to-red-800 transition-all duration-200 shadow-md hover:shadow-lg"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                        />
+                      </svg>
+                      <span>Logout</span>
+                    </button>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -513,14 +527,14 @@ export default function Layout() {
               <>
                 {/* Dashboard (Common for all employees) */}
                 <Link
-                  to="/"
-                  className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/")
+                  to={portalHome}
+                  className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(portalHome)
                     ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
                     : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
                     }`}
                 >
                   <svg
-                    className={`w-5 h-5 mr-3 ${isActive("/")
+                    className={`w-5 h-5 mr-3 ${isActive(portalHome)
                       ? "text-white"
                       : "text-gray-500 group-hover:text-blue-600"
                       }`}
@@ -536,20 +550,20 @@ export default function Layout() {
                     />
                   </svg>
                   <span>Dashboard</span>
-                  {isActive("/") && (
+                  {isActive(portalHome) && (
                     <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                   )}
                 </Link>
 
                 <Link
-                  to="/calendar"
-                  className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/calendar")
+                  to={calendarPath}
+                  className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(calendarPath)
                     ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
                     : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
                     }`}
                 >
                   <svg
-                    className={`w-5 h-5 mr-3 ${isActive("/calendar")
+                    className={`w-5 h-5 mr-3 ${isActive(calendarPath)
                       ? "text-white"
                       : "text-gray-500 group-hover:text-blue-600"
                       }`}
@@ -565,14 +579,14 @@ export default function Layout() {
                     />
                   </svg>
                   <span>Calendar</span>
-                  {isActive("/calendar") && (
+                  {isActive(calendarPath) && (
                     <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                   )}
                 </Link>
 
 
                 {/* Sales Features - Hidden for HR and Designers */}
-                {!isDesigner && employee?.role !== "human_resources" && (
+                {showCrmNav && !isDesigner && (
                   <>
                     <Link
                       to="/leads"
@@ -805,8 +819,7 @@ export default function Layout() {
                     </Link>
 
                     {/* Invoices - Only for Admin and Manager */}
-                    {(employee?.role === "admin" ||
-                      employee?.role === "manager") && (
+                    {hasModuleAccess(employee, "invoices") && (
                         <Link
                           to="/invoices"
                           className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/invoices")
@@ -840,18 +853,18 @@ export default function Layout() {
                 )}
 
                 {/* Common Navigation (Non-HR Users) */}
-                {employee?.role !== "human_resources" && !isDesigner && (
+                {!showHrManagementNav && !isDesigner && (
                   <>
                     <Link
-                      to="/chat"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/chat")
+                      to={chatPath}
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(chatPath)
                         ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
                         : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
                         }`}
                     >
                       <div className="relative">
                         <svg
-                          className={`w-5 h-5 mr-3 ${isActive("/chat")
+                          className={`w-5 h-5 mr-3 ${isActive(chatPath)
                             ? "text-white"
                             : "text-gray-500 group-hover:text-blue-600"
                             }`}
@@ -866,108 +879,114 @@ export default function Layout() {
                             d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                           />
                         </svg>
-                        {unreadChatCount > 0 && !isActive("/chat") && (
+                        {unreadChatCount > 0 && !isActive(chatPath) && (
                           <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-white">
                             {unreadChatCount > 9 ? "9+" : unreadChatCount}
                           </span>
                         )}
                       </div>
                       <span>Team Chat</span>
-                      {isActive("/chat") && (
+                      {isActive(chatPath) && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
                     </Link>
 
-                    <Link
-                      to="/history"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/history")
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
-                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
-                        }`}
-                    >
-                      <svg
-                        className={`w-5 h-5 mr-3 ${isActive("/history")
-                          ? "text-white"
-                          : "text-gray-500 group-hover:text-blue-600"
-                          }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      <span>History</span>
-                      {isActive("/history") && (
-                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
-                      )}
-                    </Link>
-
-                    {/* HRMS Section for Regular Employees */}
-                    <div className="pt-4 pb-2">
-                      <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                        HRMS
-                      </p>
-                    </div>
-                    <Link
-                      to="/hrms/leaves"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/leaves")
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
-                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
-                        }`}
-                    >
-                      <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/leaves") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      <span>Leaves</span>
-                    </Link>
-                    <Link
-                      to="/hrms/attendance"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/attendance")
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
-                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
-                        }`}
-                    >
-                      <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/attendance") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span>Attendance</span>
-                    </Link>
-                    <Link
-                      to="/hrms/salary-slips"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/salary-slips")
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
-                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
-                        }`}
-                    >
-                      <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/salary-slips") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span>Salary Slips</span>
-                    </Link>
-                    {isHRorAdmin && (
+                    {canCRM && (
                       <Link
-                        to="/hrms/documents"
-                        className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/documents")
+                        to="/history"
+                        className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/history")
                           ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
                           : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
                           }`}
                       >
-                        <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/documents") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <svg
+                          className={`w-5 h-5 mr-3 ${isActive("/history")
+                            ? "text-white"
+                            : "text-gray-500 group-hover:text-blue-600"
+                            }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
                         </svg>
-                        <span>HR Documents</span>
+                        <span>History</span>
+                        {isActive("/history") && (
+                          <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                        )}
                       </Link>
+                    )}
+
+                    {canHRMS && (
+                      <>
+                        {/* HRMS Section for Regular Employees */}
+                        <div className="pt-4 pb-2">
+                          <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                            HRMS
+                          </p>
+                        </div>
+                        <Link
+                          to="/hrms/leaves"
+                          className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/leaves")
+                            ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                            : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                            }`}
+                        >
+                          <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/leaves") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span>Leaves</span>
+                        </Link>
+                        <Link
+                          to="/hrms/attendance"
+                          className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/attendance")
+                            ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                            : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                            }`}
+                        >
+                          <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/attendance") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span>Attendance</span>
+                        </Link>
+                        <Link
+                          to="/hrms/salary-slips"
+                          className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/salary-slips")
+                            ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                            : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                            }`}
+                        >
+                          <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/salary-slips") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span>Salary Slips</span>
+                        </Link>
+                        {isHRorAdmin && (
+                          <Link
+                            to="/hrms/documents"
+                            className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hrms/documents")
+                              ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                              : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                              }`}
+                          >
+                            <svg className={`w-5 h-5 mr-3 ${isActive("/hrms/documents") ? "text-white" : "text-gray-500 group-hover:text-blue-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>HR Documents</span>
+                          </Link>
+                        )}
+                      </>
                     )}
                   </>
                 )}
 
                 {/* Designer Section */}
-                {isDesigner && (
+                {isDesigner && canCRM && !showHrManagementNav && (
                   <>
                     <Link
                       to="/tasks"
@@ -1211,15 +1230,15 @@ export default function Layout() {
                     )}
 
                     <Link
-                      to="/chat"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/chat")
+                      to={chatPath}
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(chatPath)
                         ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
                         : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
                         }`}
                     >
                       <div className="relative">
                         <svg
-                          className={`w-5 h-5 mr-3 ${isActive("/chat")
+                          className={`w-5 h-5 mr-3 ${isActive(chatPath)
                             ? "text-white"
                             : "text-gray-500 group-hover:text-blue-600"
                             }`}
@@ -1234,14 +1253,14 @@ export default function Layout() {
                             d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                           />
                         </svg>
-                        {unreadChatCount > 0 && !isActive("/chat") && (
+                        {unreadChatCount > 0 && !isActive(chatPath) && (
                           <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-white">
                             {unreadChatCount > 9 ? "9+" : unreadChatCount}
                           </span>
                         )}
                       </div>
                       <span>Team Chat</span>
-                      {isActive("/chat") && (
+                      {isActive(chatPath) && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
                     </Link>
@@ -1249,7 +1268,7 @@ export default function Layout() {
                 )}
 
                 {/* HR Users see only HR workflow options */}
-                {employee?.role === "human_resources" && (
+                {showHrManagementNav && (
                   <>
                     {/* <div className="pt-4 pb-2">
                       <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -1617,17 +1636,77 @@ export default function Layout() {
                       )}
                     </Link>
 
+                    {/* Joining QR Generator */}
+                    <Link
+                      to="/hr/hrms/joining-qr"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/joining-qr")
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                    >
+                      <svg
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/joining-qr")
+                          ? "text-white"
+                          : "text-gray-500 group-hover:text-blue-600"
+                          }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M4 8h16M4 16h16M4 4h16"
+                        />
+                      </svg>
+                      <span>Joining QR Link</span>
+                      {isActive("/hr/hrms/joining-qr") && (
+                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Link>
+
+                    {/* Joining Submissions */}
+                    <Link
+                      to="/hr/hrms/joining-submissions"
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/hr/hrms/joining-submissions")
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                        }`}
+                    >
+                      <svg
+                        className={`w-5 h-5 mr-3 ${isActive("/hr/hrms/joining-submissions")
+                          ? "text-white"
+                          : "text-gray-500 group-hover:text-blue-600"
+                          }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                        />
+                      </svg>
+                      <span>Joining Requests</span>
+                      {isActive("/hr/hrms/joining-submissions") && (
+                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Link>
+
                     {/* Team Chat - Grouped with HR Management */}
                     <Link
-                      to="/chat"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/chat")
+                      to={chatPath}
+                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(chatPath)
                         ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
                         : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
                         }`}
                     >
                       <div className="relative">
                         <svg
-                          className={`w-5 h-5 mr-3 ${isActive("/chat")
+                          className={`w-5 h-5 mr-3 ${isActive(chatPath)
                             ? "text-white"
                             : "text-gray-500 group-hover:text-blue-600"
                             }`}
@@ -1642,47 +1721,48 @@ export default function Layout() {
                             d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                           />
                         </svg>
-                        {unreadChatCount > 0 && !isActive("/chat") && (
+                        {unreadChatCount > 0 && !isActive(chatPath) && (
                           <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-white">
                             {unreadChatCount > 9 ? "9+" : unreadChatCount}
                           </span>
                         )}
                       </div>
                       <span>Team Chat</span>
-                      {isActive("/chat") && (
+                      {isActive(chatPath) && (
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
                     </Link>
 
-                    <Link
-                      to="/history"
-                      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/history")
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
-                        : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
-                        }`}
-                    >
-                      <svg
-                        className={`w-5 h-5 mr-3 ${isActive("/history")
-                          ? "text-white"
-                          : "text-gray-500 group-hover:text-blue-600"
+                    {canCRM && !showHrManagementNav && (
+                      <Link
+                        to="/history"
+                        className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/history")
+                          ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                          : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
                           }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
                       >
-                        Express content from lines 1450 to 1455
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      <span>History</span>
-                      {isActive("/history") && (
-                        <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
-                      )}
-                    </Link>
+                        <svg
+                          className={`w-5 h-5 mr-3 ${isActive("/history")
+                            ? "text-white"
+                            : "text-gray-500 group-hover:text-blue-600"
+                            }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                        <span>History</span>
+                        {isActive("/history") && (
+                          <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                        )}
+                      </Link>
+                    )}
                   </>
                 )}
               </>
@@ -1700,5 +1780,91 @@ export default function Layout() {
         </div>
       </div>
     </div >
+  );
+}
+
+function getPanelHeaderInfo({ isCompanyRoute, company, employee, pathname }) {
+  if (isCompanyRoute) {
+    return {
+      title: company?.company_name || "Company Portal",
+      subtitle: "Company profile, leads and business overview",
+      badge: "Company",
+      icon: "fa-building",
+    };
+  }
+
+  if (pathname.startsWith("/manager")) {
+    return {
+      title: "Manager Panel",
+      subtitle: "Team pipeline, tasks and performance control",
+      badge: "Manager",
+      icon: "fa-chart-bar",
+    };
+  }
+
+  if (pathname.startsWith("/hr")) {
+    return {
+      title: "HR Portal",
+      subtitle: "Human resources, attendance and employee operations",
+      badge: "HRMS",
+      icon: "fa-users",
+    };
+  }
+
+  if (pathname.startsWith("/designer-manager")) {
+    return {
+      title: "Designer Manager Panel",
+      subtitle: "Creative tasks, delivery and team coordination",
+      badge: "Design",
+      icon: "fa-palette",
+    };
+  }
+
+  return {
+    title: employee?.name ? `${employee.name}'s Dashboard` : "Employee Portal",
+    subtitle: "CRM, tasks, follow-ups and personal workflow",
+    badge: "Employee",
+    icon: "fa-user",
+  };
+}
+
+function getPanelHomePath({ isCompanyRoute, pathname }) {
+  if (isCompanyRoute) return "/company/details";
+  if (pathname.startsWith("/manager")) return "/manager";
+  if (pathname.startsWith("/hr")) return "/hr";
+  if (pathname.startsWith("/designer-manager")) return "/designer-manager";
+  return "/";
+}
+
+function getPanelCalendarPath(pathname) {
+  if (pathname.startsWith("/manager")) return "/manager/calendar";
+  if (pathname.startsWith("/hr")) return "/hr/calendar";
+  if (pathname.startsWith("/designer-manager")) return "/designer-manager/calendar";
+  return "/calendar";
+}
+
+function getPanelChatPath(pathname) {
+  if (pathname.startsWith("/manager")) return "/manager/chat";
+  if (pathname.startsWith("/hr")) return "/hr/chat";
+  if (pathname.startsWith("/designer-manager")) return "/designer-manager/chat";
+  return "/chat";
+}
+
+function TopNavButton({ to, icon, label }) {
+  const location = useLocation();
+  const active = to === "/" ? location.pathname === "/" : location.pathname.startsWith(to);
+
+  return (
+    <Link
+      to={to}
+      className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+        active
+          ? "bg-white text-[#2c86ab] border-white shadow-md"
+          : "bg-white/10 text-white border-white/20 hover:bg-white/20"
+      }`}
+    >
+      <i className={icon}></i>
+      <span>{label}</span>
+    </Link>
   );
 }

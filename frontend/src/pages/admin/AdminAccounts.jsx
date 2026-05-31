@@ -20,6 +20,22 @@ export default function AdminAccounts() {
         fetchAccounts();
     }, []);
 
+    useEffect(() => {
+        if (!showModal) return;
+
+        const onKeyDown = (e) => {
+            if (e.key === 'Escape') setShowModal(false);
+        };
+
+        const prevOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        window.addEventListener('keydown', onKeyDown);
+        return () => {
+            document.body.style.overflow = prevOverflow;
+            window.removeEventListener('keydown', onKeyDown);
+        };
+    }, [showModal]);
+
     const fetchAccounts = async () => {
         setLoading(true);
         try {
@@ -82,59 +98,60 @@ export default function AdminAccounts() {
 
     return (
         <div className="space-y-6 text-slate-800">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Bank Accounts</h1>
-                    <p className="text-slate-500 text-sm font-medium">Manage company finances and bank distributions</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Admin · Accounts</p>
+                    <h1 className="text-3xl font-semibold text-slate-900 tracking-tight">Bank Accounts</h1>
+                    <p className="text-slate-500 text-sm">Manage company bank accounts and balances.</p>
                 </div>
                 <button
                     onClick={() => { setEditAccount(null); setFormData({ bank_name: '', account_holder_name: '', account_number: '', ifsc_code: '', branch_name: '', balance: 0 }); setShowModal(true); }}
-                    className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-[0.98]"
+                    className="inline-flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-slate-800 transition shadow-sm active:scale-[0.98]"
                 >
                     <i className="fas fa-plus"></i>
-                    Register New Account
+                    Add Account
                 </button>
             </div>
 
             {/* Hero Stats Section */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="md:col-span-2 bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[2rem] p-8 text-white shadow-2xl relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 transition-transform duration-500 group-hover:scale-110"></div>
-                    <div className="relative z-10 flex flex-col justify-between h-full">
+                <div className="md:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                    <div className="flex flex-col justify-between h-full">
                         <div>
-                            <p className="text-indigo-100 font-bold uppercase tracking-widest text-xs mb-2">Aggregate Liquid Balance</p>
-                            <h2 className="text-5xl font-black tracking-tight mb-2">
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 mb-2">Total Balance</p>
+                            <h2 className="text-4xl font-semibold text-slate-900 tracking-tight mb-2">
                                 ₹{totalBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </h2>
                         </div>
-                        <div className="flex items-center gap-4 mt-8">
-                            <div className="px-4 py-2 bg-white/20 backdrop-blur-md rounded-xl text-sm font-bold border border-white/30">
+                        <div className="flex flex-wrap items-center gap-3 mt-6">
+                            <div className="px-3 py-1.5 bg-slate-50 rounded-xl text-xs font-semibold border border-slate-200 text-slate-700">
                                 {accounts.length} Active Accounts
                             </div>
-                            <div className="text-indigo-100 text-xs font-semibold">
-                                Last Sync: {new Date().toLocaleTimeString()}
+                            <div className="px-3 py-1.5 bg-slate-50 rounded-xl text-xs font-semibold border border-slate-200 text-slate-700">
+                                Last refresh: {new Date().toLocaleTimeString()}
                             </div>
                         </div>
                     </div>
-                    <i className="fas fa-university absolute bottom-8 right-8 text-8xl opacity-10 rotate-12 transition-transform duration-500 group-hover:rotate-0"></i>
                 </div>
 
-                <div className="bg-white rounded-[2rem] p-8 border border-slate-200 shadow-sm flex flex-col justify-center">
-                    <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-4">
+                <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div className="w-12 h-12 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center mb-4 border border-emerald-100">
                         <i className="fas fa-shield-alt text-xl"></i>
                     </div>
-                    <h3 className="text-lg font-extrabold text-slate-900 mb-2">Secure Management</h3>
-                    <p className="text-slate-500 text-sm mb-6">All account details are encrypted and access is limited to administrators only.</p>
-                    <div className="flex items-center gap-2 text-indigo-600 font-bold text-sm">
-                        <span>Audit Enabled</span>
+                    <div>
+                        <h3 className="text-lg font-semibold text-slate-900 mb-2">Secure Management</h3>
+                        <p className="text-slate-500 text-sm">Account access is limited to administrators.</p>
+                    </div>
+                    <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm mt-6">
+                        <span>Audit enabled</span>
                         <i className="fas fa-check-circle"></i>
                     </div>
                 </div>
             </div>
 
             {/* Search and Table */}
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6 border-b border-slate-100 bg-slate-50/30 flex items-center gap-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-5 border-b border-slate-100 bg-slate-50 flex items-center gap-4">
                     <div className="relative flex-1 max-w-md">
                         <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
                         <input
@@ -142,7 +159,7 @@ export default function AdminAccounts() {
                             placeholder="Search by Bank or Account No..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-12 pr-6 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-medium focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all shadow-inner"
+                            className="w-full pl-12 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none transition"
                         />
                     </div>
                 </div>
@@ -229,8 +246,13 @@ export default function AdminAccounts() {
 
             {/* Modal */}
             {showModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-xl animate-in fade-in duration-300">
-                    <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-xl overflow-hidden animate-in slide-in-from-bottom-8 duration-300 border border-white/20">
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto"
+                    onMouseDown={(e) => {
+                        if (e.target === e.currentTarget) setShowModal(false);
+                    }}
+                >
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom-8 duration-200 border border-slate-200">
                         <div className="p-8 border-b border-slate-100 flex items-center justify-between">
                             <div>
                                 <h3 className="text-2xl font-black text-slate-900 leading-tight">

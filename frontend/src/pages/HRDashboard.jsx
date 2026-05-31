@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { getEmployee } from '../utils/auth';
+import WorkingHoursCard from '../components/WorkingHoursCard';
 import {
   BarChart,
   Bar,
@@ -15,6 +16,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+
 
 // Icons (SVG - no external font)
 const IconUsers = ({ className = 'w-6 h-6' }) => (
@@ -43,8 +45,13 @@ const IconCalendar = ({ className = 'w-6 h-6' }) => (
   </svg>
 );
 const IconBanknotes = ({ className = 'w-6 h-6' }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+  <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8 7h8" />
+    <path d="M8 10h8" />
+    <path d="m8 13 5.5 5" />
+    <path d="M8 13h2" />
+    <path d="M10 13c4.5 0 4.5-6 0-6" />
   </svg>
 );
 const IconFolder = ({ className = 'w-6 h-6' }) => (
@@ -90,6 +97,7 @@ export default function HRDashboard() {
   const [departmentStats, setDepartmentStats] = useState([]);
   const [upcomingHolidays, setUpcomingHolidays] = useState([]);
   const [activityPage, setActivityPage] = useState(0);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
   const employee = getEmployee();
 
@@ -107,59 +115,73 @@ export default function HRDashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      setError('');
+      let data = null;
+
+      // Primary HR stats endpoint - backend now handles admin/superadmin roles here
       const response = await api.get('/hrms/stats');
-      if (response.data.success) {
-        const data = response.data.data;
-        setStats({
-          total_employees: data.total_employees ?? 0,
-          present_today: data.present_today ?? 0,
-          on_leave_today: data.on_leave_today ?? 0,
-          late_employees: data.late_employees ?? 0,
-          pending_leaves: data.pending_leaves ?? 0,
-          total_leave_balance: data.total_leave_balance ?? 0,
-          used_leaves: data.used_leaves ?? 0,
-          monthly_salary_processed: data.monthly_salary_processed ?? 0,
-        });
-        if (data.attendance_trends?.length > 0) {
-          setAttendanceData(data.attendance_trends.map(at => ({
-            month: at.month,
-            present: parseInt(at.present, 10) || 0,
-            active: parseInt(at.active, 10) || 0,
-          })));
-        }
-        if (data.leave_stats?.length > 0) {
-          setLeaveStats(data.leave_stats.map(ls => ({
-            type: (ls.type || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-            used: parseInt(ls.used, 10) || 0,
-            approved: parseInt(ls.approved, 10) || 0,
-          })));
-        }
-        if (data.department_counts?.length > 0) {
-          setDepartmentStats(data.department_counts.map(dc => ({
-            department: dc.department || 'Unassigned',
-            total: parseInt(dc.total, 10) || 0,
-          })));
-        }
-        if (data.upcoming_holidays?.length > 0) {
-          setUpcomingHolidays(data.upcoming_holidays.map(h => ({
-            id: h.id,
-            name: h.name,
-            date: h.date ? String(h.date).slice(0, 10) : '',
-            description: h.description || '',
-          })));
-        }
-        if (data.recent_activities?.length > 0) {
-          setRecentActivities(data.recent_activities.map(ra => ({
-            id: ra.id,
-            type: ra.type || 'activity',
-            title: ra.title || 'Activity',
-            time: ra.time ? new Date(ra.time).toLocaleString() : '',
-            status: ra.status || 'completed',
-          })));
-        }
+      if (response.data?.success) {
+        data = response.data.data;
+      }
+
+      const safeData = data || {};
+      setStats({
+        total_employees: safeData.total_employees ?? 0,
+        present_today: safeData.present_today ?? 0,
+        on_leave_today: safeData.on_leave_today ?? 0,
+        late_employees: safeData.late_employees ?? 0,
+        pending_leaves: safeData.pending_leaves ?? 0,
+        total_leave_balance: safeData.total_leave_balance ?? 0,
+        used_leaves: safeData.used_leaves ?? 0,
+        monthly_salary_processed: safeData.monthly_salary_processed ?? 0,
+      });
+      setAttendanceData(
+        (safeData.attendance_trends || []).map(at => ({
+          month: at.month,
+          present: parseInt(at.present, 10) || 0,
+          active: parseInt(at.active, 10) || 0,
+        }))
+      );
+      setLeaveStats(
+        (safeData.leave_stats || []).map(ls => ({
+          type: (ls.type || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          used: parseInt(ls.used, 10) || 0,
+          approved: parseInt(ls.approved, 10) || 0,
+        }))
+      );
+      setDepartmentStats(
+        (safeData.department_counts || []).map(dc => ({
+          department: dc.department || 'Unassigned',
+          total: parseInt(dc.total, 10) || 0,
+        }))
+      );
+      setUpcomingHolidays(
+        (safeData.upcoming_holidays || []).map(h => ({
+          id: h.id,
+          name: h.name,
+          date: h.date ? String(h.date).slice(0, 10) : '',
+          description: h.description || '',
+        }))
+      );
+      setRecentActivities(
+        (safeData.recent_activities || []).map(ra => ({
+          id: ra.id,
+          type: ra.type || 'activity',
+          title: ra.title || 'Activity',
+          time: ra.time ? new Date(ra.time).toLocaleString() : '',
+          status: ra.status || 'completed',
+        }))
+      );
+      if (!data) {
+        setError('Limited data shown. HR stats endpoint denied access; defaults applied.');
       }
     } catch (err) {
       console.error('HR dashboard data error:', err);
+      if (err.response?.status === 403) {
+        setError('Access denied for /hrms/stats. Please ensure your role has HR access or login again.');
+      } else {
+        setError(err.response?.data?.message || err.message || 'Failed to load HR dashboard.');
+      }
     } finally {
       setLoading(false);
     }
@@ -180,26 +202,18 @@ export default function HRDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Page Header */}
-        <section className="mb-8">
-          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-            <div className="h-1 bg-gradient-to-r from-blue-700 via-indigo-600 to-slate-200" />
-            <div className="px-6 py-5 sm:px-8 sm:py-6">
-              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">HR</p>
-                  <h1 className="mt-1 text-2xl sm:text-3xl font-semibold text-slate-900 tracking-tight">
-                    Dashboard
-                  </h1>
-                  <p className="mt-1 text-sm text-slate-600 max-w-2xl">
-                    Welcome back, {employee?.name || 'HR Manager'}. Manage people and operations.
-                  </p>
-                </div>
-              </div>
-            </div>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 sm:pt-4 lg:pt-5 pb-8">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-gray-900">HR Operations Overview</h2>
+        </div>
+
+        {error && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800 text-sm">
+            {error}
           </div>
-        </section>
+        )}
+
+        <WorkingHoursCard className="mb-8" />
 
         {/* Quick actions */}
         <section className="mb-8">

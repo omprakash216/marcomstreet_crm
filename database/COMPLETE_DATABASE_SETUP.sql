@@ -41,6 +41,21 @@ CREATE TABLE companies (
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Company Settings (Admin)
+CREATE TABLE company_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    phone VARCHAR(50),
+    address TEXT,
+    time_zone VARCHAR(80),
+    currency VARCHAR(20),
+    date_format VARCHAR(40),
+    logo_path VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Departments Table
 CREATE TABLE departments (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -68,6 +83,34 @@ CREATE TABLE employees (
     INDEX idx_email (email),
     INDEX idx_status (status),
     INDEX idx_department (department_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- RBAC Tables
+CREATE TABLE rbac_roles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    role_key VARCHAR(50) NOT NULL UNIQUE,
+    label VARCHAR(120) NOT NULL,
+    description TEXT,
+    is_system TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE rbac_permissions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    module VARCHAR(80) NOT NULL,
+    action VARCHAR(80) NOT NULL,
+    label VARCHAR(160),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_rbac_perm (module, action)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE rbac_role_permissions (
+    role_key VARCHAR(50) NOT NULL,
+    permission_id INT NOT NULL,
+    PRIMARY KEY (role_key, permission_id),
+    FOREIGN KEY (permission_id) REFERENCES rbac_permissions(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Employee Checkins Table
@@ -473,6 +516,56 @@ INSERT IGNORE INTO departments (name, description) VALUES
 INSERT INTO companies (company_name, email, phone, password, address, city, state, country, zip_code, website, tax_id, registration_number, status) VALUES
 ('Marcom Street CRM', 'admin@marcomstreet.com', '+91-9876543210', 'password123', '123 Business Street', 'Mumbai', 'Maharashtra', 'India', '400001', 'https://marcomstreet.com', 'TAX-12345', 'REG-67890', 'active'),
 ('Tech Solutions Inc', 'info@techsolutions.com', '+1987654321', 'password123', '123 Tech Street', 'San Francisco', 'CA', 'USA', '94102', 'https://techsolutions.com', 'TAX-12346', 'REG-67891', 'active');
+
+-- Insert Company Settings (single row)
+INSERT INTO company_settings (company_name, email, phone, address, time_zone, currency, date_format) VALUES
+('Marcom Street CRM', 'admin@marcomstreet.com', '+91-9876543210', '123 Business Street, Mumbai', 'Asia/Kolkata', 'INR', 'DD/MM/YYYY');
+
+-- Insert RBAC Roles
+INSERT INTO rbac_roles (role_key, label, description, is_system) VALUES
+('admin','Admin','Full system access',1),
+('human_resources','HR Manager','HR module access',1),
+('manager','Sales Manager','Sales management access',1),
+('sales_rep','Sales Agent','Sales execution access',1),
+('employee','Employee','Basic employee access',1);
+
+-- Insert RBAC Permissions
+INSERT INTO rbac_permissions (module, action, label) VALUES
+('dashboard','view','View Dashboard'),
+('leads','view','View Leads'),
+('leads','create','Create Leads'),
+('leads','edit','Edit Leads'),
+('leads','delete','Delete Leads'),
+('meetings','view','View Meetings'),
+('meetings','create','Create Meetings'),
+('meetings','edit','Edit Meetings'),
+('meetings','delete','Delete Meetings'),
+('tasks','view','View Tasks'),
+('tasks','create','Create Tasks'),
+('tasks','edit','Edit Tasks'),
+('tasks','delete','Delete Tasks'),
+('followups','view','View Follow Ups'),
+('followups','create','Create Follow Ups'),
+('followups','edit','Edit Follow Ups'),
+('followups','delete','Delete Follow Ups'),
+('invoices','view','View Invoices'),
+('invoices','create','Create Invoices'),
+('invoices','edit','Edit Invoices'),
+('invoices','delete','Delete Invoices'),
+('quotations','view','View Quotations'),
+('quotations','create','Create Quotations'),
+('quotations','edit','Edit Quotations'),
+('quotations','delete','Delete Quotations'),
+('hrms','view','View HRMS'),
+('hrms','manage','Manage HRMS'),
+('admin','view','Access Admin Module'),
+('admin','manage','Admin Manage'),
+('reports','view','View Reports'),
+('settings','manage','Manage Settings');
+
+-- Grant all permissions to Admin by default
+INSERT INTO rbac_role_permissions (role_key, permission_id)
+SELECT 'admin', id FROM rbac_permissions;
 
 -- Insert Employees with Departments
 INSERT INTO employees (employee_code, name, email, phone, password, role, department_id, designation, status) VALUES

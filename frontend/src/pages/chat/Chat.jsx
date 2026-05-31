@@ -11,6 +11,7 @@ export default function Chat() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showUsers, setShowUsers] = useState(true); // mobile toggle
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -27,6 +28,14 @@ export default function Chat() {
 
   useEffect(() => {
     selectedUserRef.current = selectedUser;
+  }, [selectedUser]);
+
+  useEffect(() => {
+    if (!selectedUser) {
+      setShowUsers(true);
+      return;
+    }
+    setShowUsers(false);
   }, [selectedUser]);
 
   useEffect(() => {
@@ -172,13 +181,20 @@ export default function Chat() {
     if (!user?.id) return;
     if (selectedUserRef.current?.id === user.id) return;
     setSelectedUser(user);
+    setShowUsers(false);
   };
 
-  const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.department.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredUsers = users.filter((user) => {
+    const query = searchQuery.toLowerCase();
+    const name = String(user?.name || '').toLowerCase();
+    const role = String(user?.role || '').toLowerCase();
+    const department = String(user?.department || '').toLowerCase();
+    return (
+      name.includes(query) ||
+      role.includes(query) ||
+      department.includes(query)
+    );
+  });
 
   const getFileIcon = (type) => {
     if (type?.startsWith('image/')) return 'fa-file-image';
@@ -191,9 +207,9 @@ export default function Chat() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-12.5rem)] bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+    <div className="flex h-[calc(100vh-10.5rem)] lg:h-[calc(100vh-12.5rem)] bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
       {/* Sidebar: User List */}
-      <div className="w-80 border-r border-slate-200 flex flex-col bg-slate-50/30">
+      <div className={`w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col bg-slate-50/30 ${showUsers ? 'flex' : 'hidden'} lg:flex`}>
         <div className="p-5 border-b border-slate-200 bg-white">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-black text-slate-800 tracking-tight uppercase">Team Directory</h2>
@@ -235,19 +251,19 @@ export default function Chat() {
                 <div className="relative flex-shrink-0">
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm shadow-sm transition-transform group-hover:scale-105 ${selectedUser?.id === user.id ? 'bg-white/20 text-white border-white/30' : 'bg-gradient-to-br from-slate-200 to-slate-100 text-slate-600 border-slate-200'
                     } border`}>
-                    {user.name.charAt(0).toUpperCase()}
+                    {String(user?.name || 'U').charAt(0).toUpperCase()}
                   </div>
                   <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-2 ${selectedUser?.id === user.id ? 'border-blue-600' : 'border-white'} rounded-full ${user.unread_count > 0 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
                 </div>
                 <div className="text-left ml-3 flex-1 min-w-0">
                   <div className="flex justify-between items-center mb-0.5">
-                    <p className={`text-sm font-bold truncate ${selectedUser?.id === user.id ? 'text-white' : 'text-slate-800'}`}>{user.name}</p>
+                    <p className={`text-sm font-bold truncate ${selectedUser?.id === user.id ? 'text-white' : 'text-slate-800'}`}>{user.name || 'Unknown User'}</p>
                     <span className={`text-[9px] font-bold ${selectedUser?.id === user.id ? 'text-blue-100' : 'text-slate-400'}`}>
                       {user.last_message_time ? new Date(user.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                     </span>
                   </div>
                   <p className={`text-[10px] font-bold uppercase tracking-tight truncate ${selectedUser?.id === user.id ? 'text-blue-100/80' : 'text-slate-400'}`}>
-                    {user.role} <span className="mx-1">â€¢</span> <span className={selectedUser?.id === user.id ? 'text-white' : 'text-blue-600'}>{user.department}</span>
+                    {(user.role || 'employee')} <span className="mx-1">•</span> <span className={selectedUser?.id === user.id ? 'text-white' : 'text-blue-600'}>{user.department || 'General'}</span>
                   </p>
                   {user.unread_count > 0 && (
                     <div className="absolute top-1/2 right-2 -translate-y-1/2 w-5 h-5 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg border-2 border-white">
@@ -266,20 +282,28 @@ export default function Chat() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-slate-50">
+      <div className={`flex-1 flex flex-col bg-slate-50 ${showUsers ? 'hidden' : 'flex'} lg:flex`}>
         {selectedUser ? (
           <>
             {/* Professional Chat Header */}
-            <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between shadow-sm relative z-10">
+            <div className="px-4 sm:px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between shadow-sm relative z-10">
               <div className="flex items-center space-x-4">
+                <button
+                  type="button"
+                  onClick={() => setShowUsers(true)}
+                  className="lg:hidden w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100"
+                  title="Team Directory"
+                >
+                  <i className="fas fa-chevron-left text-sm"></i>
+                </button>
                 <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-full flex items-center justify-center text-white font-black text-lg shadow-md">
-                  {selectedUser.name.charAt(0).toUpperCase()}
+                  {String(selectedUser?.name || 'U').charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-800 leading-none mb-1">{selectedUser.name}</h3>
+                  <h3 className="text-base font-black text-slate-800 leading-none mb-1">{selectedUser?.name || 'Unknown User'}</h3>
                   <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-black text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{selectedUser.role}</span>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">â€¢ {selectedUser.department}</span>
+                    <span className="text-[10px] font-black text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{selectedUser?.role || 'employee'}</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">• {selectedUser?.department || 'General'}</span>
                   </div>
                 </div>
               </div>
@@ -291,14 +315,14 @@ export default function Chat() {
             </div>
 
             {/* Messages Area */}
-            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-6 py-8 space-y-8 custom-scrollbar bg-white/50 pattern-grid-slate">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8 custom-scrollbar bg-white/50 pattern-grid-slate">
               {messages.map((msg, index) => {
                 const isMine = msg.from_employee_id === currentUser.id;
                 return (
                   <div key={msg.id} className={`flex items-end space-x-3 ${isMine ? 'justify-end' : 'justify-start'}`}>
                     {!isMine && (
                       <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 mb-1 flex-shrink-0 border border-slate-300">
-                        {selectedUser.name.charAt(0).toUpperCase()}
+                        {String(selectedUser?.name || 'U').charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div className={`max-w-[75%] flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
@@ -350,15 +374,15 @@ export default function Chat() {
             </div>
 
             {/* Input Area */}
-            <div className="p-6 bg-white border-t border-slate-200">
-              <form onSubmit={handleSendMessage} className="flex items-center space-x-4">
+            <div className="p-4 sm:p-6 bg-white border-t border-slate-200">
+              <form onSubmit={handleSendMessage} className="flex items-center space-x-3 sm:space-x-4">
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                 <button
                   type="button"
                   onClick={() => fileInputRef.current.click()}
-                  className="w-12 h-12 flex items-center justify-center bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 rounded-xl transition-all shadow-sm flex-shrink-0"
+                  className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800 rounded-xl transition-all shadow-sm flex-shrink-0"
                 >
-                  {uploading ? <div className="w-5 h-5 border-2 border-slate-800 border-t-transparent rounded-full animate-spin"></div> : <i className="fas fa-plus text-sm"></i>}
+                  {uploading ? <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-slate-800 border-t-transparent rounded-full animate-spin"></div> : <i className="fas fa-plus text-sm"></i>}
                 </button>
 
                 <div className="flex-1 relative">
@@ -367,12 +391,12 @@ export default function Chat() {
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="Type a message..."
-                    className="w-full pl-6 pr-14 py-3.5 bg-slate-50 border border-slate-100 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 transition-all outline-none font-medium placeholder:text-slate-400 text-slate-700"
+                    className="w-full pl-4 sm:pl-6 pr-12 sm:pr-14 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 transition-all outline-none font-medium placeholder:text-slate-400 text-slate-700 text-sm"
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-1">
-                    <button type="button" className="p-2 text-slate-300 hover:text-yellow-500 transition-colors"><i className="far fa-smile text-lg"></i></button>
+                    <button type="button" className="p-2 text-slate-300 hover:text-yellow-500 transition-colors"><i className="far fa-smile text-base sm:text-lg"></i></button>
                     <button type="submit" disabled={!newMessage.trim()} className="p-2 text-blue-600 hover:text-blue-700 disabled:opacity-30 transition-all">
-                      <i className="fas fa-paper-plane text-lg shadow-sm"></i>
+                      <i className="fas fa-paper-plane text-base sm:text-lg shadow-sm"></i>
                     </button>
                   </div>
                 </div>
@@ -392,6 +416,13 @@ export default function Chat() {
                 Select a team member from the directory to start a secure internal discussion.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowUsers(true)}
+              className="lg:hidden px-4 py-2 text-xs font-semibold bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700"
+            >
+              Open Team Directory
+            </button>
             <div className="flex items-center space-x-3 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm">
               <i className="fas fa-shield-alt text-blue-600 text-xs"></i>
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Internal CRM Network</span>

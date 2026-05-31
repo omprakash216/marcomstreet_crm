@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
-import { getEmployee } from '../../utils/auth';
+import { getEmployee, normalizeRole } from '../../utils/auth';
 
 export default function AdminAILeadScore() {
   const [loading, setLoading] = useState(true);
@@ -11,16 +11,23 @@ export default function AdminAILeadScore() {
   const [scoreFilter, setScoreFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
   const navigate = useNavigate();
+  const pageSize = 10;
 
   useEffect(() => {
     const employee = getEmployee();
-    if (!employee || employee.role !== 'admin') {
+    const role = normalizeRole(employee?.role);
+    if (!employee || (role !== 'admin' && role !== 'superadmin' && role !== 'super_admin')) {
       navigate('/login');
       return;
     }
     fetchLeadScores();
   }, [navigate, statusFilter, scoreFilter, searchQuery]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, scoreFilter, searchQuery]);
 
   const fetchLeadScores = async () => {
     try {
@@ -53,6 +60,13 @@ export default function AdminAILeadScore() {
     return 'Low';
   };
 
+  const leadsCount = Array.isArray(data?.leads) ? data.leads.length : 0;
+  const totalPages = Math.max(1, Math.ceil(leadsCount / pageSize));
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -76,6 +90,9 @@ export default function AdminAILeadScore() {
 
   const statistics = data.statistics || {};
   const leads = Array.isArray(data.leads) ? data.leads : [];
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const paginatedLeads = leads.slice(startIndex, startIndex + pageSize);
 
   return (
     <div className="space-y-6">
@@ -173,9 +190,16 @@ export default function AdminAILeadScore() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {leads.map((lead, index) => (
-                <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{index + 1}</td>
+              {leads.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="px-6 py-10 text-center text-sm text-gray-500">
+                    No leads found for selected filters.
+                  </td>
+                </tr>
+              ) : (
+                paginatedLeads.map((lead, index) => (
+                  <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{startIndex + index + 1}</td>
                   <td className="px-6 py-4">
                     <div className="text-sm font-semibold text-gray-900">{lead.company_name || lead.company_name_full}</div>
                   </td>
@@ -207,7 +231,7 @@ export default function AdminAILeadScore() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-sm text-gray-600">₹{parseFloat(lead.estimated_value || 0).toLocaleString('en-IN')}</div>
+                    <div className="text-sm text-gray-600">INR {parseFloat(lead.estimated_value || 0).toLocaleString('en-IN')}</div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center space-x-2">
@@ -236,11 +260,41 @@ export default function AdminAILeadScore() {
                       View
                     </button>
                   </td>
-                </tr>
-              ))}
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
+
+        {leads.length > 0 ? (
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-6 py-4 border-t bg-gray-50">
+            <div className="text-sm text-gray-600">
+              Showing <span className="font-semibold">{Math.min(startIndex + 1, leads.length)}</span>–
+              <span className="font-semibold">{Math.min(startIndex + paginatedLeads.length, leads.length)}</span> of{' '}
+              <span className="font-semibold">{leads.length}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="px-4 py-2 rounded-lg border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <div className="px-3 py-2 text-sm font-semibold text-gray-700">
+                Page {safePage} / {totalPages}
+              </div>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="px-4 py-2 rounded-lg border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Lead Details Modal */}
@@ -323,7 +377,7 @@ export default function AdminAILeadScore() {
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase">Estimated Value</label>
-                  <p className="text-sm text-gray-900">₹{parseFloat(selectedLead.estimated_value || 0).toLocaleString('en-IN')}</p>
+                  <p className="text-sm text-gray-900">INR {parseFloat(selectedLead.estimated_value || 0).toLocaleString('en-IN')}</p>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-500 uppercase">Assigned To</label>
@@ -397,4 +451,5 @@ export default function AdminAILeadScore() {
     </div>
   );
 }
+
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
-import { getEmployee } from '../../utils/auth';
+import { getEmployee, normalizeRole } from '../../utils/auth';
 import ExcelJS from 'exceljs';
 
 const defaultApiPayload = {
@@ -40,7 +40,8 @@ export default function AdminApiIntegration() {
 
   useEffect(() => {
     const employee = getEmployee();
-    if (!employee || employee.role !== 'admin') {
+    const role = normalizeRole(employee?.role);
+    if (!employee || (role !== 'admin' && role !== 'superadmin' && role !== 'super_admin')) {
       navigate('/login');
       return;
     }

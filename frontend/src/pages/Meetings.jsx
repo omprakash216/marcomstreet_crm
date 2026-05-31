@@ -56,8 +56,14 @@ const IconEye = () => (
 export default function Meetings() {
   const [meetings, setMeetings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [hasNextPage, setHasNextPage] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showMOMModal, setShowMOMModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedMeeting, setSelectedMeeting] = useState(null);
   const [selectedMeetingId, setSelectedMeetingId] = useState(null);
   const [momText, setMomText] = useState('');
   const [summary, setSummary] = useState({
@@ -81,12 +87,11 @@ export default function Meetings() {
 
   useEffect(() => {
     fetchSummary();
-    fetchMeetings();
   }, []);
 
   useEffect(() => {
     fetchMeetings();
-  }, [filters, leadId]);
+  }, [filters, leadId, page]);
 
   const fetchSummary = async () => {
     // Check if user is logged in
@@ -103,6 +108,7 @@ export default function Meetings() {
     }
 
     try {
+      setLoadError('');
       // Use dedicated summary endpoint if available, otherwise calculate from multiple calls
       try {
         const summaryResponse = await api.get('/meetings/summary');
@@ -147,6 +153,9 @@ export default function Meetings() {
       if (error.response?.status !== 401 && error.code !== 'ERR_NETWORK') {
         console.error('Error fetching summary:', error);
       }
+      if (error.response?.status && error.response?.status !== 401) {
+        setLoadError(error.response?.data?.message || `Unable to load meetings summary (HTTP ${error.response.status})`);
+      }
       // Set default values on error
       setSummary({
         today_meetings: 0,
@@ -164,11 +173,13 @@ export default function Meetings() {
     if (!token) {
       setLoading(false);
       setMeetings([]);
+      setHasNextPage(false);
       return;
     }
 
     setLoading(true);
     try {
+      setLoadError('');
       const params = new URLSearchParams();
 
       if (leadId) params.append('lead_id', leadId);
@@ -202,24 +213,36 @@ export default function Meetings() {
         params.append('date_to', filters.date_to);
       }
 
+      // Pagination: fetch one extra record to determine if next page exists.
+      params.append('page', String(page));
+      params.append('limit', String(pageSize + 1));
+
       const response = await api.get(`/meetings?${params.toString()}`);
-      setMeetings(Array.isArray(response.data.data) ? response.data.data : []);
+      const rows = Array.isArray(response.data.data) ? response.data.data : [];
+      setHasNextPage(rows.length > pageSize);
+      setMeetings(rows.slice(0, pageSize));
     } catch (error) {
       // Only log unexpected errors
       if (error.response?.status !== 401 && error.code !== 'ERR_NETWORK') {
         console.error('Error fetching meetings:', error);
       }
+      if (error.response?.status && error.response?.status !== 401) {
+        setLoadError(error.response?.data?.message || `Unable to load meetings (HTTP ${error.response.status})`);
+      }
       setMeetings([]);
+      setHasNextPage(false);
     } finally {
       setLoading(false);
     }
   };
 
   const handleFilterChange = (field, value) => {
+    setPage(1);
     setFilters({ ...filters, [field]: value });
   };
 
   const clearFilters = () => {
+    setPage(1);
     setFilters({
       search: '',
       date_filter: '',
@@ -262,7 +285,21 @@ export default function Meetings() {
     }
   };
 
+  const handleStatusChange = async (meetingId, nextStatus) => {
+    try {
+      const response = await api.patch(`/meetings/${meetingId}/status`, { status: nextStatus });
+      if (response.data.success) {
+        fetchMeetings();
+        fetchSummary();
+      }
+    } catch (error) {
+      console.error('Error updating meeting status:', error);
+      alert(error.response?.data?.message || 'Failed to update status');
+    }
+  };
+
   const getStatusColor = (status) => {
+    const s = String(status || '').toLowerCase();
     const colors = {
       scheduled: 'bg-blue-100 text-blue-800 border-blue-200',
       completed: 'bg-green-100 text-green-800 border-green-200',
@@ -270,7 +307,49 @@ export default function Meetings() {
       rescheduled: 'bg-yellow-100 text-yellow-800 border-yellow-200',
       missed: 'bg-red-100 text-red-800 border-red-200',
     };
-    return colors[status] || 'bg-gray-100 text-gray-800 border-gray-200';
+    return colors[s] || 'bg-gray-100 text-gray-800 border-gray-200';
+  };
+
+  const renderStatusBadge = (status) => {
+    const s = String(status || 'scheduled').toLowerCase();
+    if (s === 'scheduled') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border bg-blue-50 text-blue-700 border-blue-100 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+          Scheduled
+        </span>
+      );
+    }
+    if (s === 'completed') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-100 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+          Completed
+        </span>
+      );
+    }
+    if (s === 'cancelled' || s === 'missed') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border bg-rose-50 text-rose-700 border-rose-100 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+          Cancelled
+        </span>
+      );
+    }
+    if (s === 'rescheduled') {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-100 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+          Rescheduled
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border bg-slate-50 text-slate-700 border-slate-100 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+        <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+        {s}
+      </span>
+    );
   };
 
   const getMeetingTypeColor = (type) => {
@@ -308,7 +387,8 @@ export default function Meetings() {
     if (meeting.status === 'completed') probability += 20;
     if (meeting.meeting_type === 'presentation') probability += 15;
     if (meeting.meeting_type === 'client_meeting') probability += 10;
-    if (meeting.outcome && meeting.outcome.toLowerCase().includes('positive')) probability += 25;
+    const outcomeText = meeting.outcome || meeting.notes || '';
+    if (outcomeText && String(outcomeText).toLowerCase().includes('positive')) probability += 25;
 
     return Math.min(probability, 95);
   };
@@ -326,6 +406,23 @@ export default function Meetings() {
 
   return (
     <div className="pb-20 md:pb-6">
+      {loadError ? (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 flex items-start justify-between gap-3">
+          <div className="text-sm">
+            <div className="font-bold">Meetings page is not loading properly</div>
+            <div className="text-amber-800 mt-0.5">{loadError}</div>
+          </div>
+          <button
+            onClick={() => {
+              fetchSummary();
+              fetchMeetings();
+            }}
+            className="shrink-0 px-4 py-2 rounded-lg bg-amber-600 text-white text-xs font-black uppercase tracking-wider hover:bg-amber-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
       {/* Professional Header Section */}
       <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-gray-900 rounded-xl shadow-lg mb-6 p-6 relative overflow-hidden">
         {/* Background Pattern */}
@@ -549,7 +646,7 @@ export default function Meetings() {
                   return (
                     <tr key={meeting.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-slate-400">
-                        #{index + 1}
+                        #{(page - 1) * pageSize + index + 1}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-bold text-slate-900">{meeting.title}</div>
@@ -592,16 +689,23 @@ export default function Meetings() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm ${getStatusColor(meeting.status)}`}>
-                          {meeting.status}
-                        </span>
+                        <select
+                          value={meeting.status || 'scheduled'}
+                          onChange={(e) => handleStatusChange(meeting.id, e.target.value)}
+                          className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm outline-none cursor-pointer focus:ring-2 focus:ring-blue-100 ${getStatusColor(meeting.status)}`}
+                        >
+                          <option value="scheduled" className="bg-white text-slate-800">Scheduled</option>
+                          <option value="completed" className="bg-white text-slate-800">Completed</option>
+                          <option value="cancelled" className="bg-white text-slate-800">Cancelled</option>
+                          <option value="rescheduled" className="bg-white text-slate-800">Rescheduled</option>
+                        </select>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex justify-end space-x-2">
                           <button
                             onClick={() => {
                               setSelectedMeetingId(meeting.id);
-                              setMomText(meeting.outcome || '');
+                              setMomText(meeting.outcome || meeting.notes || '');
                               setShowMOMModal(true);
                             }}
                             className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all border border-indigo-100 flex items-center justify-center shadow-sm"
@@ -610,6 +714,10 @@ export default function Meetings() {
                             <i className="fas fa-file-pen text-xs"></i>
                           </button>
                           <button
+                            onClick={() => {
+                              setSelectedMeeting(meeting);
+                              setShowDetailsModal(true);
+                            }}
                             className="w-8 h-8 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-800 hover:text-white transition-all border border-slate-200 flex items-center justify-center shadow-sm"
                             title="Details"
                           >
@@ -624,6 +732,32 @@ export default function Meetings() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {!loading && (
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-6 py-4 border-t bg-gray-50">
+            <div className="text-sm text-gray-600">
+              Page <span className="font-semibold">{page}</span> · Showing{' '}
+              <span className="font-semibold">{meetings.length}</span> record{meetings.length === 1 ? '' : 's'}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="px-4 py-2 rounded-lg border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!hasNextPage}
+                className="px-4 py-2 rounded-lg border bg-white text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* MOM Modal */}
@@ -660,6 +794,107 @@ export default function Meetings() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Details Modal */}
+      {showDetailsModal && selectedMeeting && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden">
+            <div className="bg-[#244bd8] px-5 py-4 text-white flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Meeting Details</h2>
+                <p className="text-xs opacity-90 uppercase tracking-wider">Interaction Snapshot</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  setSelectedMeeting(null);
+                }}
+                className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center"
+                title="Close"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">{selectedMeeting.title || 'Untitled Meeting'}</h3>
+                  <p className="text-sm text-slate-500 mt-0.5">
+                    {(selectedMeeting.meeting_type || 'general').replace('_', ' ').toUpperCase()}
+                  </p>
+                </div>
+                {renderStatusBadge(selectedMeeting.status)}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Client Entity</div>
+                  <div className="font-semibold text-slate-900">{selectedMeeting.company_name || 'Personal Meeting'}</div>
+                  <div className="text-slate-500">{selectedMeeting.contact_person || 'No contact assigned'}</div>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Schedule</div>
+                  <div className="font-semibold text-slate-900">
+                    {selectedMeeting.meeting_date
+                      ? new Date(selectedMeeting.meeting_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : '-'}
+                  </div>
+                  <div className="text-slate-500">
+                    {selectedMeeting.meeting_date
+                      ? new Date(selectedMeeting.meeting_date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                      : '-'}
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 md:col-span-2">
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Venue / Link</div>
+                  <div className="font-medium text-slate-900">{selectedMeeting.location || 'Not specified'}</div>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 md:col-span-2">
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Description</div>
+                  <div className="text-slate-700 whitespace-pre-wrap">
+                    {selectedMeeting.description || 'No description available'}
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 md:col-span-2">
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">MOM / Outcome</div>
+                  <div className="text-slate-700 whitespace-pre-wrap">
+                    {selectedMeeting.outcome || selectedMeeting.notes || 'No MOM recorded yet'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t bg-slate-50 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  setSelectedMeeting(null);
+                }}
+                className="px-4 py-2 border rounded-lg hover:bg-white text-sm font-medium"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  setSelectedMeeting(null);
+                  setSelectedMeetingId(selectedMeeting.id);
+                  setMomText(selectedMeeting.outcome || selectedMeeting.notes || '');
+                  setShowMOMModal(true);
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+              >
+                Update MOM
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -7,6 +7,10 @@ export default function Shifts() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
+  const [editingAssign, setEditingAssign] = useState(null);
+  const PAGE_SIZE = 10;
+  const [shiftPage, setShiftPage] = useState(0);
+  const [assignmentPage, setAssignmentPage] = useState(0);
   const [form, setForm] = useState({ name: '', start_time: '', end_time: '', grace_minutes: 0 });
   const [assignForm, setAssignForm] = useState({
     employee_id: '',
@@ -36,6 +40,48 @@ export default function Shifts() {
   useEffect(() => {
     fetchAll();
   }, []);
+
+  useEffect(() => {
+    // Reset pagination when datasets change
+    setShiftPage(0);
+  }, [shifts.length]);
+
+  useEffect(() => {
+    setAssignmentPage(0);
+  }, [assignments.length]);
+
+  const sortedShifts = [...shifts].sort((a, b) => {
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    if (ta && tb && ta !== tb) return tb - ta;
+    return (Number(b?.id) || 0) - (Number(a?.id) || 0);
+  });
+
+  const shiftTotalRows = sortedShifts.length;
+  const shiftTotalPages = Math.max(1, Math.ceil(shiftTotalRows / PAGE_SIZE));
+  const shiftSafePage = Math.min(Math.max(shiftPage, 0), shiftTotalPages - 1);
+  const shiftStartIndex = shiftSafePage * PAGE_SIZE;
+  const shiftEndIndex = Math.min(shiftStartIndex + PAGE_SIZE, shiftTotalRows);
+  const paginatedShifts = sortedShifts.slice(shiftStartIndex, shiftEndIndex);
+
+  const sortedAssignments = [...assignments].sort((a, b) => {
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    if (ta && tb && ta !== tb) return tb - ta;
+
+    const da = a?.effective_from ? new Date(a.effective_from).getTime() : 0;
+    const db = b?.effective_from ? new Date(b.effective_from).getTime() : 0;
+    if (da && db && da !== db) return db - da;
+
+    return (Number(b?.id) || 0) - (Number(a?.id) || 0);
+  });
+
+  const assignmentTotalRows = sortedAssignments.length;
+  const assignmentTotalPages = Math.max(1, Math.ceil(assignmentTotalRows / PAGE_SIZE));
+  const assignmentSafePage = Math.min(Math.max(assignmentPage, 0), assignmentTotalPages - 1);
+  const assignmentStartIndex = assignmentSafePage * PAGE_SIZE;
+  const assignmentEndIndex = Math.min(assignmentStartIndex + PAGE_SIZE, assignmentTotalRows);
+  const paginatedAssignments = sortedAssignments.slice(assignmentStartIndex, assignmentEndIndex);
 
   const resetForm = () => {
     setEditing(null);
@@ -84,7 +130,12 @@ export default function Shifts() {
     e.preventDefault();
     if (!assignForm.employee_id || !assignForm.shift_id || !assignForm.effective_from) return;
     try {
-      await api.post('/hrms/shifts/assign', assignForm);
+      if (editingAssign?.id) {
+        await api.put(`/hrms/shifts/assignments/${editingAssign.id}`, assignForm);
+        setEditingAssign(null);
+      } else {
+        await api.post('/hrms/shifts/assign', assignForm);
+      }
       setAssignForm({
         employee_id: '',
         shift_id: '',
@@ -95,6 +146,38 @@ export default function Shifts() {
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to assign shift');
     }
+  };
+
+  const handleEditAssignment = (row) => {
+    setEditingAssign(row);
+    setAssignForm({
+      employee_id: String(row.employee_id || ''),
+      shift_id: String(row.shift_id || ''),
+      effective_from: row.effective_from ? String(row.effective_from).slice(0, 10) : new Date().toISOString().slice(0, 10),
+      effective_to: row.effective_to ? String(row.effective_to).slice(0, 10) : '',
+    });
+  };
+
+  const handleDeleteAssignment = async (row) => {
+    if (!row?.id) return;
+    const ok = window.confirm('Delete this shift assignment?');
+    if (!ok) return;
+    try {
+      await api.delete(`/hrms/shifts/assignments/${row.id}`);
+      fetchAll();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete assignment');
+    }
+  };
+
+  const cancelEditAssignment = () => {
+    setEditingAssign(null);
+    setAssignForm({
+      employee_id: '',
+      shift_id: '',
+      effective_from: new Date().toISOString().slice(0, 10),
+      effective_to: '',
+    });
   };
 
   return (
@@ -167,7 +250,7 @@ export default function Shifts() {
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">All Shifts</h2>
-            <span className="text-xs text-slate-500">{shifts.length} records</span>
+            <span className="text-xs text-slate-500">{shiftTotalRows} records</span>
           </div>
           {loading ? (
             <div className="p-6 text-sm text-slate-500">Loading...</div>
@@ -178,6 +261,7 @@ export default function Shifts() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SL</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Name</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Start</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">End</th>
@@ -186,8 +270,9 @@ export default function Shifts() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {shifts.map((shift) => (
+                  {paginatedShifts.map((shift, idx) => (
                     <tr key={shift.id} className="hover:bg-slate-50/60">
+                      <td className="px-4 py-3 text-slate-600">{shiftStartIndex + idx + 1}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{shift.name}</td>
                       <td className="px-4 py-3 text-slate-600">{shift.start_time}</td>
                       <td className="px-4 py-3 text-slate-600">{shift.end_time}</td>
@@ -204,6 +289,36 @@ export default function Shifts() {
                   ))}
                 </tbody>
               </table>
+
+              {!loading && shiftTotalRows > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-slate-100 bg-white">
+                  <div className="text-xs text-slate-500">
+                    Showing <span className="font-semibold text-slate-700">{shiftStartIndex + 1}</span>-<span className="font-semibold text-slate-700">{shiftEndIndex}</span> of{' '}
+                    <span className="font-semibold text-slate-700">{shiftTotalRows}</span>
+                  </div>
+                  <div className="flex items-center gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShiftPage((p) => Math.max(0, p - 1))}
+                      disabled={shiftSafePage === 0}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <div className="text-xs text-slate-500">
+                      Page <span className="font-semibold text-slate-700">{shiftSafePage + 1}</span> / <span className="font-semibold text-slate-700">{shiftTotalPages}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShiftPage((p) => Math.min(shiftTotalPages - 1, p + 1))}
+                      disabled={shiftSafePage >= shiftTotalPages - 1}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -269,8 +384,17 @@ export default function Shifts() {
               </div>
             </div>
             <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
-              Assign Shift
+              {editingAssign ? 'Update Assignment' : 'Assign Shift'}
             </button>
+            {editingAssign && (
+              <button
+                type="button"
+                onClick={cancelEditAssignment}
+                className="w-full px-4 py-2 rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Cancel Edit
+              </button>
+            )}
           </form>
 
           <div className="lg:col-span-2">
@@ -283,23 +407,72 @@ export default function Shifts() {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50">
                     <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SL</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Employee</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Shift</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">From</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">To</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {assignments.map((row) => (
+                    {paginatedAssignments.map((row, idx) => (
                       <tr key={row.id} className="hover:bg-slate-50/60">
+                        <td className="px-4 py-3 text-slate-600">{assignmentStartIndex + idx + 1}</td>
                         <td className="px-4 py-3 text-slate-900">{row.employee_name}</td>
                         <td className="px-4 py-3 text-slate-600">{row.shift_name}</td>
                         <td className="px-4 py-3 text-slate-600">{String(row.effective_from || '').slice(0, 10)}</td>
                         <td className="px-4 py-3 text-slate-600">{row.effective_to ? String(row.effective_to).slice(0, 10) : '-'}</td>
+                        <td className="px-4 py-3 text-right space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditAssignment(row)}
+                            className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAssignment(row)}
+                            className="px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 rounded-md hover:bg-red-100"
+                          >
+                            Delete
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+
+                {!loading && assignmentTotalRows > 0 && (
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-slate-100 bg-white">
+                    <div className="text-xs text-slate-500">
+                      Showing <span className="font-semibold text-slate-700">{assignmentStartIndex + 1}</span>-<span className="font-semibold text-slate-700">{assignmentEndIndex}</span> of{' '}
+                      <span className="font-semibold text-slate-700">{assignmentTotalRows}</span>
+                    </div>
+                    <div className="flex items-center gap-2 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setAssignmentPage((p) => Math.max(0, p - 1))}
+                        disabled={assignmentSafePage === 0}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Previous
+                      </button>
+                      <div className="text-xs text-slate-500">
+                        Page <span className="font-semibold text-slate-700">{assignmentSafePage + 1}</span> / <span className="font-semibold text-slate-700">{assignmentTotalPages}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAssignmentPage((p) => Math.min(assignmentTotalPages - 1, p + 1))}
+                        disabled={assignmentSafePage >= assignmentTotalPages - 1}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

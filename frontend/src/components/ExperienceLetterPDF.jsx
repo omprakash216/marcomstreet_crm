@@ -15,6 +15,7 @@ const ExperienceLetterPDF = ({
   hrName = "Jyoti Sharma",
   hrContact = "+91 9211608441",
   hrEmail = "hrthevanygroup@gmail.com",
+  showPrintButton = true,
   currentDate = new Date().toLocaleDateString('en-GB', {
     day: 'numeric',
     month: 'long',
@@ -52,33 +53,44 @@ const ExperienceLetterPDF = ({
         }}
       >
         {/* Header: only title + divider (logo & watermark are on letterhead image) */}
-        <header className="experience-letter-header experience-letter-header-on-bg p-8 pb-4 relative">
-          <h1 className="experience-letter-doc-title">
+        <header
+          className="experience-letter-header experience-letter-header-on-bg p-8 pb-4 relative"
+          style={{ paddingTop: '0', paddingBottom: '4px', paddingLeft: '32px', paddingRight: '32px' }}
+        >
+          <h1 className="experience-letter-doc-title experience-letter-doc-title-fixed">
             Experience Letter
           </h1>
-          {/* <div className="letterhead-divider letterhead-divider-on-bg"></div> */}
+          
         </header>
 
         {/* Main Content - flows across pages, padding in print for fixed header/footer */}
-        <main className="experience-letter-main px-10 py-6 text-sm text-gray-800 leading-relaxed content-layer">
-          <div className="font-bold text-lg text-gray-800 mt-12">
+        <main
+          className="experience-letter-main px-10 py-6 text-sm text-gray-800 leading-relaxed content-layer"
+          style={{
+            paddingTop: '12px',
+            paddingBottom: '104px',
+            paddingLeft: '8mm',
+            paddingRight: '8mm',
+            fontSize: '12px',
+            lineHeight: '1.45',
+          }}
+        >
+          <div className="font-bold text-lg text-gray-800" style={{ marginTop: '22px', marginBottom: '4px' }}>
             {companyName}
           </div>
-          {/* 13px gap between company name and line; line then address */}
-        
-          <div className="mt-2">
+          <div style={{ marginTop: '0', marginBottom: '10px' }}>
             {companyAddress}
           </div>
           
           {/* Recipient */}
-          <div className="mb-6">
+          <div style={{ marginBottom: '10px' }}>
             <p className="font-bold text-lg uppercase tracking-wide">
               To Whomsoever It May Concern
             </p>
           </div>
 
           {/* Date */}
-          <div className="mb-6">
+          <div style={{ marginBottom: '10px' }}>
             <p>
               <span className="font-semibold">Date:</span>{' '}
               <span className="font-bold">{currentDate}</span>
@@ -86,7 +98,7 @@ const ExperienceLetterPDF = ({
           </div>
 
           {/* Certification Content */}
-          <div className="space-y-4">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <p>
               This is to certify that <span className="font-bold">{title} {nameUpper}</span> was employed with{' '}
               <span className="font-bold">{companyName}</span> as a{' '}
@@ -117,24 +129,24 @@ const ExperienceLetterPDF = ({
           </div>
 
           {/* Signature Section */}
-          <div className="mt-12 pt-8 border-t border-gray-300">
+          <div className="border-t border-gray-300" style={{ marginTop: '12px', paddingTop: '10px' }}>
             <div className="flex justify-start">
               <div className="text-left">
                 <p className="mb-2">
                   For <span className="font-semibold">{companyName}</span>
                 </p>
-                <div className="mt-8">
+                <div style={{ marginTop: '8px' }}>
                   <p className="font-bold text-base">{hrName}</p>
                   <p className="text-sm text-gray-600">Human Resources Department</p>
                   <p className="text-sm text-gray-600">{hrContact}</p>
-                  <div className="mt-4">
+                  <div style={{ marginTop: '6px' }}>
                     <p className="text-sm font-semibold mb-2">Signature:</p>
-                    <div className="experience-letter-signature-box w-48" style={{ minHeight: '60px', paddingBottom: '50px' }}>
+                    <div className="experience-letter-signature-box w-48" style={{ minHeight: '28px', paddingBottom: '2px' }}>
                       <img
                         src={hrSignature}
                         alt="HR Signature" 
-                        className="w-32 h-auto mt-2"
-                        style={{ display: 'block' }}
+                        className="h-auto"
+                        style={{ display: 'block', width: '88px', marginTop: '0' }}
                         onError={(e) => {
                           // Hide image if not found, show placeholder
                           e.target.style.display = 'none';
@@ -168,14 +180,16 @@ const ExperienceLetterPDF = ({
       </div>
 
       {/* Print Button (Hidden in print) */}
-      <div className="text-center mt-6 no-print">
-        <button
-          onClick={() => window.print()}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md transition-colors"
-        >
-          Print Experience Letter
-        </button>
-      </div>
+      {showPrintButton && (
+        <div className="text-center mt-6 no-print">
+          <button
+            onClick={() => window.print()}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md transition-colors"
+          >
+            Print Experience Letter
+          </button>
+        </div>
+      )}
     </div>
   );
 };

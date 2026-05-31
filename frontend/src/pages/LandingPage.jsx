@@ -1,7 +1,9 @@
+import React from 'react';
 import { Link } from 'react-router-dom';
 import MarcomLogo from '../components/MarcomLogo';
 import heroImage from '../assets/landing-hero.png';
 import '../styles/landing.css';
+import api from '../utils/api';
 
 const crmFeatures = [
   { title: 'Sales Pipeline', description: 'Visualize every deal, prioritize follow-ups, and close faster from one dashboard.' },
@@ -19,13 +21,42 @@ const hrmsFeatures = [
 
 const partnerLogos = ['Slack', 'Gmail', 'WhatsApp', 'Zapier', 'API'];
 
-const pricingPlans = [
+const fallbackPricingPlans = [
   { id: 'starter', title: 'Starter', price: '₹999', info: '/ month', highlights: ['CRM', 'HRMS', 'API Access'] },
   { id: 'business', title: 'Business', price: '₹2499', info: '/ month', highlights: ['CRM', 'HRMS', 'API Access', 'Automation'] },
   { id: 'enterprise', title: 'Enterprise', price: 'Custom', info: 'Pricing', highlights: ['CRM', 'HRMS', 'API Access', 'Dedicated Success'] },
 ];
 
 export default function LandingPage() {
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+  const [pricingPlans, setPricingPlans] = React.useState(fallbackPricingPlans);
+
+  React.useEffect(() => {
+    let aborted = false;
+    (async () => {
+      try {
+        const res = await api.get('/billing/plans');
+        if (!aborted && res.data?.success && Array.isArray(res.data.data) && res.data.data.length) {
+          const mapped = res.data.data.map((p) => {
+            const id = String(p.id ?? p.name ?? '').toLowerCase().replace(/\s+/g, '-');
+            const isEnterprise = !p.price || String(p.billing_cycle || '').toLowerCase() === 'custom';
+            return {
+              id: id || 'plan',
+              title: p.name || 'Plan',
+              price: isEnterprise ? 'Custom' : `₹${Number(p.price || 0)}`,
+              info: isEnterprise ? 'Pricing' : ` / ${String(p.billing_cycle || 'month') === 'yearly' ? 'year' : 'month'}`,
+              highlights: Array.isArray(p.modules_included) ? p.modules_included : [],
+            };
+          });
+          setPricingPlans(mapped);
+        }
+      } catch (e) {
+        // keep fallback
+      }
+    })();
+    return () => { aborted = true; };
+  }, []);
+
   return (
     <div className="landing-root">
       <header className="landing-navbar">
@@ -37,7 +68,19 @@ export default function LandingPage() {
             <span>MARCOM STREET</span>
           </div>
 
-          <nav className="landing-nav" aria-label="Primary navigation">
+          <button
+            type="button"
+            className="landing-nav-toggle"
+            aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileNavOpen ? 'true' : 'false'}
+            onClick={() => setMobileNavOpen((v) => !v)}
+          >
+            <span aria-hidden="true" className="landing-nav-toggle-bar" />
+            <span aria-hidden="true" className="landing-nav-toggle-bar" />
+            <span aria-hidden="true" className="landing-nav-toggle-bar" />
+          </button>
+
+          <nav className={`landing-nav ${mobileNavOpen ? 'is-open' : ''}`} aria-label="Primary navigation">
             <button
               type="button"
               onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -49,6 +92,7 @@ export default function LandingPage() {
               onClick={() => {
                 const el = document.getElementById('features');
                 if (el) el.scrollIntoView({ behavior: 'smooth' });
+                setMobileNavOpen(false);
               }}
             >
               Features
@@ -62,6 +106,7 @@ export default function LandingPage() {
               onClick={() => {
                 const el = document.getElementById('features');
                 if (el) el.scrollIntoView({ behavior: 'smooth' });
+                setMobileNavOpen(false);
               }}
             >
               Book a Demo
@@ -140,7 +185,7 @@ export default function LandingPage() {
                   <span className="text-base font-semibold text-slate-600">{plan.info}</span>
                 </p>
                 <div className="space-y-2 text-sm text-slate-700">
-                  {plan.highlights.map((highlight) => (
+                  {(plan.highlights || []).map((highlight) => (
                     <p key={highlight} className="flex items-center gap-2">
                       <span className="h-2.5 w-2.5 rounded-full bg-slate-900" />
                       {highlight}

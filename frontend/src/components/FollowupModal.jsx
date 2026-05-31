@@ -67,6 +67,7 @@ export default function FollowupModal({ leadId, onClose, onSuccess }) {
     e.preventDefault();
 
     if (!formData.lead_id || !formData.scheduled_date || !formData.scheduled_time) {
+      alert('Please select a lead and provide both follow-up date and time.');
       return;
     }
 

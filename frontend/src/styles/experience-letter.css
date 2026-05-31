@@ -25,7 +25,13 @@
 }
 
 .offer-letter-sheet-header--title {
-  padding-top: 268px;
+  padding-top: 260px;
+}
+
+.offer-letter-sheet-title-block {
+  width: min(100%, 186mm);
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .offer-letter-sheet-title {
@@ -33,19 +39,20 @@
   padding: 0;
   text-align: center;
   font-family: "Times New Roman", Georgia, serif;
-  font-size: 1.875rem;
-  line-height: 1.2;
+  font-size: 1.96rem;
+  line-height: 1.12;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  color: rgb(31 41 55);
+  letter-spacing: 0.038em;
+  color: rgb(24 35 54);
   text-transform: uppercase;
   word-break: break-word;
+  text-shadow: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
 }
 
 .offer-letter-sheet-title-line {
-  border-top: 1px solid rgb(203 213 225);
-  margin-top: 0.35rem;
-  margin-bottom: 0;
+  display: none !important;
 }
 
 .offer-letter-sheet-top-spacer {
@@ -101,19 +108,28 @@
   }
 
   .offer-letter-sheet-header--title {
-    padding-top: 236px !important;
+    padding-top: 228px !important;
+  }
+
+  .offer-letter-sheet-title-block {
+    width: min(100%, 186mm) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
   }
 
   .offer-letter-sheet-title {
     margin: 0 !important;
     font-family: "Times New Roman", Georgia, serif !important;
-    font-size: 1.5rem !important;
-    line-height: 1.2 !important;
-    letter-spacing: 0.04em !important;
+    font-size: 1.66rem !important;
+    line-height: 1.12 !important;
+    letter-spacing: 0.038em !important;
+    text-shadow: none !important;
+    -webkit-font-smoothing: antialiased !important;
+    text-rendering: geometricPrecision !important;
   }
 
   .offer-letter-sheet-title-line {
-    margin-top: 0.25rem !important;
+    display: none !important;
   }
 
   .offer-letter-sheet-top-spacer {
@@ -413,8 +429,8 @@ body {
 }
 
 .experience-letter-header-on-bg {
-  padding-top: 0.25rem;
-  padding-bottom: 0.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .experience-letter-title-on-bg {
@@ -432,14 +448,20 @@ body {
 /* Experience Letter only – alag class, kisi aur content pe asar nahi */
 .experience-letter-doc-title {
   text-align: center;
-  margin-top: 284px;
+  margin-top: 228px;
   margin-bottom: 0;
   padding: 0;
   font-size: 1.875rem;
-  line-height: 2.25rem;
+  line-height: 1.2;
   font-weight: 700;
   letter-spacing: 0.025em;
   color: rgb(31 41 55);
+}
+
+/* Force-fixed Experience Letter heading position (used instead of inline style). */
+.experience-letter-doc-title-fixed {
+  margin-top: 260px !important;
+  line-height: 1.15 !important;
 }
 
 /* Offer Letter only – letterhead pe title + line, content line ke niche */
@@ -476,7 +498,7 @@ body {
 /* Full and Final only – logo se niche, thoda upar (screen + print) */
 .full-and-final-doc-title {
   text-align: center;
-  margin-top: 218px;
+  margin-top: 216px;
   margin-bottom: 0;
   padding: 0;
   font-size: 1.875rem;
@@ -549,10 +571,17 @@ body {
 
 /* Main content: leave space for letterhead footer; top spacing so content doesn't sit too high; above bg */
 .experience-letter-with-letterhead .experience-letter-main {
+  padding-left: 8mm;
+  padding-right: 8mm;
   padding-top: 1.5rem;
   padding-bottom: 6rem;
   position: relative;
   z-index: 2;
+}
+
+/* Experience Letter only: top content gap slightly tighter so signature area gets proper room */
+.experience-letter-doc.doc-print-as-screen.experience-letter-with-letterhead:not(.full-and-final-doc) .experience-letter-main {
+  padding-top: 0.75rem;
 }
 .experience-letter-with-letterhead .experience-letter-header {
   position: relative;
@@ -970,16 +999,20 @@ body {
   }
   /* Sirf Experience Letter title – .experience-letter-doc-title, dusre pe asar nahi */
   .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-doc-title {
-    margin-top: 260px !important;
+    margin-top: 202px !important;
     margin-bottom: 0 !important;
     font-size: 1.875rem !important;
-    line-height: 2.25rem !important;
+    line-height: 1.2 !important;
     font-weight: 700 !important;
     letter-spacing: 0.025em !important;
   }
+  .experience-letter-doc.experience-letter-with-letterhead.doc-print-as-screen .experience-letter-doc-title-fixed {
+    margin-top: 260px !important;
+    line-height: 1.15 !important;
+  }
   /* Full and Final title – print me thoda upar */
   .experience-letter-doc.full-and-final-doc.experience-letter-with-letterhead.doc-print-as-screen .full-and-final-doc-title {
-    margin-top: 248px !important;
+    margin-top: 246px !important;
     margin-bottom: 0 !important;
     font-size: 1.875rem !important;
     line-height: 4.25rem !important;
@@ -1413,20 +1446,28 @@ body {
   }
 
   .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-header--title {
-    padding-top: 268px !important;
+    padding-top: 260px !important;
+  }
+
+  .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-title-block {
+    width: min(100%, 186mm) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
   }
 
   .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-title {
     margin: 0 !important;
     font-family: "Times New Roman", Georgia, serif !important;
-    font-size: 1.875rem !important;
-    line-height: 1.2 !important;
-    letter-spacing: 0.04em !important;
+    font-size: 1.72rem !important;
+    line-height: 1.12 !important;
+    letter-spacing: 0.038em !important;
+    text-shadow: none !important;
+    -webkit-font-smoothing: antialiased !important;
+    text-rendering: geometricPrecision !important;
   }
 
   .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-title-line {
-    margin-top: 0.35rem !important;
-    border-top: 1px solid rgb(203 213 225) !important;
+    display: none !important;
   }
 
   .offer-letter-pages .offer-letter-sheet .offer-letter-sheet-top-spacer {
@@ -1481,18 +1522,28 @@ body {
   padding-left: 12mm;
   padding-right: 12mm;
   padding-top: 270px;
+  text-align: center;
 }
 
 .joining-form-print-title {
-  margin: 0;
-  margin-top: 18px;
-  font-family: "Times New Roman", Georgia, serif;
+  margin: -10px auto 0;
+  display: block;
+  padding: 0;
+  background-color: transparent;
+  font-family: Times New Roman, Georgia, serif;
   font-size: 1.65rem;
   line-height: 1.2;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  text-align: center;
   color: rgb(31 41 55);
+  position: static;
+  z-index: auto;
+  transform: none;
+}
+
+.joining-form-print-header--spacer {
+  /* Keep letterhead top safe area on page 2 without repeating the title */
+  padding-top: 270px;
 }
 
 .joining-form-print-title-line {
@@ -1566,6 +1617,10 @@ body {
 
   .joining-form-print-title {
     font-size: 1.5rem !important;
+    margin-top: -8px !important;
+    padding: 0 !important;
+    background-color: transparent !important;
+    transform: none !important;
   }
 
   .joining-form-print-main {

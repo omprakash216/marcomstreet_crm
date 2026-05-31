@@ -1,19 +1,23 @@
 import { useState, useEffect } from 'react';
 import api from '../utils/api';
 
-export default function LeadModal({ showModal, setShowModal, leadId, onSuccess }) {
-  const [formData, setFormData] = useState({
-    company_name: '',
-    contact_person: '',
-    email: '',
-    phone: '',
-    assigned_to: '',
-    source: 'website',
-    status: 'new',
-    priority: 'medium',
-    estimated_value: '',
-    notes: ''
-  });
+const defaultLeadForm = {
+  company_name: '',
+  contact_person: '',
+  email: '',
+  phone: '',
+  assigned_to: '',
+  source: 'website',
+  status: 'new',
+  priority: 'medium',
+  estimated_value: '',
+  notes: ''
+};
+
+const emptyInitialValues = {};
+
+export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, presentation = 'global', initialValues = emptyInitialValues, title }) {
+  const [formData, setFormData] = useState(defaultLeadForm);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -26,10 +30,10 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess }
         fetchLead(leadId);
       } else {
         setIsEditing(false);
-        resetForm();
+        resetForm(initialValues);
       }
     }
-  }, [showModal, leadId]);
+  }, [showModal, leadId, initialValues]);
 
   const fetchEmployees = async () => {
     try {
@@ -38,7 +42,17 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess }
         setEmployees(response.data.data);
       }
     } catch (error) {
-      console.error('Error fetching employees:', error);
+      // Non-admin users may not have /admin/employees access.
+      // Fall back to basic employee list endpoint so modal still works.
+      try {
+        const fallback = await api.get('/employees');
+        if (fallback.data?.success) {
+          setEmployees(fallback.data.data || []);
+          return;
+        }
+      } catch (fallbackError) {
+        console.error('Error fetching employees:', fallbackError);
+      }
     }
   };
 
@@ -46,8 +60,9 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess }
     try {
       setLoading(true);
       const response = await api.get(`/leads?id=${id}`);
-      if (response.data.success && response.data.data.length > 0) {
-        const lead = response.data.data[0];
+      if (response.data.success && response.data.data) {
+        const lead = Array.isArray(response.data.data) ? response.data.data[0] : response.data.data;
+        if (!lead) return;
         setFormData({
           company_name: lead.company_name || '',
           contact_person: lead.contact_person || '',
@@ -68,18 +83,10 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess }
     }
   };
 
-  const resetForm = () => {
+  const resetForm = (overrides = {}) => {
     setFormData({
-      company_name: '',
-      contact_person: '',
-      email: '',
-      phone: '',
-      assigned_to: '',
-      source: 'website',
-      status: 'new',
-      priority: 'medium',
-      estimated_value: '',
-      notes: ''
+      ...defaultLeadForm,
+      ...overrides
     });
   };
 
@@ -123,8 +130,12 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess }
 
   if (!showModal) return null;
 
+  const overlayClass = presentation === 'contained'
+    ? 'absolute inset-0 z-30 flex items-start justify-center overflow-y-auto p-3 sm:p-4 md:p-6'
+    : 'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm';
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div className={overlayClass}>
       <div className="bg-white rounded-[1.5rem] w-full max-w-4xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200">
         {/* Modal Header */}
         <div className="bg-[#244bd8] p-4 text-white flex items-center justify-between">
@@ -134,7 +145,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess }
             </div>
             <div>
               <h2 className="text-lg font-bold leading-tight">
-                {isEditing ? 'Modify Potential Lead' : 'Create New Lead'}
+                {isEditing ? 'Modify Potential Lead' : (title || 'Create New Lead')}
               </h2>
               <p className="text-[10px] opacity-80 uppercase tracking-widest font-black">Lead Management System</p>
             </div>
@@ -248,6 +259,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess }
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
                 >
                   <option value="website">Website</option>
+                  <option value="media">Media Lead</option>
                   <option value="referral">Referral</option>
                   <option value="social_media">Social Media</option>
                   <option value="cold_call">Cold Call</option>

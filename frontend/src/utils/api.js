@@ -2,12 +2,10 @@ import axios from 'axios';
 import { cacheInterceptor, cacheResponseInterceptor } from './cache';
 
 // API base URL configuration
-// In development, prefer direct backend URL to avoid proxy upload issues.
-// In production, use relative path since frontend and backend are in same hosting.
-const devApiPort = import.meta.env.VITE_API_PORT || '3000';
-const devApiBase =
-  import.meta.env.VITE_API_BASE_URL || `http://localhost:${devApiPort}/api`;
-const API_BASE_URL = import.meta.env.DEV ? devApiBase : '/api';
+// In development, prefer Vite proxy (same-origin) to avoid CORS/mixed-content issues.
+// If a custom backend URL is explicitly provided, honor it.
+const devApiBase = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = import.meta.env.DEV ? (devApiBase || '/api') : '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -16,10 +14,13 @@ const api = axios.create({
   maxBodyLength: Infinity,
 });
 
+const NETWORK_ERROR_SUPPRESS_MS = 5000;
+let lastNetworkErrorAt = 0;
+
 // Debug logging
-console.log('🚀 API Base URL:', API_BASE_URL || '(relative)');
-console.log('🚀 Environment:', import.meta.env.PROD ? 'Production' : 'Development');
-console.log('🚀 Axios Base URL:', api.defaults.baseURL);
+console.log('API Base URL:', API_BASE_URL || '(relative)');
+console.log('Environment:', import.meta.env.PROD ? 'Production' : 'Development');
+console.log('Axios Base URL:', api.defaults.baseURL);
 
 // Add cache interceptors for fast loading (disabled for debugging)
 // api.interceptors.request.use(cacheInterceptor);
@@ -68,7 +69,7 @@ api.interceptors.request.use(
     // Jo path components frontend bhej raha hai, woh hi backend routes hain
 
     // Debug log
-    console.log(`🔌 Requesting: ${config.baseURL}${config.url}`);
+    console.log(`Requesting: ${config.baseURL}${config.url}`);
 
     return config;
   },
@@ -83,12 +84,26 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    // Ignore canceled requests (AbortController)
+    if (axios.isCancel(error)) {
+      return Promise.reject(error);
+    }
+
     const { response, config } = error;
     if (response) {
-      console.error(`❌ API Error [${response.status}] for ${config.url}:`, response.data);
+      const msg = response.data?.message || response.data?.error || '';
+      if (msg) {
+        console.error(`API Error [${response.status}] for ${config.url}:`, msg, response.data);
+      } else {
+        console.error(`API Error [${response.status}] for ${config.url}:`, response.data);
+      }
     } else {
       const fullUrl = `${config?.baseURL || ''}${config?.url || ''}`;
-      console.error(`❌ Network Error for ${fullUrl || config?.url}:`, error.message, error.code || '');
+      const now = Date.now();
+      if (now - lastNetworkErrorAt > NETWORK_ERROR_SUPPRESS_MS) {
+        lastNetworkErrorAt = now;
+        console.error(`Network Error for ${fullUrl || config?.url}:`, error.message, error.code || '');
+      }
     }
     return Promise.reject(error);
   }

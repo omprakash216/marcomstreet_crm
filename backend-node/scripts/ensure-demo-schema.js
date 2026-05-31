@@ -1,12 +1,19 @@
-require('dotenv').config();
 const mysql = require('mysql2/promise');
+const { envNumber } = require('../config/env');
 
 async function run() {
+  const host = process.env.DB_HOST || '127.0.0.1';
+  const port = envNumber('DB_PORT', 3306);
+  const user = process.env.DB_USER || 'root';
+  const password = process.env.DB_PASSWORD || '';
+  const database = process.env.DB_NAME || 'marcom_street_crm';
+
   const conn = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
+    host,
+    port,
+    user,
+    password,
+    database,
   });
 
   const safe = async (sql) => {
@@ -118,6 +125,14 @@ async function run() {
       "CREATE TABLE IF NOT EXISTS hr_settings (setting_key VARCHAR(120) PRIMARY KEY, setting_value TEXT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
     );
 
+    // Company settings (admin module)
+    await safe(
+      "CREATE TABLE IF NOT EXISTS company_settings (id INT AUTO_INCREMENT PRIMARY KEY, company_name VARCHAR(255) NOT NULL, email VARCHAR(255) NULL, phone VARCHAR(50) NULL, address TEXT NULL, time_zone VARCHAR(80) NULL, currency VARCHAR(20) NULL, date_format VARCHAR(40) NULL, logo_path VARCHAR(255) NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
+    );
+    await safe('ALTER TABLE company_settings ADD COLUMN company_id INT NULL');
+    await safe('ALTER TABLE company_settings ADD COLUMN gst_number VARCHAR(32) NULL');
+    await safe('ALTER TABLE company_settings ADD COLUMN pan_number VARCHAR(20) NULL');
+
     await safe(
       "CREATE TABLE IF NOT EXISTS hr_leave_types (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(120) NOT NULL, code VARCHAR(30) NULL, default_balance INT NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
     );
@@ -125,6 +140,22 @@ async function run() {
 
     await safe(
       "CREATE TABLE IF NOT EXISTS hr_leave_balances (id INT AUTO_INCREMENT PRIMARY KEY, employee_id INT NOT NULL, leave_type_id INT NOT NULL, balance INT NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY uniq_leave_balance (employee_id, leave_type_id))"
+    );
+
+    // Followups table alignment (CRM)
+    await safe("ALTER TABLE followups ADD COLUMN followup_type ENUM('call','email','whatsapp','meeting','other') DEFAULT 'call'");
+    await safe('ALTER TABLE followups ADD COLUMN completed_date DATETIME NULL');
+    await safe('ALTER TABLE followups ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+
+    // RBAC tables (admin module)
+    await safe(
+      "CREATE TABLE IF NOT EXISTS rbac_roles (id INT AUTO_INCREMENT PRIMARY KEY, role_key VARCHAR(50) NOT NULL UNIQUE, label VARCHAR(120) NOT NULL, description TEXT NULL, is_system TINYINT(1) NOT NULL DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
+    );
+    await safe(
+      "CREATE TABLE IF NOT EXISTS rbac_permissions (id INT AUTO_INCREMENT PRIMARY KEY, module VARCHAR(80) NOT NULL, action VARCHAR(80) NOT NULL, label VARCHAR(160) NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY uniq_rbac_perm (module, action))"
+    );
+    await safe(
+      "CREATE TABLE IF NOT EXISTS rbac_role_permissions (role_key VARCHAR(50) NOT NULL, permission_id INT NOT NULL, PRIMARY KEY (role_key, permission_id), FOREIGN KEY (permission_id) REFERENCES rbac_permissions(id) ON DELETE CASCADE)"
     );
 
     await safe(
@@ -212,6 +243,77 @@ async function run() {
       "CREATE TABLE IF NOT EXISTS import_jobs (id INT AUTO_INCREMENT PRIMARY KEY, company_id INT NULL, file_name VARCHAR(255) NULL, status VARCHAR(30) NOT NULL DEFAULT 'pending', total_rows INT NOT NULL DEFAULT 0, success_count INT NOT NULL DEFAULT 0, failure_count INT NOT NULL DEFAULT 0, errors TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
     );
     await safe('CREATE INDEX idx_import_jobs_company ON import_jobs(company_id)');
+
+    // Seed default company settings row
+    await conn.execute(
+      "INSERT IGNORE INTO company_settings (id, company_name, email, phone, address, time_zone, currency, date_format) VALUES (1, 'Marcom Street CRM', '', '', '', 'Asia/Kolkata', 'INR', 'DD/MM/YYYY')"
+    );
+
+    // Seed RBAC roles
+    await conn.execute(
+      `INSERT IGNORE INTO rbac_roles (role_key, label, description, is_system) VALUES
+       ('admin','Admin','Full system access',1),
+       ('human_resources','HR Manager','HR module access',1),
+       ('manager','Sales Manager','Sales management access',1),
+       ('sales_rep','Sales Agent','Sales execution access',1),
+       ('employee','Employee','Basic employee access',1)`
+    );
+
+    // Seed RBAC permissions
+    await conn.execute(
+      `INSERT IGNORE INTO rbac_permissions (module, action, label) VALUES
+       ('dashboard','view','View Dashboard'),
+       ('leads','view','View Leads'),
+       ('leads','create','Create Leads'),
+       ('leads','edit','Edit Leads'),
+       ('leads','delete','Delete Leads'),
+       ('meetings','view','View Meetings'),
+       ('meetings','create','Create Meetings'),
+       ('meetings','edit','Edit Meetings'),
+       ('meetings','delete','Delete Meetings'),
+       ('tasks','view','View Tasks'),
+       ('tasks','create','Create Tasks'),
+       ('tasks','edit','Edit Tasks'),
+       ('tasks','delete','Delete Tasks'),
+       ('followups','view','View Follow Ups'),
+       ('followups','create','Create Follow Ups'),
+       ('followups','edit','Edit Follow Ups'),
+       ('followups','delete','Delete Follow Ups'),
+       ('invoices','view','View Invoices'),
+       ('invoices','create','Create Invoices'),
+       ('invoices','edit','Edit Invoices'),
+       ('invoices','delete','Delete Invoices'),
+       ('quotations','view','View Quotations'),
+       ('quotations','create','Create Quotations'),
+       ('quotations','edit','Edit Quotations'),
+       ('quotations','delete','Delete Quotations'),
+       ('hrms','view','View HRMS'),
+       ('hrms','manage','Manage HRMS'),
+       ('admin','view','Access Admin Module'),
+       ('admin','manage','Admin Manage'),
+       ('reports','view','View Reports'),
+       ('settings','manage','Manage Settings')`
+    );
+
+    // Grant all permissions to admin by default
+    await conn.execute(
+      "INSERT IGNORE INTO rbac_role_permissions (role_key, permission_id) SELECT 'admin', id FROM rbac_permissions"
+    );
+
+    await safe(
+      `CREATE TABLE IF NOT EXISTS password_reset_otps (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        phone_key VARCHAR(32) NOT NULL,
+        employee_id INT NOT NULL,
+        otp_hash VARCHAR(120) NOT NULL,
+        expires_at DATETIME NOT NULL,
+        attempts INT NOT NULL DEFAULT 0,
+        consumed TINYINT(1) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_phone_expires (phone_key, expires_at),
+        INDEX idx_employee_created (employee_id, created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+    );
 
     console.log('Schema alignment complete.');
   } finally {

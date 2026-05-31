@@ -55,6 +55,43 @@ function generatePassword(len = 10) {
   return out;
 }
 
+// Public pricing plans for landing page (no auth)
+router.get('/plans', async (_req, res) => {
+  try {
+    // If subscription_plans exists (SaaS control center), use it.
+    // Otherwise fall back to fixed plans (starter/business/enterprise).
+    let rows = [];
+    try {
+      rows = await query(
+        "SELECT id, name, price, billing_cycle, user_limit, storage_limit_gb, modules_included, status FROM subscription_plans WHERE status='active' ORDER BY price ASC"
+      );
+    } catch (e) {
+      rows = [];
+    }
+
+    if (!rows || rows.length === 0) {
+      return res.json({
+        success: true,
+        data: [
+          { id: 'starter', name: 'Starter', price: 999, billing_cycle: 'monthly', user_limit: 10, storage_limit_gb: 5, modules_included: ['CRM', 'HRMS', 'API Access'] },
+          { id: 'business', name: 'Business', price: 2499, billing_cycle: 'monthly', user_limit: 25, storage_limit_gb: 25, modules_included: ['CRM', 'HRMS', 'API Access', 'Automation'] },
+          { id: 'enterprise', name: 'Enterprise', price: null, billing_cycle: 'custom', user_limit: null, storage_limit_gb: null, modules_included: ['CRM', 'HRMS', 'API Access', 'Dedicated Success'] },
+        ],
+      });
+    }
+
+    rows.forEach((r) => {
+      try {
+        r.modules_included = typeof r.modules_included === 'string' ? JSON.parse(r.modules_included) : r.modules_included;
+      } catch (e) { }
+    });
+
+    return res.json({ success: true, data: rows });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.post('/checkout', async (req, res) => {
   try {
     await ensureTables();
@@ -150,18 +187,26 @@ router.post('/activate', async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10).catch(() => password);
 
+    // 1. Create the company first
+    const [compRes] = await conn.execute(
+      `INSERT INTO companies (company_code, company_name, email, phone, status)
+       VALUES (?, ?, ?, ?, 'active')`,
+      ['COMP' + Date.now(), session.company || 'New Company', session.email, '', 'active']
+    );
+    const companyId = compRes.insertId;
+
     const existing = await conn.execute('SELECT id FROM employees WHERE LOWER(email) = LOWER(?) LIMIT 1', [session.email]);
     const existingRow = existing && existing[0] && existing[0][0];
     if (!existingRow) {
       await conn.execute(
-        `INSERT INTO employees (employee_code, name, email, password, role, status, created_at, updated_at)
-         VALUES (?,?,?,?,?,'active', NOW(), NOW())`,
-        ['EMP' + Date.now(), session.full_name || 'Subscriber', session.email, hashed, 'admin']
+        `INSERT INTO employees (company_id, employee_code, name, email, password, role, status, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,'active', NOW(), NOW())`,
+        [companyId, 'EMP' + Date.now(), session.full_name || 'Subscriber', session.email, hashed, 'admin']
       );
     } else {
       await conn.execute(
-        'UPDATE employees SET password = ?, status = ?, updated_at = NOW() WHERE id = ?',
-        [hashed, 'active', existingRow.id]
+        'UPDATE employees SET company_id = ?, password = ?, status = ?, updated_at = NOW() WHERE id = ?',
+        [companyId, hashed, 'active', existingRow.id]
       );
     }
 

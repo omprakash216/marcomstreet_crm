@@ -1,15 +1,14 @@
-import { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../../utils/api';
 import { getEmployee } from '../../utils/auth';
 import WorkingHoursCard from '../../components/WorkingHoursCard';
 
 export default function Attendance() {
-  const location = useLocation();
-  const isHRRoute = location.pathname.startsWith('/hr/');
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
   const [punching, setPunching] = useState(false); // true while getting location + saving punch
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
   const [filter, setFilter] = useState({
     date_from: '',
     date_to: '',
@@ -53,11 +52,7 @@ export default function Attendance() {
   const [downloadingRowKey, setDownloadingRowKey] = useState(null); // 'employeeId-month' when downloading from row
   const [workingTimerRefresh, setWorkingTimerRefresh] = useState(0);
 
-  useEffect(() => {
-    fetchAttendance();
-  }, [filter.date_from, filter.date_to]);
-
-  const fetchAttendance = async () => {
+  const fetchAttendance = useCallback(async () => {
     try {
       const params = {};
       if (filter.date_from) params.date_from = filter.date_from;
@@ -71,7 +66,11 @@ export default function Attendance() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter.date_from, filter.date_to]);
+
+  useEffect(() => {
+    fetchAttendance();
+  }, [fetchAttendance]);
 
   // Office geofence: set in .env (VITE_OFFICE_LAT, VITE_OFFICE_LNG, VITE_OFFICE_RADIUS_M)
   const officeLat = parseFloat(import.meta.env.VITE_OFFICE_LAT);
@@ -132,7 +131,12 @@ export default function Attendance() {
       }
       const response = await api.post('/hrms/attendance', { action, location: locationStr });
       if (response.data.success) {
-        const msg = response.data.message || (action === 'check_in' ? 'Checked in' : 'Checked out');
+        const fallbackMessageMap = {
+          check_in: 'Punched in',
+          check_out: 'Punched out',
+          reset_timer: 'Timer reset',
+        };
+        const msg = response.data.message || fallbackMessageMap[action] || 'Attendance updated';
         alert(msg);
         fetchAttendance();
         setWorkingTimerRefresh((prev) => prev + 1);
@@ -317,6 +321,30 @@ export default function Attendance() {
     return matchesStatus && matchesDateFrom && matchesDateTo && matchesDayType;
   });
 
+  // Keep newest first, then paginate (latest 10 by default).
+  const sortedFilteredAttendance = [...filteredAttendance].sort((a, b) => {
+    const ad = String(a?.date || '');
+    const bd = String(b?.date || '');
+    if (ad !== bd) return bd.localeCompare(ad);
+    const aid = Number(a?.id || 0);
+    const bid = Number(b?.id || 0);
+    return bid - aid;
+  });
+
+  useEffect(() => {
+    // Reset to first page whenever filter changes.
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter.date_from, filter.date_to, filter.status, filter.dayType]);
+
+  const totalRecords = sortedFilteredAttendance.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const startIndex = (safePage - 1) * PAGE_SIZE;
+  const endIndex = Math.min(startIndex + PAGE_SIZE, totalRecords);
+  const paginatedAttendance = sortedFilteredAttendance.slice(startIndex, endIndex);
+  const tableColSpan = isHRManager ? 10 : 7;
+
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayRecord = attendance.find(r => r.date === todayStr);
   const todayDayType = (todayRecord?.attendance_type || '').toLowerCase(); // 'full_day' | 'half_day' | ''
@@ -349,22 +377,9 @@ export default function Attendance() {
   const targetCheckInTime = '09:30 AM';
 
   return (
-    <div className="relative min-h-screen w-full bg-gradient-to-b from-slate-50 via-white to-slate-100 text-slate-900">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-36 left-12 h-80 w-80 rounded-full bg-blue-200/60 blur-[140px]" />
-        <div className="absolute -bottom-20 right-10 h-96 w-96 rounded-full bg-emerald-200/50 blur-[160px]" />
-      </div>
-      <div className="relative z-10 mx-auto w-full max-w-6xl space-y-8 px-4 py-10 sm:px-6 lg:px-10">
-      {/* Breadcrumb when under /hr */}
-      {isHRRoute && (
-        <nav className="flex text-sm text-gray-500 mb-4" aria-label="Breadcrumb">
-          <Link to="/hr" className="hover:text-blue-600">HR</Link>
-          <span className="mx-2">/</span>
-          <span className="text-gray-700 font-medium">Attendance</span>
-        </nav>
-      )}
+    <div>
       {/* Standardized Header Section */}
-        <div className="bg-gradient-to-r from-white via-slate-100 to-white border border-slate-200 rounded-2xl shadow-2xl mb-6 p-6 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-gray-900 rounded-xl shadow-lg mb-6 p-6 relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
@@ -372,23 +387,27 @@ export default function Attendance() {
         </div>
 
         <div className="relative z-10">
-          <div className="flex items-center space-x-4">
-            <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg text-white">
-              <i className="fas fa-clock text-2xl"></i>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-center space-x-4">
+              <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg text-white">
+                <i className="fas fa-user-clock text-2xl"></i>
+              </div>
+              <div className="flex-1">
+                <h1 className="text-3xl font-bold text-white mb-1">
+                  {isHRManager ? 'Attendance Overview' : 'My Attendance'}
+                </h1>
+                <p className="text-slate-300 text-sm">
+                  {isHRManager
+                    ? 'Review daily punches, approvals, and month reports at a glance.'
+                    : 'Record and review your daily attendance.'}
+                </p>
+              </div>
             </div>
-            <div className="flex-1">
-              <h1 className="text-3xl font-bold text-slate-900 mb-1">
-                {isHRManager ? 'Employee Attendance Tracker' : 'My Attendance Tracker'}
-              </h1>
-              <p className="text-slate-500 text-sm">
-                {isHRManager ? 'Monitor and manage employee daily attendance' : 'Record and view your daily attendance'}
-              </p>
-            </div>
-            <div className="flex space-x-3">
-                <button
+            <div className="flex flex-wrap items-center gap-3">
+              <button
                 onClick={() => handlePunch('check_in')}
                 disabled={punching}
-                className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl shadow-lg font-semibold transition-all duration-200 hover:from-blue-700 hover:to-blue-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-500/30 font-semibold transition-all duration-200 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <i className={`fas ${punching ? 'fa-spinner fa-spin' : 'fa-sign-in-alt'}`}></i>
                 <span>{punching ? 'Getting location...' : 'Punch In'}</span>
@@ -396,17 +415,29 @@ export default function Attendance() {
               <button
                 onClick={() => handlePunch('check_out')}
                 disabled={punching}
-                className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-red-500  to-rose-500 text-white rounded-xl shadow-lg font-semibold transition-all duration-200 hover:from-red-600 hover:to-rose-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="flex items-center space-x-2 px-6 py-3 bg-rose-500 text-white rounded-xl shadow-lg shadow-rose-500/30 font-semibold transition-all duration-200 hover:bg-rose-600 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <i className={`fas ${punching ? 'fa-spinner fa-spin' : 'fa-sign-out-alt'}`}></i>
                 <span>{punching ? 'Getting location...' : 'Punch Out'}</span>
+              </button>
+              <button
+                onClick={() => handlePunch('reset_timer')}
+                disabled={punching}
+                className="flex items-center space-x-2 px-6 py-3 bg-slate-700 text-white rounded-xl shadow-lg shadow-slate-500/30 font-semibold transition-all duration-200 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <i className={`fas ${punching ? 'fa-spinner fa-spin' : 'fa-rotate-left'}`}></i>
+                <span>{punching ? 'Getting location...' : 'Reset Timer'}</span>
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      <WorkingHoursCard className="mb-6" showActions={false} refreshKey={workingTimerRefresh} />
+      <WorkingHoursCard
+        className="mb-6"
+        refreshKey={workingTimerRefresh}
+        onUpdated={fetchAttendance}
+      />
 
       {/* Stats Cards - icon center, text centered, professional */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 mb-6">
@@ -448,9 +479,10 @@ export default function Attendance() {
       </div>
 
       {/* HR only: Download month-wise report */}
-      {isHRManager && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-          <div className="flex flex-wrap items-end gap-4">
+      {/* Filters Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+        {isHRManager && (
+          <div className="flex flex-wrap items-end gap-4 pb-4 mb-4 border-b border-gray-200">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Month-wise report</label>
               <input
@@ -469,11 +501,7 @@ export default function Attendance() {
               {downloadingReport ? 'Downloading...' : 'Download Report'}
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Filters Section */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+        )}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">From Date</label>
@@ -540,6 +568,7 @@ export default function Attendance() {
           <table className="min-w-[1320px] w-full text-left">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
+              <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">SL</th>
               {isHRManager && <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Employee</th>}
               {isHRManager && <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Department</th>}
               <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Date</th>
@@ -553,15 +582,16 @@ export default function Attendance() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
-              <tr><td colSpan={isHRManager ? 9 : 6} className="px-6 py-4 text-center">Loading...</td></tr>
-            ) : filteredAttendance.length === 0 ? (
-              <tr><td colSpan={isHRManager ? 9 : 6} className="px-6 py-4 text-center text-gray-500">No attendance records found</td></tr>
+              <tr><td colSpan={tableColSpan} className="px-6 py-4 text-center">Loading...</td></tr>
+            ) : sortedFilteredAttendance.length === 0 ? (
+              <tr><td colSpan={tableColSpan} className="px-6 py-4 text-center text-gray-500">No attendance records found</td></tr>
             ) : (
-              filteredAttendance.map((record) => (
+              paginatedAttendance.map((record, idx) => (
                 <tr
                   key={record.id}
                   className={`hover:bg-gray-50 transition-colors ${record.date === todayStr ? 'bg-blue-50/50' : ''}`}
                 >
+                  <td className="px-6 py-4 text-gray-600 whitespace-nowrap">{startIndex + idx + 1}</td>
                   {isHRManager && (
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-gray-900 whitespace-nowrap truncate max-w-[220px]" title={record.employee_name || ''}>
@@ -693,7 +723,35 @@ export default function Attendance() {
           </tbody>
           </table>
         </div>
-      </div>
+        {!loading && sortedFilteredAttendance.length > 0 && (
+          <div className="px-4 py-3 border-t border-gray-200 bg-gray-50/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="text-xs text-gray-600">
+              Showing <span className="font-semibold">{startIndex + 1}</span>-<span className="font-semibold">{endIndex}</span> of{' '}
+              <span className="font-semibold">{totalRecords}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <div className="text-xs text-gray-600 px-2">
+                Page <span className="font-semibold">{safePage}</span> / <span className="font-semibold">{totalPages}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
@@ -844,8 +902,8 @@ export default function Attendance() {
                         return (
                           <tr key={r.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3 font-medium text-gray-900">{r.date && String(r.date).slice(0, 10)}</td>
-                            <td className="px-4 py-3 text-gray-600">{r.check_in_time || '–'}</td>
-                            <td className="px-4 py-3 text-gray-600">{r.check_out_time || '–'}</td>
+                            <td className="px-4 py-3 text-gray-600">{r.check_in_time || '-'}</td>
+                            <td className="px-4 py-3 text-gray-600">{r.check_out_time || '-'}</td>
                             <td className="px-4 py-3">
                               <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${dt === 'full_day' ? 'bg-green-100 text-green-700' : dt === 'half_day' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
                                 {dt === 'full_day' ? 'Full day' : dt === 'half_day' ? 'Half day' : '-'}
@@ -859,7 +917,7 @@ export default function Attendance() {
                             </td>
                             {viewAttendance.some(row => row.edit_reason) && (
                               <td className="px-4 py-3 text-gray-500 text-xs max-w-[180px] truncate" title={r.edit_reason || ''}>
-                                {r.edit_reason || '–'}
+                                {r.edit_reason || '-'}
                               </td>
                             )}
                           </tr>

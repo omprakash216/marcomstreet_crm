@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
-import { getEmployee } from '../../utils/auth';
+import { getEmployee, normalizeRole } from '../../utils/auth';
 import {
   BarChart,
   Bar,
@@ -32,7 +32,8 @@ export default function AdminRevenue() {
 
   useEffect(() => {
     const employee = getEmployee();
-    if (!employee || employee.role !== 'admin') {
+    const role = normalizeRole(employee?.role);
+    if (!employee || (role !== 'admin' && role !== 'superadmin' && role !== 'super_admin')) {
       navigate('/login');
       return;
     }
@@ -153,7 +154,7 @@ export default function AdminRevenue() {
             <select
               value={dateRange}
               onChange={(e) => setDateRange(e.target.value)}
-              className="px-4 py-2 bg-white/20 text-white rounded-lg backdrop-blur-sm border border-white/30"
+              className="px-4 py-2 bg-white text-gray-900 rounded-lg border border-white/40 shadow-sm focus:outline-none focus:ring-2 focus:ring-white/70"
             >
               <option value="month">This Month</option>
               <option value="quarter">This Quarter</option>

@@ -42,8 +42,13 @@ const IconCheckCircle = () => (
 );
 
 const IconCurrency = () => (
-  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8 7h8" />
+    <path d="M8 10h8" />
+    <path d="m8 13 5.5 5" />
+    <path d="M8 13h2" />
+    <path d="M10 13c4.5 0 4.5-6 0-6" />
   </svg>
 );
 
@@ -183,86 +188,101 @@ export default function Dashboard() {
 
   return (
     <div>
-      {/* Professional Header Section */}
-      <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-gray-900 rounded-xl shadow-lg mb-6 p-6 relative overflow-hidden">
-        {/* Background Pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }}></div>
-        </div>
-
-        {/* Content */}
-        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-center space-x-4">
-            {/* Icon */}
-            <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-              </svg>
+      {/* Target Display (Only for Employees with Targets) */}
+      {dashboardData?.target_data && (
+        <div className="mb-6 bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-xl shadow-md p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div>
+            <h4 className="text-lg font-bold">My Performance Target</h4>
+            <p className="text-sm text-blue-100">Keep track of your leads goal for this period.</p>
+          </div>
+          <div className="flex items-center gap-6 bg-white/10 backdrop-blur-md px-6 py-3 rounded-xl border border-white/10">
+            <div className="text-right">
+              <p className="text-xs text-blue-200 font-bold uppercase tracking-wider mb-0.5">Goal</p>
+              <p className="text-2xl font-black text-white leading-none">{dashboardData.target_data.target_value}</p>
             </div>
-
-            {/* Title and Description */}
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold text-white mb-1">Employee Portal</h1>
-                <button
-                  onClick={fetchDashboardData}
-                  disabled={loading}
-                  className={`p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all ${loading ? 'animate-spin' : ''}`}
-                  title="Refresh Data"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                </button>
-              </div>
-              <div className="flex items-center gap-3 text-slate-300 text-sm">
-                <p>Manage your tasks and performance</p>
-                {lastUpdated && (
-                  <>
-                    <span className="w-1 h-1 rounded-full bg-slate-500"></span>
-                    <span className="text-slate-400 text-xs">Updated: {lastUpdated.toLocaleTimeString()}</span>
-                  </>
-                )}
+            <div className="h-8 w-px bg-white/20"></div>
+            <div className="text-right">
+              <p className="text-xs text-orange-200 font-bold uppercase tracking-wider mb-0.5">Remaining</p>
+              <p className="text-2xl font-black text-orange-400 leading-none animate-pulse">{dashboardData.target_data.remaining}</p>
+            </div>
+            <div className="pl-2">
+              <div className="w-12 h-12 relative flex items-center justify-center">
+                <svg className="transform -rotate-90 w-full h-full">
+                  <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-white/10" />
+                  <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent"
+                    strokeDasharray={125.6}
+                    strokeDashoffset={125.6 - (125.6 * dashboardData.target_data.progress_percentage) / 100}
+                    className="text-green-400 transition-all duration-1000 ease-out" />
+                </svg>
+                <span className="absolute text-[10px] font-bold text-white">{dashboardData.target_data.progress_percentage}%</span>
               </div>
             </div>
           </div>
-
-          {/* Target Display (Only for Employees with Targets) */}
-          {dashboardData?.target_data && (
-            <div className="flex items-center gap-4 bg-white/10 backdrop-blur-md px-5 py-3 rounded-xl border border-white/10">
-              <div className="text-right">
-                <p className="text-xs text-blue-200 font-bold uppercase tracking-wider mb-0.5">My Target</p>
-                <p className="text-2xl font-black text-white leading-none">{dashboardData.target_data.target_value}</p>
-              </div>
-              <div className="h-8 w-px bg-white/20"></div>
-              <div className="text-right">
-                <p className="text-xs text-orange-200 font-bold uppercase tracking-wider mb-0.5">Remaining</p>
-                <p className="text-2xl font-black text-orange-400 leading-none animate-pulse">{dashboardData.target_data.remaining}</p>
-              </div>
-              <div className="pl-2">
-                <div className="w-12 h-12 relative flex items-center justify-center">
-                  <svg className="transform -rotate-90 w-full h-full">
-                    <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-white/10" />
-                    <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent"
-                      strokeDasharray={125.6}
-                      strokeDashoffset={125.6 - (125.6 * dashboardData.target_data.progress_percentage) / 100}
-                      className="text-green-400 transition-all duration-1000 ease-out" />
-                  </svg>
-                  <span className="absolute text-[10px] font-bold text-white">{dashboardData.target_data.progress_percentage}%</span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
-
-        {/* Decorative Elements */}
-        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
-        <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full -ml-12 -mb-12"></div>
-      </div>
+      )}
 
       <WorkingHoursCard className="mb-6" />
+
+      {/* HRMS Quick Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div 
+          onClick={() => navigate('/hrms/leaves')}
+          className="bg-white rounded-xl shadow-md p-6 border-l-4 border-emerald-500 cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 flex items-center justify-between group"
+        >
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-emerald-100 text-emerald-600 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <h4 className="font-bold text-gray-900">Leave Portal</h4>
+              <p className="text-xs text-gray-500">Apply for leaves & track status</p>
+            </div>
+          </div>
+          <span className="text-emerald-500 font-bold opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300">→</span>
+        </div>
+
+        <div 
+          onClick={() => navigate('/hrms/attendance')}
+          className="bg-white rounded-xl shadow-md p-6 border-l-4 border-indigo-500 cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 flex items-center justify-between group"
+        >
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <h4 className="font-bold text-gray-900">Attendance Log</h4>
+              <p className="text-xs text-gray-500">View check-in history & hours</p>
+            </div>
+          </div>
+          <span className="text-indigo-500 font-bold opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300">→</span>
+        </div>
+
+        <div 
+          onClick={() => navigate('/hrms/salary-slips')}
+          className="bg-white rounded-xl shadow-md p-6 border-l-4 border-amber-500 cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 flex items-center justify-between group"
+        >
+          <div className="flex items-center space-x-4">
+            <div className="p-3 bg-amber-100 text-amber-600 rounded-xl group-hover:bg-amber-600 group-hover:text-white transition-all duration-300">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M6 3h12" />
+                <path d="M6 8h12" />
+                <path d="m6 13 8.5 8" />
+                <path d="M6 13h3" />
+                <path d="M9 13c6.667 0 6.667-10 0-10" />
+              </svg>
+            </div>
+            <div>
+              <h4 className="font-bold text-gray-900">Salary Slips</h4>
+              <p className="text-xs text-gray-500">View & download monthly slips</p>
+            </div>
+          </div>
+          <span className="text-amber-500 font-bold opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300">→</span>
+        </div>
+      </div>
 
 
 
@@ -484,6 +504,39 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* Recent Activities */}
+            <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200 flex flex-col h-[380px]">
+              <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                <h2 className="text-lg font-bold text-gray-900">Recent Activities</h2>
+                <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">View All →</button>
+              </div>
+              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                {dashboardData.recent_activities && dashboardData.recent_activities.length > 0 ? (
+                  <div className="space-y-3">
+                    {dashboardData.recent_activities.map((activity, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                        <div className="flex items-start space-x-3">
+                          <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                          <div>
+                            <p className="font-medium text-gray-900">{activity.activity_type}</p>
+                            <p className="text-sm text-gray-600">{activity.description || 'No description'}</p>
+                          </div>
+                        </div>
+                        <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
+                          {new Date(activity.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-center py-8">
+                    <p className="text-gray-500">No recent activities</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+
             {/* Quotations Status */}
             {quotationsStatusData.length > 0 && (
               <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
@@ -572,37 +625,6 @@ export default function Dashboard() {
           </div>
         )}
 
-
-
-        {/* Recent Activities */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-900">Recent Activities</h2>
-            <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">View All →</button>
-          </div>
-          {dashboardData.recent_activities && dashboardData.recent_activities.length > 0 ? (
-            <div className="space-y-3">
-              {dashboardData.recent_activities.map((activity, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
-                    <div>
-                      <p className="font-medium text-gray-900">{activity.activity_type}</p>
-                      <p className="text-sm text-gray-600">{activity.description || 'No description'}</p>
-                    </div>
-                  </div>
-                  <span className="text-xs text-gray-500 whitespace-nowrap">
-                    {new Date(activity.created_at).toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <p className="text-gray-500">No recent activities</p>
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

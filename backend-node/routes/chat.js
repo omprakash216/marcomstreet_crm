@@ -4,6 +4,7 @@ const path = require('path');
 const multer = require('multer');
 const { query } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
+const { isSuperRole } = require('../middleware/hideSuperAdminData');
 
 const router = express.Router();
 const UPLOADS_CHAT = path.join(__dirname, '../../uploads/chat/messages');
@@ -26,65 +27,144 @@ router.get('/', verifyToken, async (req, res) => {
   try {
     const action = req.query.action || 'messages';
     const employeeId = req.employee.id;
+    const requesterIsSuper = isSuperRole(req.employee.role);
+    const requesterCompanyId = req.employee.company_id;
 
     if (action === 'users') {
       let users = [];
       try {
-        users = await query(
-          `SELECT e.id, e.name, e.email, e.role, d.name as department
-           FROM employees e 
-           LEFT JOIN departments d ON e.department_id = d.id 
-           WHERE e.id != ? AND e.status = 'active'
-           ORDER BY e.name ASC`,
-          [employeeId]
-        );
+        if (requesterIsSuper) {
+          users = await query(
+            `SELECT e.id, e.name, e.email, e.role, d.name as department
+             FROM employees e
+             LEFT JOIN departments d ON e.department_id = d.id
+             WHERE e.id != ? AND e.status = 'active'
+             ORDER BY e.name ASC`,
+            [employeeId]
+          );
+        } else {
+          users = await query(
+            `SELECT e.id, e.name, e.email, e.role, d.name as department
+             FROM employees e
+             LEFT JOIN departments d ON e.department_id = d.id
+             WHERE e.id != ?
+               AND e.status = 'active'
+               AND e.company_id = ?
+               AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(e.role,'')), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin')
+             ORDER BY e.name ASC`,
+            [employeeId, requesterCompanyId]
+          );
+        }
       } catch (qErr) {
         const msg = (qErr && qErr.message) ? String(qErr.message) : '';
         if (!(msg.includes("doesn't exist") || msg.includes('Unknown column'))) throw qErr;
         // Fallback for older schema without departments/role columns
-        users = await query(
-          `SELECT id, name, email, 'employee' as role, 'General' as department
-           FROM employees
-           WHERE id != ?
-           ORDER BY name ASC`,
-          [employeeId]
-        );
+        if (requesterIsSuper) {
+          users = await query(
+            `SELECT id, name, email, 'employee' as role, 'General' as department
+             FROM employees
+             WHERE id != ?
+             ORDER BY name ASC`,
+            [employeeId]
+          ).catch(() => []);
+        } else if (requesterCompanyId) {
+          users = await query(
+            `SELECT id, name, email, 'employee' as role, 'General' as department
+             FROM employees
+             WHERE id != ? AND company_id = ?
+             ORDER BY name ASC`,
+            [employeeId, requesterCompanyId]
+          ).catch(() => []);
+        } else {
+          users = [];
+        }
       }
       return res.json({ success: true, data: users });
     }
 
     if (action === 'unread_count') {
-      let rows = [];
       try {
-        rows = await query(
+        const rows = await query(
           'SELECT COUNT(*) as count FROM chat_messages WHERE to_employee_id = ? AND is_read = 0',
           [employeeId]
         );
+        return res.json({ success: true, count: Number(rows[0]?.count || 0) });
       } catch (qErr) {
-        const msg = (qErr && qErr.message) ? String(qErr.message) : '';
-        if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
-          return res.json({ success: true, count: 0 });
+        // Never hard-fail the UI for chat badge; return 0 on any schema/DB issue.
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[chat] unread_count fallback:', qErr?.message || qErr);
         }
-        throw qErr;
+        return res.json({ success: true, count: 0 });
       }
-      return res.json({ success: true, count: Number(rows[0]?.count || 0) });
+    }
+
+    if (action === 'mark_all_read') {
+      try {
+        await query(
+          'UPDATE chat_messages SET is_read = 1 WHERE to_employee_id = ? AND is_read = 0',
+          [employeeId]
+        );
+        return res.json({ success: true, message: 'All messages marked as read' });
+      } catch (err) {
+        console.error('Chat mark_all_read:', err);
+        return res.status(500).json({ success: false, message: err.message });
+      }
     }
 
     if (action === 'notifications') {
-      const notifications = await query(
-        `SELECT cm.*, e.name as from_name 
-         FROM chat_messages cm
-         JOIN employees e ON e.id = cm.from_employee_id
-         WHERE cm.to_employee_id = ? AND cm.is_read = 0
-         ORDER BY cm.created_at DESC LIMIT 10`,
-        [employeeId]
-      );
-      return res.json({ success: true, data: notifications });
+      try {
+        const includeRead = req.query.include_read === 'true';
+        const limitVal = includeRead ? 50 : 20;
+        let notifications = [];
+        if (requesterIsSuper) {
+          notifications = await query(
+            `SELECT cm.*, e.name as from_name 
+             FROM chat_messages cm
+             JOIN employees e ON e.id = cm.from_employee_id
+             WHERE cm.to_employee_id = ? ${includeRead ? '' : 'AND cm.is_read = 0'}
+             ORDER BY cm.created_at DESC LIMIT ?`,
+            [employeeId, limitVal]
+          );
+        } else {
+          notifications = await query(
+            `SELECT cm.*, e.name as from_name 
+             FROM chat_messages cm
+             JOIN employees e ON e.id = cm.from_employee_id
+             WHERE cm.to_employee_id = ?
+               ${includeRead ? '' : 'AND cm.is_read = 0'}
+               AND e.company_id = ?
+               AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(e.role,'')), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin')
+             ORDER BY cm.created_at DESC LIMIT ?`,
+            [employeeId, requesterCompanyId, limitVal]
+          );
+        }
+        return res.json({ success: true, data: notifications });
+      } catch (qErr) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[chat] notifications fallback:', qErr?.message || qErr);
+        }
+        return res.json({ success: true, data: [] });
+      }
     }
 
     const targetUserId = req.query.user_id;
     if (!targetUserId) {
       return res.status(400).json({ success: false, message: 'Target user ID is required' });
+    }
+
+    if (!requesterIsSuper) {
+      const targetRows = await query(
+        `SELECT id
+         FROM employees
+         WHERE id = ?
+           AND company_id = ?
+           AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(role,'')), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin')
+         LIMIT 1`,
+        [targetUserId, requesterCompanyId]
+      ).catch(() => []);
+      if (!Array.isArray(targetRows) || !targetRows[0]) {
+        return res.status(403).json({ success: false, message: 'You cannot access this chat user' });
+      }
     }
 
     const messages = await query(
@@ -120,6 +200,22 @@ router.post('/', verifyToken, (req, res) => {
       const { to_employee_id, message } = req.body || {};
       if (!to_employee_id) {
         return res.status(400).json({ success: false, message: 'to_employee_id is required' });
+      }
+      const requesterIsSuper = isSuperRole(req.employee.role);
+      const requesterCompanyId = req.employee.company_id;
+      if (!requesterIsSuper) {
+        const recipientRows = await query(
+          `SELECT id
+           FROM employees
+           WHERE id = ?
+             AND company_id = ?
+             AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(role,'')), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin')
+           LIMIT 1`,
+          [to_employee_id, requesterCompanyId]
+        ).catch(() => []);
+        if (!Array.isArray(recipientRows) || !recipientRows[0]) {
+          return res.status(403).json({ success: false, message: 'You cannot message this user' });
+        }
       }
       let finalMessage = (message || '').trim();
       if (req.file && !finalMessage) {

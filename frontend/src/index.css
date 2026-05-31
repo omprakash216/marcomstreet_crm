@@ -16,6 +16,42 @@ code {
     monospace;
 }
 
+/* Admin layout guardrails: keep the CRM chrome fixed even if document/PDF
+   styles add utility-like classes globally. */
+.admin-shell {
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.admin-topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6rem;
+  overflow: visible;
+  z-index: 1000;
+}
+
+.admin-workspace {
+  height: 100vh;
+  min-height: 0;
+  padding-top: 6rem;
+  overflow: hidden;
+}
+
+.admin-sidebar {
+  top: 6rem;
+  height: calc(100vh - 6rem);
+}
+
+.admin-main {
+  height: calc(100vh - 6rem);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 /* Custom Scrollbar for Dashboard Widgets */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
@@ -33,4 +69,59 @@ code {
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: #94a3b8;
+}
+
+/* ===== Super Admin responsive helpers (CSS-only, no layout change) ===== */
+
+@media (max-width: 1024px) {
+  /* Superadmin cards: allow header toolbars to wrap nicely */
+  .flex.flex-wrap.items-center.justify-between.gap-4,
+  .flex.flex-wrap.items-center.justify-between.gap-6 {
+    row-gap: 0.75rem;
+  }
+
+  /* System Backups: match other pages (less horizontal spacing) */
+  .superadmin-backups-page.p-8 {
+    padding: 1.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Superadmin metric/cards grid: stack on mobile */
+  .grid.grid-cols-1.lg\\:grid-cols-2,
+  .grid.grid-cols-1.lg\\:grid-cols-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Tables: ensure horizontal scroll is enabled on narrow screens */
+  .overflow-x-auto {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* System Backups header card padding tighter on mobile */
+  .superadmin-backups-page .px-6.py-5 {
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
+}
+
+/* Super Admin Users table padding tweak (scoped) */
+@media (min-width: 640px) {
+  .global-users-page .sm\:px-6 {
+    padding-left: 1rem;
+    padding-right: 1.5rem;
+  }
+}
+
+/* Salary slip details modal: keep earnings/deductions in two columns in print/export */
+@media print {
+  .salary-slip-breakdown-grid {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    column-gap: 1.5rem !important;
+  }
 }

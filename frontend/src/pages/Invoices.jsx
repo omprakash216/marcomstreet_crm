@@ -1,19 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import api from '../utils/api';
+import { generateInvoicePdf } from '../utils/quotationPdf';
 
 export default function Invoices() {
+  const itemsPerPage = 20;
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingInvoiceId, setEditingInvoiceId] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [leads, setLeads] = useState([]);
   const [filters, setFilters] = useState({
     date_from: '',
     date_to: '',
     status: '',
   });
+  const [invoiceSettings, setInvoiceSettings] = useState({});
   const [formData, setFormData] = useState({
     lead_id: '',
     items: [{ item_name: '', description: '', quantity: 1, unit_price: 0 }],
@@ -28,11 +32,21 @@ export default function Invoices() {
   useEffect(() => {
     fetchInvoices();
     fetchLeads();
+    fetchInvoiceSettings();
   }, []);
 
   useEffect(() => {
     fetchInvoices();
   }, [filters]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.date_from, filters.date_to, filters.status]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(invoices.length / itemsPerPage));
+    if (currentPage > maxPage) setCurrentPage(maxPage);
+  }, [invoices.length, currentPage]);
 
   const fetchInvoices = async () => {
     // Check if user is logged in
@@ -144,30 +158,41 @@ export default function Invoices() {
     return '';
   };
 
+  const uploadsBase = useMemo(() => {
+    const base = api.defaults.baseURL || '';
+    return base.replace(/\/api\/?$/, '');
+  }, []);
+
+  const invoicePdfSettings = useMemo(() => ({
+    ...invoiceSettings,
+    logo_url: invoiceSettings.logo_path ? `${uploadsBase}/${invoiceSettings.logo_path}` : '',
+  }), [invoiceSettings, uploadsBase]);
+
+  const fetchInvoiceSettings = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const response = await api.get('/invoices/template-settings');
+      if (response.data?.success) {
+        setInvoiceSettings(response.data.data || {});
+      }
+    } catch (_) {
+      setInvoiceSettings({});
+    }
+  };
+
   const openInvoicePdf = async (invoice, download = false) => {
     if (!invoice?.id) return;
-    const url = `/invoices/${encodeURIComponent(String(invoice.id))}/pdf${download ? '?download=1' : ''}`;
-    const safeName = `${String(invoice.invoice_number || `invoice_${invoice.id}`).replace(/[^a-zA-Z0-9._-]/g, '_')}.pdf`;
-
     try {
-      const resp = await api.get(url, { responseType: 'blob' });
-      const blobUrl = window.URL.createObjectURL(resp.data);
-
-      if (download) {
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = safeName;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      } else {
-        window.open(blobUrl, '_blank', 'noopener,noreferrer');
-      }
-
-      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 8000);
+      await generateInvoicePdf(invoice, invoicePdfSettings);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to open invoice PDF');
+      alert(err.response?.data?.message || 'Failed to generate invoice PDF');
     }
+  };
+
+  const openInvoiceDetails = (invoice) => {
+    setViewInvoice(invoice);
+    setShowViewModal(true);
   };
 
   const openEditInvoice = (invoice) => {
@@ -217,8 +242,8 @@ export default function Invoices() {
     const clean = phone.replace(/[^\d]/g, '');
     if (!clean) return;
 
-    // Open PDF for user to attach manually (WhatsApp web deep links cannot auto-attach files).
-    await openInvoicePdf(invoice, false);
+    // Download PDF for user to attach manually (WhatsApp web deep links cannot auto-attach files).
+    await openInvoicePdf(invoice, true);
 
     const msg =
       `Invoice: ${invoice.invoice_number || invoice.id}\\n` +
@@ -228,7 +253,7 @@ export default function Invoices() {
 
     const waUrl = `https://wa.me/${clean}?text=${encodeURIComponent(msg)}`;
     window.open(waUrl, '_blank', 'noopener,noreferrer');
-    alert('WhatsApp will open in a new tab. Please attach the PDF from the opened invoice PDF tab.');
+    alert('WhatsApp will open in a new tab. Please attach the downloaded invoice PDF.');
   };
 
   const handleSubmit = async (e) => {
@@ -245,8 +270,13 @@ export default function Invoices() {
     }
 
     try {
-      await api.post('/invoices', formData);
+      if (editingInvoiceId) {
+        await api.put(`/invoices/${editingInvoiceId}`, formData);
+      } else {
+        await api.post('/invoices', formData);
+      }
       setShowModal(false);
+      setEditingInvoiceId(null);
       setFormData({
         lead_id: '',
         items: [{ item_name: '', description: '', quantity: 1, unit_price: 0 }],
@@ -259,7 +289,7 @@ export default function Invoices() {
       });
       fetchInvoices();
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to create invoice');
+      alert(error.response?.data?.message || `Failed to ${editingInvoiceId ? 'update' : 'create'} invoice`);
     }
   };
 
@@ -273,6 +303,12 @@ export default function Invoices() {
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
+
+  const totalPages = Math.max(1, Math.ceil(invoices.length / itemsPerPage));
+  const safePage = Math.min(Math.max(currentPage, 1), totalPages);
+  const indexOfFirstInvoice = (safePage - 1) * itemsPerPage;
+  const indexOfLastInvoice = indexOfFirstInvoice + itemsPerPage;
+  const currentInvoices = invoices.slice(indexOfFirstInvoice, indexOfLastInvoice);
 
   return (
     <div>
@@ -371,23 +407,6 @@ export default function Invoices() {
 
       {/* Invoices List */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-        {/* Table Headers - Always Visible */}
-        <div className="bg-gray-50 border-b border-gray-200 px-6 py-4">
-          <table className="min-w-full">
-            <thead>
-              <tr>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SL No</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice Number</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Issue Date</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Due Date</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              </tr>
-            </thead>
-          </table>
-        </div>
-
         {/* Invoices Content */}
         {loading ? (
           <div className="p-12 text-center">
@@ -411,6 +430,111 @@ export default function Invoices() {
             </button>
           </div>
         ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest w-20">SL No</th>
+                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Invoice Number</th>
+                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Company</th>
+                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Issue Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Due Date</th>
+                    <th className="px-4 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Subtotal</th>
+                    <th className="px-4 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Total Amount</th>
+                    <th className="px-4 py-3 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Items</th>
+                    <th className="px-4 py-3 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Status</th>
+                    <th className="px-4 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {currentInvoices.map((invoice, index) => (
+                    <tr key={invoice.id} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-gray-700">
+                        {indexOfFirstInvoice + index + 1}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => openInvoiceDetails(invoice)}
+                          className="text-sm font-black text-blue-700 hover:text-blue-900 hover:underline"
+                        >
+                          {invoice.invoice_number || `INV-${invoice.id}`}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 min-w-[220px]">
+                        <div className="text-sm font-bold text-gray-900">{invoice.company_name || invoice.client_name || 'No company'}</div>
+                        {invoice.contact_person ? <div className="text-xs text-gray-500 mt-0.5">{invoice.contact_person}</div> : null}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{fmtDate(invoice.issue_date)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{fmtDate(invoice.due_date)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold text-gray-700">Rs. {fmtMoney(invoice.subtotal || 0)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-black text-emerald-700">Rs. {fmtMoney(invoice.total_amount || 0)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-center">
+                        <span className="inline-flex items-center justify-center min-w-8 px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-black">
+                          {Array.isArray(invoice.items) ? invoice.items.length : 0}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-center">
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${getStatusColor(invoice.status)}`}>
+                          {invoice.status || 'draft'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right">
+                        <div className="inline-flex items-center justify-end gap-1.5">
+                          <button type="button" onClick={() => openInvoiceDetails(invoice)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900" title="View Details">
+                            <i className="fas fa-eye"></i>
+                          </button>
+                          <button type="button" onClick={() => openEditInvoice(invoice)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-800" title="Edit Invoice">
+                            <i className="fas fa-edit"></i>
+                          </button>
+                          <button type="button" onClick={() => openInvoicePdf(invoice, true)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-800" title="Download PDF">
+                            <i className="fas fa-download"></i>
+                          </button>
+                          <button type="button" onClick={() => handleWhatsAppSend(invoice)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-800" title="WhatsApp">
+                            <i className="fab fa-whatsapp"></i>
+                          </button>
+                          <button type="button" onClick={() => handleDeleteInvoice(invoice)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-800" title="Delete Invoice">
+                            <i className="fas fa-trash-alt"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="border-t border-gray-200 bg-slate-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="text-xs text-slate-500 font-semibold">
+                Showing <span className="font-black text-slate-800">{indexOfFirstInvoice + 1}</span> to{' '}
+                <span className="font-black text-slate-800">{Math.min(indexOfLastInvoice, invoices.length)}</span> of{' '}
+                <span className="font-black text-slate-800">{invoices.length}</span> invoices
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={safePage <= 1}
+                  className="px-3 py-2 rounded-lg border bg-white text-xs font-black text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <div className="px-3 py-2 rounded-lg bg-white border text-xs font-black text-slate-700">
+                  {safePage} / {totalPages}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={safePage >= totalPages}
+                  className="px-3 py-2 rounded-lg border bg-white text-xs font-black text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+
+            {false && (
           <div className="p-6">
             <div className="space-y-4">
               {invoices.map((invoice, index) => (
@@ -498,24 +622,223 @@ export default function Invoices() {
                       <p className="text-sm text-gray-600">{invoice.payment_terms}</p>
                     </div>
                   )}
+                  <div className="mt-6 flex flex-wrap gap-3 pt-6 border-t border-gray-100">
+                    <button
+                      onClick={() => openEditInvoice(invoice)}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-medium text-sm"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => openInvoicePdf(invoice, true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors font-medium text-sm"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      Download PDF
+                    </button>
+                    <button
+                      onClick={() => handleWhatsAppSend(invoice)}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors font-medium text-sm"
+                    >
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                      </svg>
+                      WhatsApp
+                    </button>
+                    <button
+                      onClick={() => handleDeleteInvoice(invoice)}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors font-medium text-sm ml-auto"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
+            )}
+          </>
         )}
       </div>
+
+      {/* Invoice Details Modal */}
+      {showViewModal && viewInvoice && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-4 max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-blue-600">Invoice Details</p>
+                <h2 className="text-2xl font-black text-gray-900">{viewInvoice.invoice_number || `INV-${viewInvoice.id}`}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowViewModal(false)}
+                className="w-10 h-10 inline-flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                title="Close"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-slate-50 rounded-lg border border-slate-200 p-4 md:col-span-2">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Company</p>
+                  <p className="text-lg font-black text-gray-900">{viewInvoice.company_name || viewInvoice.client_name || 'No company'}</p>
+                  {viewInvoice.contact_person ? <p className="text-sm text-gray-500 mt-1">Contact: {viewInvoice.contact_person}</p> : null}
+                </div>
+                <div className="bg-slate-50 rounded-lg border border-slate-200 p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Issue / Due</p>
+                  <p className="text-sm font-bold text-gray-900">{fmtDate(viewInvoice.issue_date)}</p>
+                  <p className="text-sm text-gray-500">Due: {fmtDate(viewInvoice.due_date)}</p>
+                </div>
+                <div className="bg-emerald-50 rounded-lg border border-emerald-200 p-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-2">Total Amount</p>
+                  <p className="text-2xl font-black text-emerald-700">Rs. {fmtMoney(viewInvoice.total_amount || 0)}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500 font-bold">Subtotal</p>
+                  <p className="font-black text-gray-900">Rs. {fmtMoney(viewInvoice.subtotal || 0)}</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500 font-bold">GST</p>
+                  <p className="font-black text-gray-900">{fmtMoney(viewInvoice.tax_percentage || 0)}%</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500 font-bold">TDS</p>
+                  <p className="font-black text-gray-900">{fmtMoney(viewInvoice.tds_percentage || 0)}%</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500 font-bold">Discount</p>
+                  <p className="font-black text-gray-900">{fmtMoney(viewInvoice.discount_percentage || 0)}%</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500 font-bold">Status</p>
+                  <span className={`inline-flex mt-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getStatusColor(viewInvoice.status)}`}>
+                    {viewInvoice.status || 'draft'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                  <h3 className="text-sm font-black text-gray-900">Items</h3>
+                  <span className="text-xs font-bold text-gray-500">
+                    {Array.isArray(viewInvoice.items) ? viewInvoice.items.length : 0} item(s)
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-white">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-black text-gray-500 uppercase tracking-widest">Item Name</th>
+                        <th className="px-4 py-3 text-right text-xs font-black text-gray-500 uppercase tracking-widest">Quantity</th>
+                        <th className="px-4 py-3 text-right text-xs font-black text-gray-500 uppercase tracking-widest">Unit Price</th>
+                        <th className="px-4 py-3 text-right text-xs font-black text-gray-500 uppercase tracking-widest">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {Array.isArray(viewInvoice.items) && viewInvoice.items.length > 0 ? (
+                        viewInvoice.items.map((item, idx) => (
+                          <tr key={`${item.item_name || 'item'}-${idx}`}>
+                            <td className="px-4 py-3">
+                              <div className="font-bold text-gray-900">{item.item_name || '-'}</div>
+                              {item.description ? <div className="text-xs text-gray-500 mt-0.5">{item.description}</div> : null}
+                            </td>
+                            <td className="px-4 py-3 text-right text-sm text-gray-700">{item.quantity || 0}</td>
+                            <td className="px-4 py-3 text-right text-sm text-gray-700">Rs. {fmtMoney(item.unit_price || 0)}</td>
+                            <td className="px-4 py-3 text-right text-sm font-black text-gray-900">Rs. {fmtMoney(item.total_price || (Number(item.quantity || 0) * Number(item.unit_price || 0)))}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="4" className="px-4 py-6 text-center text-sm text-gray-500">No items found for this invoice.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {(viewInvoice.notes || viewInvoice.payment_terms) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {viewInvoice.notes ? (
+                    <div className="rounded-lg bg-slate-50 border border-slate-200 p-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Notes</p>
+                      <p className="text-sm text-gray-700">{viewInvoice.notes}</p>
+                    </div>
+                  ) : null}
+                  {viewInvoice.payment_terms ? (
+                    <div className="rounded-lg bg-slate-50 border border-slate-200 p-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Payment Terms</p>
+                      <p className="text-sm text-gray-700">{viewInvoice.payment_terms}</p>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowViewModal(false);
+                    openEditInvoice(viewInvoice);
+                  }}
+                  className="px-4 py-2 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100"
+                >
+                  <i className="fas fa-edit mr-2"></i>
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openInvoicePdf(viewInvoice, true)}
+                  className="px-4 py-2 rounded-lg bg-green-50 text-green-700 font-bold hover:bg-green-100"
+                >
+                  <i className="fas fa-download mr-2"></i>
+                  Download PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowViewModal(false)}
+                  className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-bold hover:bg-gray-200"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Invoice Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
           <div className="bg-white rounded-lg p-4 w-full max-w-5xl my-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-lg font-bold">Create Invoice</h2>
+            <div className="flex justify-between items-center mb-6 pb-4 border-b">
+              <h2 className="text-2xl font-bold text-gray-900">
+                {editingInvoiceId ? 'Edit Invoice' : 'Create New Invoice'}
+              </h2>
               <button
-                onClick={() => setShowModal(false)}
-                className="text-gray-500 hover:text-gray-700"
+                onClick={() => {
+                  setShowModal(false);
+                  setEditingInvoiceId(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500"
               >
-                ✕
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-3">
@@ -714,19 +1037,22 @@ export default function Invoices() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-end space-x-2 pt-2 border-t">
+              <div className="flex justify-end space-x-3 pt-6 border-t mt-6">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-3 py-1.5 text-sm border rounded hover:bg-gray-50"
+                  onClick={() => {
+                    setShowModal(false);
+                    setEditingInvoiceId(null);
+                  }}
+                  className="px-6 py-2.5 text-sm font-semibold border border-gray-300 rounded-xl hover:bg-gray-50 transition-all"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                  className="px-6 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all"
                 >
-                  Create Invoice
+                  {editingInvoiceId ? 'Update Invoice' : 'Create Invoice'}
                 </button>
               </div>
             </form>

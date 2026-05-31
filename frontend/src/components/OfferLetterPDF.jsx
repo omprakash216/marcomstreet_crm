@@ -25,6 +25,7 @@ const OfferLetterPDF = ({
   otherAllowance = '2,300',
   grossSalary = '24,000',
   netSalary = '24,000',
+  showPrintButton = true,
   currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
 }) => {
   const title = gender === 'female' ? 'Ms.' : 'Mr.';
@@ -60,10 +61,9 @@ const OfferLetterPDF = ({
     >
       <header className={`offer-letter-sheet-header ${showTitle ? 'offer-letter-sheet-header--title' : ''}`}>
         {showTitle ? (
-          <>
+          <div className="offer-letter-sheet-title-block">
             <h1 className="offer-letter-sheet-title">Offer of Employment</h1>
-            <div className="offer-letter-sheet-title-line" />
-          </>
+          </div>
         ) : (
           <>
             <div className="offer-letter-sheet-top-spacer" aria-hidden="true" />
@@ -290,14 +290,16 @@ const OfferLetterPDF = ({
         </OfferPage>
       </div>
 
-      <div className="text-center mt-6 no-print">
-        <button
-          onClick={() => window.print()}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md transition-colors"
-        >
-          Print Offer Letter
-        </button>
-      </div>
+      {showPrintButton && (
+        <div className="text-center mt-6 no-print">
+          <button
+            onClick={() => window.print()}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md transition-colors"
+          >
+            Print Offer Letter
+          </button>
+        </div>
+      )}
     </div>
   );
 };

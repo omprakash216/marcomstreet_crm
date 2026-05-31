@@ -8,21 +8,45 @@ function pad(n) {
 }
 
 function getTodayDate() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
 }
 
 function getCurrentTime() {
   return new Date().toTimeString().slice(0, 8);
 }
 
+function normalizeDateString(dateStr) {
+  if (!dateStr) return '';
+  if (dateStr instanceof Date) {
+    const local = new Date(dateStr.getTime() - dateStr.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+  const raw = String(dateStr);
+  const match = raw.match(/\d{4}-\d{2}-\d{2}/);
+  if (match) return match[0];
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+  return '';
+}
+
 function getDateTimeString(dateStr, timeStr) {
-  return `${dateStr}T${String(timeStr || '00:00:00').slice(0, 8)}`;
+  const safeDate = normalizeDateString(dateStr);
+  if (!safeDate) return '';
+  return `${safeDate}T${String(timeStr || '00:00:00').slice(0, 8)}`;
 }
 
 function diffSeconds(dateStr, startTime, endTime) {
   if (!dateStr || !startTime || !endTime) return 0;
-  const start = new Date(getDateTimeString(dateStr, startTime));
-  const end = new Date(getDateTimeString(dateStr, endTime));
+  const startStr = getDateTimeString(dateStr, startTime);
+  const endStr = getDateTimeString(dateStr, endTime);
+  if (!startStr || !endStr) return 0;
+  const start = new Date(startStr);
+  const end = new Date(endStr);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000));
 }
@@ -85,6 +109,7 @@ function normalizeAttendanceRow(row = {}) {
     can_start_break: row.status === 'checked_in',
     can_resume: row.status === 'on_break',
     can_clock_out: row.status === 'checked_in' || row.status === 'on_break',
+    can_reset_timer: row.status === 'checked_in' || row.status === 'on_break',
   };
 }
 
@@ -150,6 +175,7 @@ async function recalculateAttendance(attendanceId) {
 }
 
 async function getTodaySummary(employeeId) {
+  const serverTimeMs = Date.now();
   const record = await ensureTodayRow(employeeId);
   if (!record) {
     const target = await getShiftTargetSeconds(employeeId, getTodayDate());
@@ -160,6 +186,7 @@ async function getTodaySummary(employeeId) {
       attendance: null,
       goal_seconds: target,
       goal_time: formatSeconds(target),
+      server_time_ms: serverTimeMs,
     };
   }
 
@@ -171,6 +198,7 @@ async function getTodaySummary(employeeId) {
     attendance: updated,
     goal_seconds: updated.target_seconds || DAILY_TARGET_SECONDS,
     goal_time: formatSeconds(updated.target_seconds || DAILY_TARGET_SECONDS),
+    server_time_ms: serverTimeMs,
   };
 }
 
@@ -284,6 +312,43 @@ async function clockOut(employeeId, payload = {}) {
     [nowTime, location, record.id]
   );
   return recalculateAttendance(record.id);
+}
+
+async function resetTimer(employeeId, payload = {}) {
+  const record = await ensureTodayRow(employeeId);
+  if (!record || !['checked_in', 'on_break'].includes(record.status)) {
+    throw new Error('No active session found for timer reset');
+  }
+
+  const nowTime = getCurrentTime();
+  const location = payload.location || record.check_in_location || 'Office';
+  const latitude = payload.latitude || record.latitude || null;
+  const longitude = payload.longitude || record.longitude || null;
+
+  await query('DELETE FROM break_logs WHERE attendance_id = ?', [record.id]).catch(() => {});
+
+  await query(
+    `UPDATE employee_checkins
+     SET check_in_time = ?,
+         check_out_time = NULL,
+         check_in_location = ?,
+         check_out_location = NULL,
+         time = ?,
+         location = ?,
+         latitude = ?,
+         longitude = ?,
+         status = 'checked_in',
+         current_break_start_time = NULL,
+         worked_seconds = 0,
+         break_seconds = 0,
+         overtime_seconds = 0,
+         total_hours = 0
+     WHERE id = ?`,
+    [nowTime, location, nowTime, location, latitude, longitude, record.id]
+  );
+
+  const [resetRecord] = await query('SELECT * FROM employee_checkins WHERE id = ?', [record.id]);
+  return normalizeAttendanceRow(resetRecord);
 }
 
 async function getAttendanceHistory(employee, filters = {}) {
@@ -429,6 +494,7 @@ module.exports = {
   startBreak,
   endBreak,
   clockOut,
+  resetTimer,
   getAttendanceHistory,
   getAdminAttendanceAnalytics,
   closeOpenAttendanceRecords,

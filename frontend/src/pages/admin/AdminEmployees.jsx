@@ -1,18 +1,33 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../utils/api';
+import { getEmployee } from '../../utils/auth';
 
 function AdminEmployees() {
   const [employees, setEmployees] = useState([]);
+  const [companies, setCompanies] = useState([]);
   const navigate = useNavigate();
+  const location = useLocation();
+  const isAdminShell = location.pathname.startsWith('/admin');
+  const modalContentInsetClass = isAdminShell
+    ? 'fixed top-24 bottom-0 left-0 right-0 lg:left-72'
+    : 'fixed top-24 bottom-0 left-0 right-0 lg:left-64';
+  const currentUser = getEmployee();
+  const currentRole = (currentUser?.role || '').toLowerCase();
+  const isSuperAdmin = currentRole === 'superadmin' || currentRole === 'super_admin';
+  const canResetPassword = currentRole === 'admin';
+  const canToggleStatus = currentRole === 'admin' || currentRole === 'human_resources';
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [editingEmployee, setEditingEmployee] = useState(null);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 10;
   const [filter, setFilter] = useState({
     search: '',
+    company_id: '',
     role: '',
     department_id: '',
     status: ''
@@ -68,7 +83,11 @@ function AdminEmployees() {
     branch_name: '',
     account_holder_name: '',
     pan_number: '',
-    aadhar_number: ''
+    aadhar_number: '',
+
+    // Access Control
+    access_template: 'default', // default | crm_only | hrms_only | minimal | custom
+    access_modules: getTemplateModules('default', 'employee'),
   });
 
   /* Removed Offer Modal Logic - Refactored to DocumentGenerator page */
@@ -77,6 +96,7 @@ function AdminEmployees() {
   useEffect(() => {
     fetchEmployees();
     fetchDepartments();
+    if (isSuperAdmin) fetchCompanies();
   }, []);
 
   const handleOffer = (emp) => {
@@ -105,6 +125,18 @@ function AdminEmployees() {
       }
     } catch (error) {
       console.error('Error fetching departments:', error);
+    }
+  };
+
+  const fetchCompanies = async () => {
+    try {
+      const response = await api.get('/admin/companies');
+      if (response.data?.success) {
+        setCompanies(Array.isArray(response.data.data) ? response.data.data : []);
+      }
+    } catch (error) {
+      console.error('Error fetching companies:', error);
+      setCompanies([]);
     }
   };
 
@@ -196,62 +228,149 @@ function AdminEmployees() {
       branch_name: '',
       account_holder_name: '',
       pan_number: '',
-      aadhar_number: ''
+      aadhar_number: '',
+
+      // Access Control
+      access_template: 'default',
+      access_modules: getTemplateModules('default', 'employee'),
     });
   };
 
-  const handleEdit = (emp) => {
+  const ACCESS_MODULES = [
+    { key: 'leads', label: 'Leads' },
+    { key: 'meetings', label: 'Meetings' },
+    { key: 'tasks', label: 'Tasks' },
+    { key: 'followups', label: 'Follow Ups' },
+    { key: 'quotations', label: 'Quotations' },
+    { key: 'invoices', label: 'Invoices' },
+    { key: 'reports', label: 'Reports' },
+    { key: 'history', label: 'History' },
+    { key: 'whatsapp', label: 'WhatsApp' },
+    { key: 'group_meetings', label: 'Group Meetings' },
+    { key: 'hrms', label: 'HRMS Full Suite' },
+    { key: 'hrms_attendance', label: 'HRMS Attendance' },
+    { key: 'hrms_leaves', label: 'HRMS Leaves' },
+    { key: 'hrms_salary', label: 'Salary Slips' },
+    { key: 'hrms_documents', label: 'HR Documents' },
+    { key: 'hrms_departments', label: 'Departments' },
+    { key: 'hrms_designations', label: 'Designations' },
+    { key: 'hrms_shifts', label: 'Shift Management' },
+    { key: 'hrms_holidays', label: 'Holidays' },
+    { key: 'hrms_announcements', label: 'Announcements' },
+    { key: 'hrms_performance', label: 'Performance' },
+    { key: 'hrms_settings', label: 'HR Settings' },
+    { key: 'hrms_reports', label: 'HR Reports' },
+    { key: 'chat', label: 'Chat' },
+    { key: 'calendar', label: 'Calendar' },
+    { key: 'notifications', label: 'Notifications' },
+  ];
+
+  function getTemplateModules(templateKey, roleKey) {
+    const common = ['calendar', 'notifications', 'chat'];
+    const crm = ['leads', 'meetings', 'tasks', 'followups', 'quotations', 'invoices', 'reports', 'history', 'whatsapp', 'group_meetings'];
+    const hrms = [
+      'hrms',
+      'hrms_attendance',
+      'hrms_leaves',
+      'hrms_salary',
+      'hrms_documents',
+      'hrms_departments',
+      'hrms_designations',
+      'hrms_shifts',
+      'hrms_holidays',
+      'hrms_announcements',
+      'hrms_performance',
+      'hrms_settings',
+      'hrms_reports',
+    ];
+
+    if (templateKey === 'crm_only') return Array.from(new Set([...common, ...crm]));
+    if (templateKey === 'hrms_only') return Array.from(new Set([...common, ...hrms]));
+    if (templateKey === 'minimal') return Array.from(new Set([...common]));
+
+    const r = String(roleKey || 'employee')
+      .toLowerCase()
+      .trim()
+      .replace(/[\s-]+/g, '_');
+    if (r === 'human_resources' || r === 'human_resource' || r === 'hr' || r === 'hr_manager') {
+      return Array.from(new Set([...common, ...hrms]));
+    }
+    if (r === 'manager') return Array.from(new Set([...common, ...crm, ...hrms]));
+    if (r === 'admin') return Array.from(new Set([...common, ...crm, ...hrms]));
+    return Array.from(new Set([...common, ...crm, ...hrms]));
+  }
+
+  const handleEdit = async (emp) => {
     setEditingEmployee(emp);
+
+    let detail = emp;
+    try {
+      const detailRes = await api.get(`/admin/employees?id=${emp.id}`);
+      if (detailRes.data?.success && detailRes.data?.employee) {
+        detail = detailRes.data.employee;
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    const existingModules = Array.isArray(detail?.access_modules) ? detail.access_modules : [];
+    const accessTemplate = existingModules.length ? 'custom' : 'default';
+    const effectiveModules = existingModules.length ? existingModules : getTemplateModules('default', detail?.role || emp?.role);
+
     setFormData({
       // Basic Information
-      employee_code: emp.employee_code || '',
-      name: emp.name || '',
-      email: emp.email || '',
-      phone: emp.phone || '',
+      employee_code: detail.employee_code || '',
+      name: detail.name || '',
+      email: detail.email || '',
+      phone: detail.phone || '',
       password: '',
-      role: emp.role || 'employee',
-      department_id: emp.department_id || '',
-      designation: emp.designation || '',
-      status: emp.status || 'active',
+      role: detail.role || 'employee',
+      department_id: detail.department_id || '',
+      designation: detail.designation || '',
+      status: detail.status || 'active',
 
       // Personal Details (for offer letters)
-      address: emp.address || '',
-      permanent_address: emp.permanent_address || emp.permenant_address || '',
-      dob: emp.dob || '',
-      gender: emp.gender || '',
-      marital_status: emp.marital_status || '',
-      emergency_contact_name: emp.emergency_contact_name || '',
-      emergency_contact_phone: emp.emergency_contact_phone || '',
+      address: detail.address || '',
+      permanent_address: detail.permanent_address || detail.permenant_address || '',
+      dob: detail.dob || '',
+      gender: detail.gender || '',
+      marital_status: detail.marital_status || '',
+      emergency_contact_name: detail.emergency_contact_name || '',
+      emergency_contact_phone: detail.emergency_contact_phone || '',
 
       // Professional Background (for offer letters)
-      education: emp.education || '',
-      experience_years: emp.experience_years || '',
-      previous_experience: emp.previous_experience || '',
+      education: detail.education || '',
+      experience_years: detail.experience_years || '',
+      previous_experience: detail.previous_experience || '',
 
       // Employment Details (for offer letters)
-      joining_date: emp.joining_date || '',
-      employment_type: emp.employment_type || 'full_time',
-      probation_period: emp.probation_period || '3',
-      basic_salary: emp.basic_salary || '',
-      hra: emp.hra || '',
-      conveyance: emp.conveyance || '',
-      medical_allowance: emp.medical_allowance || '',
-      lta: emp.lta || '',
-      other_allowances: emp.other_allowances || '',
-      pf_contribution: emp.pf_contribution || '',
-      gratuity: emp.gratuity || '',
+      joining_date: detail.joining_date || '',
+      employment_type: detail.employment_type || 'full_time',
+      probation_period: detail.probation_period || '3',
+      basic_salary: detail.basic_salary || '',
+      hra: detail.hra || '',
+      conveyance: detail.conveyance || '',
+      medical_allowance: detail.medical_allowance || '',
+      lta: detail.lta || '',
+      other_allowances: detail.other_allowances || '',
+      pf_contribution: detail.pf_contribution || '',
+      gratuity: detail.gratuity || '',
 
       // Additional Info
-      previous_company: emp.previous_company || '',
-      previous_designation: emp.previous_designation || '',
-      qualification: emp.qualification || '',
-      bank_account: emp.bank_account || '',
-      bank_name: emp.bank_name || '',
-      ifsc_code: emp.ifsc_code || '',
-      branch_name: emp.branch_name || '',
-      account_holder_name: emp.account_holder_name || '',
-      pan_number: emp.pan_number || '',
-      aadhar_number: emp.aadhar_number || ''
+      previous_company: detail.previous_company || '',
+      previous_designation: detail.previous_designation || '',
+      qualification: detail.qualification || '',
+      bank_account: detail.bank_account || '',
+      bank_name: detail.bank_name || '',
+      ifsc_code: detail.ifsc_code || '',
+      branch_name: detail.branch_name || '',
+      account_holder_name: detail.account_holder_name || '',
+      pan_number: detail.pan_number || '',
+      aadhar_number: detail.aadhar_number || '',
+
+      // Access Control
+      access_template: accessTemplate,
+      access_modules: effectiveModules,
     });
     setShowModal(true);
   };
@@ -283,6 +402,34 @@ function AdminEmployees() {
     }
   };
 
+  const handleResetPassword = async (emp) => {
+    const newPassword = window.prompt('Enter new password (leave blank to auto-generate):');
+    try {
+      const response = await api.post(`/admin/employees/${emp.id}/reset-password`, {
+        new_password: newPassword || null,
+      });
+      if (response.data.success) {
+        const pwd = response.data.data?.password;
+        alert(pwd ? `Password reset. New password: ${pwd}` : 'Password reset.');
+      }
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to reset password');
+    }
+  };
+
+  const handleToggleStatus = async (emp) => {
+    const nextStatus = emp.status === 'active' ? 'inactive' : 'active';
+    if (!window.confirm(`Mark ${emp.name} as ${nextStatus}?`)) return;
+    try {
+      const response = await api.patch(`/admin/employees/${emp.id}/status`, { status: nextStatus });
+      if (response.data.success) {
+        fetchEmployees();
+      }
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to update status');
+    }
+  };
+
   const handleFilterChange = (field, value) => {
     setFilter(prev => ({ ...prev, [field]: value }));
   };
@@ -290,31 +437,91 @@ function AdminEmployees() {
   const clearFilters = () => {
     setFilter({
       search: '',
+      company_id: '',
       role: '',
       department_id: '',
       status: ''
     });
   };
 
-  const filteredEmployees = employees.filter(emp => {
+  const isSuperAdminEmployee = (emp) => {
+    const role = String(emp?.role || '').toLowerCase();
+    return role === 'superadmin' || role === 'super_admin';
+  };
+
+  const baseEmployees = employees.filter((emp) => !isSuperAdminEmployee(emp));
+
+  const companyMap = new Map(companies.map((c) => [String(c.id), c.company_name || `Company #${c.id}`]));
+
+  const departmentOptions = (() => {
+    if (!isSuperAdmin) return departments;
+    if (!filter.company_id) return departments;
+
+    const hasCompanyField = departments.some((d) => d && d.company_id !== undefined && d.company_id !== null);
+    if (hasCompanyField) {
+      return departments.filter((d) => String(d.company_id) === String(filter.company_id));
+    }
+
+    const deptIds = new Set(
+      baseEmployees
+        .filter((e) => String(e.company_id) === String(filter.company_id))
+        .map((e) => String(e.department_id || ''))
+        .filter(Boolean)
+    );
+    return departments.filter((d) => deptIds.has(String(d.id)));
+  })();
+
+  const filteredEmployees = baseEmployees.filter(emp => {
     const matchesSearch = filter.search === '' ||
       emp.name.toLowerCase().includes(filter.search.toLowerCase()) ||
       emp.email.toLowerCase().includes(filter.search.toLowerCase()) ||
       emp.employee_code?.toLowerCase().includes(filter.search.toLowerCase());
 
+    const matchesCompany = filter.company_id === '' || String(emp.company_id) === String(filter.company_id);
     const matchesRole = filter.role === '' || emp.role === filter.role;
     const matchesDept = filter.department_id === '' || String(emp.department_id) === String(filter.department_id);
     const matchesStatus = filter.status === '' || emp.status === filter.status;
 
-    return matchesSearch && matchesRole && matchesDept && matchesStatus;
+    return matchesSearch && matchesCompany && matchesRole && matchesDept && matchesStatus;
   });
+
+  useEffect(() => {
+    // When filters change, reset to the first page.
+    setPage(0);
+  }, [filter.search, filter.company_id, filter.role, filter.department_id, filter.status, employees.length]);
+
+  useEffect(() => {
+    // If company changes, reset department filter (avoid mismatched department ids)
+    if (!isSuperAdmin) return;
+    if (!filter.company_id) return;
+    if (!filter.department_id) return;
+    const ok = departmentOptions.some((d) => String(d.id) === String(filter.department_id));
+    if (!ok) {
+      setFilter((prev) => ({ ...prev, department_id: '' }));
+    }
+  }, [filter.company_id, filter.department_id, isSuperAdmin, departmentOptions.length]);
+
+  const sortedEmployees = [...filteredEmployees].sort((a, b) => {
+    // Prefer created_at when available; fallback to id.
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    if (ta && tb && ta !== tb) return tb - ta;
+    return (Number(b?.id) || 0) - (Number(a?.id) || 0);
+  });
+
+  const totalRows = sortedEmployees.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  const safePage = Math.min(Math.max(page, 0), totalPages - 1);
+  const startIndex = safePage * PAGE_SIZE;
+  const endIndex = Math.min(startIndex + PAGE_SIZE, totalRows);
+  const paginatedEmployees = sortedEmployees.slice(startIndex, endIndex);
 
   // Calculate Statistics
   const stats = {
-    total: employees.length,
-    active: employees.filter(e => e.status === 'active').length,
-    inactive: employees.filter(e => e.status === 'inactive').length,
-    departments: new Set(employees.filter(e => e.department_id).map(e => e.department_id)).size
+    total: baseEmployees.length,
+    active: baseEmployees.filter(e => e.status === 'active').length,
+    inactive: baseEmployees.filter(e => e.status === 'inactive').length,
+    departments: new Set(baseEmployees.filter(e => e.department_id).map(e => e.department_id)).size
   };
 
   return (
@@ -393,7 +600,7 @@ function AdminEmployees() {
 
       {/* Enhanced Filters Section */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 lg:grid-cols-6 gap-4">
           <div className="lg:col-span-2">
             <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Search Employee</label>
             <div className="relative">
@@ -409,6 +616,25 @@ function AdminEmployees() {
               />
             </div>
           </div>
+
+          {isSuperAdmin && (
+            <div>
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-2">By Company</label>
+              <select
+                value={filter.company_id}
+                onChange={(e) => handleFilterChange('company_id', e.target.value)}
+                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              >
+                <option value="">All Companies</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.company_name || `Company #${c.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-bold text-gray-400 uppercase mb-2">By Role</label>
             <select
@@ -432,8 +658,11 @@ function AdminEmployees() {
               className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
             >
               <option value="">All Departments</option>
-              {departments.map(dept => (
-                <option key={dept.id} value={dept.id}>{dept.name}</option>
+              {departmentOptions.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                  {isSuperAdmin && !filter.company_id && dept.company_id ? ` (${companyMap.get(String(dept.company_id)) || `Company #${dept.company_id}`})` : ''}
+                </option>
               ))}
             </select>
           </div>
@@ -481,13 +710,13 @@ function AdminEmployees() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr><td colSpan="9" className="px-6 py-12 text-center text-gray-400"><i className="fas fa-spinner fa-spin mr-2"></i>Loading employees...</td></tr>
-              ) : filteredEmployees.length === 0 ? (
+              ) : totalRows === 0 ? (
                 <tr><td colSpan="9" className="px-6 py-12 text-center text-gray-400">No employees match your filters</td></tr>
               ) : (
-                filteredEmployees.map((emp, index) => (
+                paginatedEmployees.map((emp, index) => (
                   <tr key={emp.id} className="hover:bg-blue-50/30 transition-colors group">
                     <td className="px-4 py-4 text-xs font-bold text-gray-400">
-                      {(index + 1).toString().padStart(2, '0')}
+                      {(startIndex + index + 1).toString().padStart(2, '0')}
                     </td>
                     <td className="px-4 py-4">
                       <p className="font-bold text-gray-900 text-sm leading-tight">{emp.name}</p>
@@ -516,6 +745,27 @@ function AdminEmployees() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex justify-end space-x-2">
+                        {canToggleStatus && (
+                          <button
+                            onClick={() => handleToggleStatus(emp)}
+                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${emp.status === 'active'
+                                ? 'text-red-600 bg-red-50 hover:bg-red-100'
+                                : 'text-green-600 bg-green-50 hover:bg-green-100'
+                              }`}
+                            title={emp.status === 'active' ? 'Deactivate Employee' : 'Activate Employee'}
+                          >
+                            <i className={`fas ${emp.status === 'active' ? 'fa-user-slash' : 'fa-user-check'} text-sm`}></i>
+                          </button>
+                        )}
+                        {canResetPassword && (
+                          <button
+                            onClick={() => handleResetPassword(emp)}
+                            className="w-8 h-8 flex items-center justify-center text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all"
+                            title="Reset Password"
+                          >
+                            <i className="fas fa-key text-sm"></i>
+                          </button>
+                        )}
                         <button
                           onClick={() => handleOffer(emp)}
                           className="w-8 h-8 flex items-center justify-center text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all"
@@ -552,17 +802,47 @@ function AdminEmployees() {
             </tbody>
           </table>
         </div>
+
+        {!loading && totalRows > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-gray-100 bg-white">
+            <div className="text-xs text-gray-500">
+              Showing <span className="font-semibold text-gray-700">{startIndex + 1}</span>-<span className="font-semibold text-gray-700">{endIndex}</span> of{' '}
+              <span className="font-semibold text-gray-700">{totalRows}</span>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={safePage === 0}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <div className="text-xs text-gray-500">
+                Page <span className="font-semibold text-gray-700">{safePage + 1}</span> / <span className="font-semibold text-gray-700">{totalPages}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={safePage >= totalPages - 1}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-hidden flex flex-col animate-in fade-in zoom-in duration-300">
+        <div className={`${modalContentInsetClass} bg-gray-900/35 flex items-center justify-center z-[100] p-4`}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[96vw] sm:max-w-5xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in duration-300">
             {/* Professional Header */}
-            <div className="px-8 py-6 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 border-b border-blue-500 flex-shrink-0">
-              <div className="flex justify-between items-center">
+            <div className="px-4 sm:px-8 py-4 sm:py-6 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 border-b border-blue-500 flex-shrink-0">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
-                  <h1 className="text-3xl font-bold text-white mb-1">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-white mb-1">
                     {editingEmployee ? 'Update Employee Profile' : 'Register New Employee'}
                   </h1>
                   <p className="text-blue-100 text-sm">
@@ -571,21 +851,21 @@ function AdminEmployees() {
                 </div>
                 <button
                   onClick={() => setShowModal(false)}
-                  className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white rounded-xl backdrop-blur-md transition-all border border-white/20 shadow-lg hover:shadow-xl"
+                  className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white rounded-xl backdrop-blur-md transition-all border border-white/20 shadow-lg hover:shadow-xl self-start sm:self-auto"
                   title="Close"
                 >
-                  <i className="fas fa-times text-lg"></i>
+                  <i className="fas fa-times text-base sm:text-lg"></i>
                 </button>
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
-              <form id="employeeForm" onSubmit={handleSubmit} className="space-y-8">
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 custom-scrollbar">
+              <form id="employeeForm" onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
 
                 {/* Personal Information Section */}
-                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm">
+                  <div className="flex items-center space-x-3 mb-4 sm:mb-6">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
                       <i className="fas fa-user"></i>
                     </div>
                     <div>
@@ -659,9 +939,9 @@ function AdminEmployees() {
                 </div>
 
                 {/* Employment Details Section */}
-                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm">
+                  <div className="flex items-center space-x-3 mb-4 sm:mb-6">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
                       <i className="fas fa-briefcase"></i>
                     </div>
                     <div>
@@ -677,7 +957,17 @@ function AdminEmployees() {
                       </label>
                       <select
                         value={formData.role}
-                        onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                        onChange={(e) => {
+                          const nextRole = e.target.value;
+                          setFormData((prev) => {
+                            const next = { ...prev, role: nextRole };
+                            if (prev.access_template !== 'custom') {
+                              const templateKey = prev.access_template || 'default';
+                              next.access_modules = getTemplateModules(templateKey, nextRole);
+                            }
+                            return next;
+                          });
+                        }}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
                       >
                         <option value="employee">Employee</option>
@@ -716,13 +1006,108 @@ function AdminEmployees() {
                         placeholder="e.g. Senior Developer"
                       />
                     </div>
+
+                    <div className="md:col-span-2">
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+                          <div>
+                            <p className="text-sm font-bold text-gray-900">Module Access</p>
+                            <p className="text-xs text-gray-500">Select what this employee can access after login</p>
+                          </div>
+                          <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                            <select
+                              value={formData.access_template}
+                              onChange={(e) => {
+                                const templateKey = e.target.value;
+                                setFormData((prev) => {
+                                  const next = { ...prev, access_template: templateKey };
+                                  if (templateKey !== 'custom') {
+                                    next.access_modules = getTemplateModules(templateKey, prev.role);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="w-full sm:w-64 px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                            >
+                              <option value="default">Default (Based on Role)</option>
+                              <option value="crm_only">CRM Only</option>
+                              <option value="hrms_only">HRMS Only</option>
+                              <option value="minimal">Minimal (Calendar/Chat)</option>
+                              <option value="custom">Custom</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  access_template: 'custom',
+                                  access_modules: [],
+                                }));
+                              }}
+                              className="w-full sm:w-auto px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                              title="Clear selections"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+
+                        {formData.access_template === 'custom' ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {ACCESS_MODULES.map((m) => {
+                              const checked = Array.isArray(formData.access_modules) && formData.access_modules.includes(m.key);
+                              return (
+                                <label
+                                  key={m.key}
+                                  className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-gray-200 hover:border-blue-200 hover:bg-blue-50/30 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      const on = e.target.checked;
+                                      setFormData((prev) => {
+                                        const current = Array.isArray(prev.access_modules) ? prev.access_modules : [];
+                                        const nextModules = on
+                                          ? Array.from(new Set([...current, m.key]))
+                                          : current.filter((x) => x !== m.key);
+                                        return { ...prev, access_modules: nextModules };
+                                      });
+                                    }}
+                                    className="h-4 w-4"
+                                  />
+                                  <span className="text-sm text-gray-700">{m.label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {(formData.access_modules || []).slice(0, 50).map((k) => {
+                              const label = ACCESS_MODULES.find((m) => m.key === k)?.label || k;
+                              return (
+                                <span key={k} className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                                  {label}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {formData.access_template === 'custom' && (formData.access_modules || []).length === 0 ? (
+                          <p className="text-xs text-amber-700 mt-3">
+                            If you keep this empty, the employee will see only basic pages (Dashboard/Calendar may still show depending on navigation).
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Account Details Section */}
-                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm">
+                  <div className="flex items-center space-x-3 mb-4 sm:mb-6">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
                       <i className="fas fa-university"></i>
                     </div>
                     <div>
@@ -804,9 +1189,9 @@ function AdminEmployees() {
                 </div>
 
                 {/* Additional Information Section */}
-                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <div className="w-10 h-10 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center">
+                <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm">
+                  <div className="flex items-center space-x-3 mb-4 sm:mb-6">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center">
                       <i className="fas fa-info-circle"></i>
                     </div>
                     <div>
@@ -867,16 +1252,16 @@ function AdminEmployees() {
             </div>
 
             {/* Professional Action Footer */}
-            <div className="px-8 py-6 bg-gray-50 border-t border-gray-200 flex justify-between items-center flex-shrink-0">
-              <div className="text-sm text-gray-500">
+            <div className="px-4 sm:px-8 py-4 sm:py-6 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 flex-shrink-0">
+              <div className="text-xs sm:text-sm text-gray-500">
                 <i className="fas fa-info-circle mr-2"></i>
                 All fields marked with <span className="text-red-500">*</span> are required
               </div>
-              <div className="flex items-center space-x-4">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-6 py-3 text-sm font-semibold text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-all"
+                  className="w-full sm:w-auto px-6 py-3 text-sm font-semibold text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-all"
                 >
                   <i className="fas fa-times mr-2"></i>
                   Cancel
@@ -884,7 +1269,7 @@ function AdminEmployees() {
                 <button
                   form="employeeForm"
                   type="submit"
-                  className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-semibold text-sm shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all active:scale-95 flex items-center"
+                  className="w-full sm:w-auto px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-semibold text-sm shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all active:scale-95 flex items-center justify-center"
                 >
                   <i className="fas fa-user-plus mr-2"></i>
                   {editingEmployee ? 'Update Employee' : 'Register Employee'}
@@ -897,7 +1282,7 @@ function AdminEmployees() {
 
       {/* View Modal - Compact Professional Design */}
       {showViewModal && selectedEmployee && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+        <div className={`${modalContentInsetClass} bg-gray-900/35 flex items-center justify-center z-[110] p-4`}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl animate-in fade-in zoom-in duration-300 overflow-hidden flex flex-col border border-gray-200">
             {/* Compact Header */}
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 px-4 py-2 flex-shrink-0">

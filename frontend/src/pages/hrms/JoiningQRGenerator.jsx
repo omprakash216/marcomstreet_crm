@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../utils/api';
-import QRCode from 'qrcode.react';
+import { QRCodeCanvas } from 'qrcode.react';
 
 const JoiningQRGenerator = () => {
     const [qrData, setQrData] = useState(null);
@@ -66,7 +66,7 @@ const JoiningQRGenerator = () => {
                         <div className="text-center">
                             <h3 className="text-xl font-bold mb-4">QR Code Generated Successfully!</h3>
                             <div className="inline-block p-6 bg-white border-4 border-blue-600 rounded-lg">
-                                <QRCode
+                                <QRCodeCanvas
                                     id="qr-code"
                                     value={qrData.url}
                                     size={256}

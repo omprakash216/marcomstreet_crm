@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { getEmployee } from '../utils/auth';
 
-export default function NotificationDropdown() {
+export default function NotificationDropdown({ theme = 'dark' }) {
     const [isOpen, setIsOpen] = useState(false);
     const [notifications, setNotifications] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
@@ -53,11 +53,22 @@ export default function NotificationDropdown() {
     return (
         <div className="relative" ref={dropdownRef}>
             <button
+                type="button"
                 onClick={() => setIsOpen(!isOpen)}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-all relative group"
+                aria-haspopup="menu"
+                aria-expanded={isOpen}
+                className={`p-2 rounded-lg transition-all relative group ${
+                    theme === 'light'
+                        ? 'hover:bg-white/10 text-white/90 hover:text-white'
+                        : 'hover:bg-gray-100'
+                }`}
                 title="Notifications"
             >
-                <i className={`fas fa-bell text-lg transition-colors ${isOpen ? 'text-blue-600' : 'text-gray-600 group-hover:text-blue-600'}`}></i>
+                <i className={`fas fa-bell text-lg transition-colors ${
+                    theme === 'light'
+                        ? 'text-white/90 group-hover:text-white'
+                        : (isOpen ? 'text-blue-600' : 'text-gray-600 group-hover:text-blue-600')
+                }`}></i>
                 {unreadCount > 0 && (
                     <span className="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-1 ring-white">
                         {unreadCount > 9 ? "9+" : unreadCount}
@@ -66,7 +77,7 @@ export default function NotificationDropdown() {
             </button>
 
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 z-50 overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-2rem))] bg-white rounded-xl shadow-2xl border border-gray-100 z-[10000] overflow-hidden animate-in fade-in zoom-in duration-200">
                     <div className="p-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
                         <h3 className="font-bold text-gray-800">Notifications</h3>
                         <Link to="/notifications" onClick={() => setIsOpen(false)} className="text-xs text-blue-600 hover:underline font-medium">

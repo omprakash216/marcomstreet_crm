@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
-import { getEmployee } from '../../utils/auth';
+import { getEmployee, normalizeRole } from '../../utils/auth';
 import {
   BarChart,
   Bar,
@@ -28,15 +28,19 @@ export default function AdminAttendance() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [selectedDepartment, setSelectedDepartment] = useState('all');
   const [viewMode, setViewMode] = useState('overview');
+  const [filterMode, setFilterMode] = useState('month'); // 'month' | 'custom'
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   useEffect(() => {
     const employee = getEmployee();
-    if (!employee || employee.role !== 'admin') {
+    const role = normalizeRole(employee?.role);
+    if (!employee || (role !== 'admin' && role !== 'superadmin' && role !== 'super_admin')) {
       navigate('/login');
       return;
     }
     fetchAttendanceData();
-  }, [navigate, selectedMonth, selectedDepartment]);
+  }, [navigate, selectedMonth, selectedDepartment, filterMode, dateFrom, dateTo]);
 
   const summary = useMemo(() => {
     return data?.summary || {
@@ -102,7 +106,14 @@ export default function AdminAttendance() {
   const fetchAttendanceData = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/admin/attendance?month=${selectedMonth}&department=${selectedDepartment}`);
+      const params = { department: selectedDepartment };
+      if (filterMode === 'month') {
+        params.month = selectedMonth;
+      } else {
+        if (dateFrom) params.date_from = dateFrom;
+        if (dateTo) params.date_to = dateTo;
+      }
+      const response = await api.get('/admin/attendance', { params });
       if (response.data.success) {
         setData(response.data.data);
       }
@@ -114,15 +125,25 @@ export default function AdminAttendance() {
   };
 
   const exportAttendance = async () => {
+    const params = { format: 'csv' };
+    if (filterMode === 'month') {
+      params.month = selectedMonth;
+    } else {
+      if (dateFrom) params.date_from = dateFrom;
+      if (dateTo) params.date_to = dateTo;
+    }
     const response = await api.get('/hrms/attendance/report', {
-      params: { month: selectedMonth, format: 'csv' },
+      params,
       responseType: 'blob',
     });
     const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `attendance-report-${selectedMonth}.csv`;
+    const suffix = filterMode === 'month'
+      ? selectedMonth
+      : `${dateFrom || 'start'}-to-${dateTo || 'end'}`;
+    link.download = `attendance-report-${suffix}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -160,56 +181,107 @@ export default function AdminAttendance() {
               <p className="text-green-100 text-sm md:text-base">Monitor and manage employee attendance across departments</p>
             </div>
           </div>
-          <div className="flex items-center space-x-3">
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="px-4 py-2 bg-white/20 text-white rounded-lg backdrop-blur-sm border border-white/30"
-            >
-              <option value="2024-01">January 2024</option>
-              <option value="2024-02">February 2024</option>
-              <option value="2024-03">March 2024</option>
-              <option value="2024-04">April 2024</option>
-              <option value="2024-05">May 2024</option>
-              <option value="2024-06">June 2024</option>
-              <option value="2026-02">February 2026</option>
-            </select>
-          </div>
         </div>
       </div>
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4">
-        <div className="flex flex-wrap items-center gap-4">
-          <select
-            value={selectedDepartment}
-            onChange={(e) => setSelectedDepartment(e.target.value)}
-            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-          >
-            <option value="all">All Departments</option>
-            <option value="sales">Sales</option>
-            <option value="marketing">Marketing</option>
-            <option value="hr">HR</option>
-            <option value="finance">Finance</option>
-            <option value="it">IT</option>
-          </select>
-          <div className="flex space-x-2">
-            <button
-              onClick={() => setViewMode('overview')}
-              className={`px-4 py-2 rounded-lg font-medium ${
-                viewMode === 'overview' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Filter Type</label>
+            <div className="inline-flex w-full rounded-lg bg-gray-100 p-1">
+              <button
+                onClick={() => setFilterMode('month')}
+                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
+                  filterMode === 'month' ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Month
+              </button>
+              <button
+                onClick={() => setFilterMode('custom')}
+                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
+                  filterMode === 'custom' ? 'bg-white text-gray-900 shadow' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Custom Range
+              </button>
+            </div>
+          </div>
+          {filterMode === 'month' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Month</label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="w-full border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value="2024-01">January 2024</option>
+                <option value="2024-02">February 2024</option>
+                <option value="2024-03">March 2024</option>
+                <option value="2024-04">April 2024</option>
+                <option value="2024-05">May 2024</option>
+                <option value="2024-06">June 2024</option>
+                <option value="2026-02">February 2026</option>
+              </select>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">From Date</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-full border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">To Date</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-full border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+            </>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Department</label>
+            <select
+              value={selectedDepartment}
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+              className="w-full border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             >
-              Overview
-            </button>
-            <button
-              onClick={() => setViewMode('detailed')}
-              className={`px-4 py-2 rounded-lg font-medium ${
-                viewMode === 'detailed' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Detailed View
-            </button>
+              <option value="all">All Departments</option>
+              <option value="sales">Sales</option>
+              <option value="marketing">Marketing</option>
+              <option value="hr">HR</option>
+              <option value="finance">Finance</option>
+              <option value="it">IT</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">View</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setViewMode('overview')}
+                className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium ${
+                  viewMode === 'overview' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Overview
+              </button>
+              <button
+                onClick={() => setViewMode('detailed')}
+                className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium ${
+                  viewMode === 'detailed' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Detailed View
+              </button>
+            </div>
           </div>
         </div>
       </div>

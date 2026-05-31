@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import api from '../utils/api';
 import OfferLetterPDF from './OfferLetterPDF';
+import { buildPdfBlobFromPreview } from '../utils/previewPdf';
 
-const OfferLetterGenerator = ({ allEmployees = [], employeeData }) => {
+const OfferLetterGenerator = ({ allEmployees = [], employeeData, onSaved }) => {
   const [formData, setFormData] = useState({
     employeeName: employeeData?.name || '',
     designation: employeeData?.designation || '',
@@ -30,6 +32,9 @@ const OfferLetterGenerator = ({ allEmployees = [], employeeData }) => {
   });
 
   const [showPreview, setShowPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(employeeData?.id || employeeData?.employee_id || '');
+  const previewRef = useRef(null);
 
   useEffect(() => {
     if (employeeData) {
@@ -41,6 +46,7 @@ const OfferLetterGenerator = ({ allEmployees = [], employeeData }) => {
         gender: employeeData.gender || 'male',
         joiningDate: employeeData.joining_date || prev.joiningDate
       }));
+      setSelectedEmployeeId(employeeData.id || employeeData.employee_id || '');
     }
   }, [employeeData]);
 
@@ -51,7 +57,8 @@ const OfferLetterGenerator = ({ allEmployees = [], employeeData }) => {
 
   const handleEmployeeSelect = (emp) => {
     if (!emp) {
-      setFormData(prev => ({ ...prev, employeeName: '', designation: '', department: '', joiningDate: '' }));
+      setFormData((prev) => ({ ...prev, employeeName: '', designation: '', department: '', joiningDate: '' }));
+      setSelectedEmployeeId('');
       return;
     }
     setFormData(prev => ({
@@ -62,20 +69,49 @@ const OfferLetterGenerator = ({ allEmployees = [], employeeData }) => {
       joiningDate: emp.joining_date || prev.joiningDate,
       gender: emp.gender || 'male'
     }));
+    setSelectedEmployeeId(emp.id || '');
   };
 
   const handleGenerate = () => {
     setShowPreview(true);
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    });
+  const handleSave = async () => {
+    const employeeId = selectedEmployeeId || employeeData?.id || employeeData?.employee_id;
+    if (!employeeId) {
+      alert('Please select an employee to save this document.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const pdfBlob = await buildPdfBlobFromPreview({
+        root: previewRef.current,
+        pageSelector: '.offer-letter-sheet',
+      });
+
+      const safeName = String(formData.employeeName || 'Employee')
+        .trim()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9_-]/g, '');
+      const fileName = `Offer_Letter_${safeName || 'Employee'}_${Date.now()}.pdf`;
+      const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+      const uploadData = new FormData();
+      uploadData.append('employee_id', String(employeeId));
+      uploadData.append('title', `Offer Letter - ${formData.employeeName || 'Employee'}`);
+      uploadData.append('type', 'offer_letter');
+      uploadData.append('file', pdfFile);
+
+      await api.post('/hrms/documents', uploadData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      alert('Offer letter saved to Document Library.');
+      if (onSaved) onSaved();
+    } catch (err) {
+      alert(err.response?.data?.message || err.message || 'Failed to save offer letter');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (showPreview) {
@@ -89,43 +125,47 @@ const OfferLetterGenerator = ({ allEmployees = [], employeeData }) => {
             ← Back to Edit
           </button>
           <button
-            onClick={() => window.print()}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md"
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md disabled:opacity-60"
           >
-            🖨️ Print PDF
+            {saving ? 'Saving...' : 'Save to Library'}
           </button>
         </div>
-        <OfferLetterPDF
-          employeeName={formData.employeeName}
-          designation={formData.designation}
-          department={formData.department}
-          address={formData.address}
-          joiningDate={formData.joiningDate ? new Date(formData.joiningDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase() : ''}
-          gender={formData.gender}
-          workLocation={formData.workLocation}
-          companyName={formData.companyName}
-          companyAddress={formData.companyAddress}
-          hrName={formData.hrName}
-          hrDesignation={formData.hrDesignation}
-          hrContact={formData.hrContact}
-          hrEmail={formData.hrEmail}
-          hrSignDate={formData.hrSignDate ? new Date(formData.hrSignDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
-          reportingTo={formData.reportingTo}
-          acceptanceDays={formData.acceptanceDays}
-          probationMonths={Number(formData.probationMonths) || 3}
-          basicSalary={formData.basicSalary}
-          hra={formData.hra}
-          conveyanceAllowance={formData.conveyanceAllowance}
-          medicalAllowance={formData.medicalAllowance}
-          otherAllowance={formData.otherAllowance}
-          grossSalary={formData.grossSalary}
-          netSalary={formData.netSalary}
-          currentDate={new Date().toLocaleDateString('en-GB', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric'
-          })}
-        />
+        <div ref={previewRef}>
+          <OfferLetterPDF
+            employeeName={formData.employeeName}
+            designation={formData.designation}
+            department={formData.department}
+            address={formData.address}
+            joiningDate={formData.joiningDate ? new Date(formData.joiningDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase() : ''}
+            gender={formData.gender}
+            workLocation={formData.workLocation}
+            companyName={formData.companyName}
+            companyAddress={formData.companyAddress}
+            hrName={formData.hrName}
+            hrDesignation={formData.hrDesignation}
+            hrContact={formData.hrContact}
+            hrEmail={formData.hrEmail}
+            hrSignDate={formData.hrSignDate ? new Date(formData.hrSignDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
+            reportingTo={formData.reportingTo}
+            acceptanceDays={formData.acceptanceDays}
+            probationMonths={Number(formData.probationMonths) || 3}
+            showPrintButton={false}
+            basicSalary={formData.basicSalary}
+            hra={formData.hra}
+            conveyanceAllowance={formData.conveyanceAllowance}
+            medicalAllowance={formData.medicalAllowance}
+            otherAllowance={formData.otherAllowance}
+            grossSalary={formData.grossSalary}
+            netSalary={formData.netSalary}
+            currentDate={new Date().toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric'
+            })}
+          />
+        </div>
       </div>
     );
   }
@@ -145,9 +185,10 @@ const OfferLetterGenerator = ({ allEmployees = [], employeeData }) => {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Select Employee</label>
               <select
-                value={formData.employeeName ? allEmployees.find(e => e.name === formData.employeeName)?.id : ''}
+                value={selectedEmployeeId || ''}
                 onChange={(e) => {
-                  const emp = allEmployees.find(emp => emp.id === e.target.value);
+                  const val = e.target.value;
+                  const emp = val ? allEmployees.find((emp) => String(emp.id) === String(val)) : undefined;
                   handleEmployeeSelect(emp);
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"

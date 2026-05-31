@@ -11,6 +11,7 @@ const FullAndFinalPDF = ({
   hrName = 'Jyoti Sharma',
   hrContact = '+91 9211608441',
   hrEmail = 'hrthevanygroup@gmail.com',
+  showPrintButton = true,
   currentDate = new Date().toLocaleDateString('en-GB', {
     day: 'numeric',
     month: 'long',
@@ -45,8 +46,7 @@ const FullAndFinalPDF = ({
         </header>
 
         <main className="experience-letter-main px-10 py-6 text-sm text-gray-800 leading-relaxed content-layer">
-          <div className="mb-6 full-and-final-content-block">
-            <p className="font-bold text-base uppercase tracking-wide mb-2">Full and Final Acknowledgement</p>
+          <div className="mb-6 full-and-final-content-block" style={{ paddingTop: '0.35rem' }}>
             <p className="font-bold mb-1">DATE: {currentDate}</p>
             <p className="mt-2">Dear: {nameFormatted || '—'}</p>
           </div>
@@ -77,14 +77,16 @@ const FullAndFinalPDF = ({
         </main>
       </div>
 
-      <div className="text-center mt-6 no-print">
-        <button
-          onClick={() => window.print()}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md transition-colors"
-        >
-          Print F&amp;F Letter
-        </button>
-      </div>
+      {showPrintButton && (
+        <div className="text-center mt-6 no-print">
+          <button
+            onClick={() => window.print()}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow-md transition-colors"
+          >
+            Print F&amp;F Letter
+          </button>
+        </div>
+      )}
     </div>
   );
 };

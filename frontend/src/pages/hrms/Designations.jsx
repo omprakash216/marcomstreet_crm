@@ -131,14 +131,16 @@ export default function Designations() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SL</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Name</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Description</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {designations.map((item) => (
+                  {designations.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-slate-50/60">
+                      <td className="px-4 py-3 text-slate-600">{idx + 1}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{item.name}</td>
                       <td className="px-4 py-3 text-slate-600">{item.description || '-'}</td>
                       <td className="px-4 py-3 text-right space-x-2">

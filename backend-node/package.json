@@ -5,8 +5,15 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
+    "dev": "npx kill-port 3000 && npx nodemon server.js",
+    "db:test": "node scripts/test-db-connection.js",
+    "db:doctor": "node scripts/db-doctor.js",
+    "test:sms": "node scripts/test-sms.js",
+    "configure:sms": "node scripts/configure-sms.js",
+    "seed:panel-logins": "node scripts/seed-panel-logins.js",
+    "standardize:numbers": "node scripts/standardize-document-numbers.js",
     "migrate": "node scripts/run-migration.js",
+    "migrate:cc": "node scripts/command-center-migration.js",
     "backfill-attendance": "node scripts/backfill-attendance-rules.js"
   },
   "engines": {
@@ -20,6 +27,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.0",
     "mysql2": "^3.6.5",
+    "nodemailer": "^8.0.7",
     "pdfkit": "^0.14.0"
   }
 }
