@@ -283,8 +283,8 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   <option value="contacted">Contacted</option>
                   <option value="proposal">Proposal</option>
                   <option value="negotiation">Negotiation</option>
-                  <option value="closed_won">Closed Won</option>
-                  <option value="closed_lost">Closed Lost</option>
+                  <option value="won">Won</option>
+                  <option value="lost">Lost</option>
                 </select>
               </div>
 

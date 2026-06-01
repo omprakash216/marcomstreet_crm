@@ -6,8 +6,11 @@ const {
   getPublicSmsStatus,
   maskSecret,
   ensureGlobalSettingsTable,
+  ensureSmsSettingsTable,
+  getSmsSettingsForResponse,
+  saveSmsSettings,
 } = require('../../config/smsConfig');
-const { sendOtpToPhone, generateOtp6, formatOtpDisplay } = require('../../services/passwordResetOtp');
+const { sendOtpToPhone, generateOtp6 } = require('../../services/passwordResetOtp');
 
 const router = express.Router();
 
@@ -15,7 +18,24 @@ const SENSITIVE_KEYS = new Set([
   'msg91_auth_key',
   'fast2sms_api_key',
   'two_factor_api_key',
+  'twofactor_api_key',
   'twilio_auth_token',
+]);
+
+const SMS_SETTING_KEYS = new Set([
+  'sms_provider',
+  'provider',
+  'msg91_auth_key',
+  'msg91_template_id',
+  'two_factor_api_key',
+  'twofactor_api_key',
+  '2factor_api_key',
+  'sender_id',
+  'msg91_sender_id',
+  'otp_prefix',
+  'otp_expiry_minutes',
+  'sms_otp_status',
+  'status',
 ]);
 
 function maskSettingsForResponse(settings) {
@@ -45,6 +65,7 @@ function normalizeSettingForStorage(key, value) {
 router.get('/', async (req, res) => {
   try {
     await ensureGlobalSettingsTable();
+    await ensureSmsSettingsTable();
     await refreshSmsConfig();
     const rows = await query('SELECT * FROM global_settings');
     const settings = {};
@@ -52,10 +73,12 @@ router.get('/', async (req, res) => {
       settings[r.setting_key] = r.setting_value;
     });
     const smsStatus = getPublicSmsStatus();
+    const smsSettings = await getSmsSettingsForResponse();
     res.json({
       success: true,
       data: {
         ...maskSettingsForResponse(settings),
+        ...smsSettings,
         sms_status: smsStatus,
       },
     });
@@ -68,8 +91,16 @@ router.get('/', async (req, res) => {
 router.post('/', verifyToken, verifySuperAdmin, async (req, res) => {
   try {
     await ensureGlobalSettingsTable();
+    await ensureSmsSettingsTable();
     const settings = req.body || {};
+    const hasSmsPayload = Object.keys(settings).some((key) => SMS_SETTING_KEYS.has(key));
+
+    if (hasSmsPayload) {
+      await saveSmsSettings(settings);
+    }
+
     for (const [key, value] of Object.entries(settings)) {
+      if (SMS_SETTING_KEYS.has(key)) continue;
       if (key === 'sms_status' || key.endsWith('_configured')) continue;
       if (value === undefined || value === null) continue;
       const strVal = normalizeSettingForStorage(key, value);
@@ -87,7 +118,7 @@ router.post('/', verifyToken, verifySuperAdmin, async (req, res) => {
       success: true,
       message: smsStatus.smsConfigured
         ? 'Settings saved. SMS OTP service is active.'
-        : 'Settings saved. Add MSG91 or 2Factor API key to enable SMS OTP.',
+        : 'Settings saved. SMS OTP fields complete karein.',
       data: { sms_status: smsStatus },
     });
   } catch (err) {
@@ -100,25 +131,37 @@ router.post('/test-sms', verifyToken, verifySuperAdmin, async (req, res) => {
   try {
     const phone = String(req.body?.phone || '').trim();
     if (!phone) {
-      return res.status(400).json({ success: false, message: 'Test mobile number required.' });
+      return res.status(400).json({
+        success: false,
+        message: 'Test mobile number required.',
+        errors: { test_phone: 'Test mobile number required hai.' },
+      });
     }
+    await ensureSmsSettingsTable();
     await refreshSmsConfig();
     const status = getPublicSmsStatus();
     if (!status.smsConfigured) {
       return res.status(400).json({
         success: false,
-        message: 'Pehle MSG91 ya 2Factor API key save karein (SMS OTP section).',
+        message:
+          Object.values(status.errors || {})[0] ||
+          'Pehle MSG91 ya 2Factor API key save karein (SMS OTP section).',
+        errors: status.errors || {},
       });
     }
     const otp = generateOtp6();
     const result = await sendOtpToPhone(phone, otp);
     return res.json({
       success: true,
-      message: `Test SMS bheja gaya (${formatOtpDisplay(otp)}). Phone check karein.`,
+      message: 'Test SMS sent successfully. Phone par OTP check karein.',
       data: { deliveryMode: result.mode, provider: status.provider },
     });
   } catch (err) {
-    return res.status(502).json({ success: false, message: err.message });
+    return res.status(err.statusCode || 502).json({
+      success: false,
+      message: err.message,
+      errors: err.fieldErrors || undefined,
+    });
   }
 });
 

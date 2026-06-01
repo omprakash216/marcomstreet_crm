@@ -14,7 +14,16 @@ const bcrypt = require('bcryptjs');
 
 const { getIntegrationStats } = require('../services/apiIntegration');
 
-const { getAdminAttendanceAnalytics } = require('../services/workTimer');
+const { getAdminAttendanceAnalytics } = require('../services/workTimer');
+const {
+  generateEmployeeCode,
+  getDesignationById,
+  isEmployeeCodeDuplicateError,
+  isEmployeeCodeValidationError,
+  normalizeCodePart,
+  runSql,
+} = require('../utils/employeeCode');
+const { ensureEmployeeCodeSchema } = require('../utils/employeeCodeSchema');
 
 
 
@@ -52,6 +61,30 @@ function requireAdminOnly(req, res, next) {
 
 
 
+function requireSuperAdminOnly(req, res, next) {
+
+
+  const role = String(req.employee.role || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_');
+
+
+  if (role !== 'superadmin' && role !== 'super_admin') {
+    return res.status(403).json({ success: false, message: 'Company management is available only in Super Admin / Master Panel' });
+  }
+
+
+  next();
+
+
+
+}
+
+
+
+
+
 function requireAdminOrHR(req, res, next) {
 
   const role = String(req.employee.role || '')
@@ -426,6 +459,28 @@ async function ensureCompanySettingsSchema() {
   await query("ALTER TABLE company_settings ADD COLUMN quotation_template VARCHAR(60) NULL DEFAULT 'standard'").catch(() => {});
   await query('ALTER TABLE company_settings ADD COLUMN quotation_header_text VARCHAR(255) NULL').catch(() => {});
   await query('ALTER TABLE company_settings ADD COLUMN quotation_footer_text VARCHAR(255) NULL').catch(() => {});
+}
+
+function getNormalizedRole(employee) {
+  return String(employee?.role || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_');
+}
+
+function isSuperAdminRole(employee) {
+  const role = getNormalizedRole(employee);
+  return role === 'superadmin' || role === 'super_admin';
+}
+
+function getWritableCompanyId(req, body = {}) {
+  if (isSuperAdminRole(req.employee) && body.company_id) {
+    const companyId = Number(body.company_id);
+    return Number.isInteger(companyId) && companyId > 0 ? companyId : null;
+  }
+
+  const companyId = Number(req.employee?.company_id);
+  return Number.isInteger(companyId) && companyId > 0 ? companyId : null;
 }
 
 function normalizeCompanySettings(row = {}) {
@@ -1514,10 +1569,12 @@ router.patch('/tasks/:id/status', verifyToken, requireAdmin, async (req, res) =>
 
 
 
-router.get('/employees', verifyToken, async (req, res) => {
+router.get('/employees', verifyToken, async (req, res) => {
 
   try {
 
+    await ensureEmployeeCodeSchema();
+
     const role = String(req.employee.role || '')
       .toLowerCase()
       .trim()
@@ -1526,15 +1583,15 @@ router.get('/employees', verifyToken, async (req, res) => {
 
     const id = req.query.id || null;
 
-    const fields = `e.*, d.name as department_name`;
+    const fields = `e.*, d.name as department_name, d.department_code, c.company_name, c.company_code, dg.name as designation_name, dg.designation_code`;
 
     if (id) {
 
       const sql = isSuper 
 
-        ? `SELECT ${fields} FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.id = ?`
+        ? `SELECT ${fields} FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN companies c ON e.company_id = c.id LEFT JOIN designations dg ON e.designation_id = dg.id WHERE e.id = ?`
 
-        : `SELECT ${fields} FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.id = ? AND e.company_id = ?`;
+        : `SELECT ${fields} FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN companies c ON e.company_id = c.id LEFT JOIN designations dg ON e.designation_id = dg.id WHERE e.id = ? AND e.company_id = ?`;
 
       const params = isSuper ? [id] : [id, req.employee.company_id];
 
@@ -1552,9 +1609,9 @@ router.get('/employees', verifyToken, async (req, res) => {
 
     const sql = isSuper
 
-        ? `SELECT ${fields} FROM employees e LEFT JOIN departments d ON e.department_id = d.id ORDER BY e.created_at DESC`
+        ? `SELECT ${fields} FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN companies c ON e.company_id = c.id LEFT JOIN designations dg ON e.designation_id = dg.id ORDER BY e.created_at DESC`
 
-        : `SELECT ${fields} FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.company_id = ? ORDER BY e.created_at DESC`;
+        : `SELECT ${fields} FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN companies c ON e.company_id = c.id LEFT JOIN designations dg ON e.designation_id = dg.id WHERE e.company_id = ? ORDER BY e.created_at DESC`;
 
       const params = isSuper ? [] : [req.employee.company_id];
 
@@ -1884,15 +1941,82 @@ router.get('/rbac/me', verifyToken, async (req, res) => {
 
 
 
-router.post('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
+router.post('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
 
   try {
 
-    const b = req.body || {};
+    await ensureEmployeeCodeSchema();
+
+    const b = req.body || {};
 
-    if (!b.name || !b.email || !b.password) return res.status(400).json({ success: false, message: 'Missing required fields' });
+    if (!b.name || !b.email || !b.password) return res.status(400).json({ success: false, message: 'Missing required fields' });
+
+    const companyId = getWritableCompanyId(req, b);
+    if (!companyId) return res.status(400).json({ success: false, message: 'Company is required' });
+    if (!b.department_id) return res.status(400).json({ success: false, message: 'Department is required' });
+    if (!b.designation_id) return res.status(400).json({ success: false, message: 'Designation is required' });
+    if (!b.joining_date) return res.status(400).json({ success: false, message: 'Joining date is required' });
 
-    const hashedPassword = await bcrypt.hash(b.password, 10).catch(() => b.password);
+    const hashedPassword = await bcrypt.hash(b.password, 10).catch(() => b.password);
+
+    {
+      const designation = await getDesignationById(b.designation_id);
+      if (!designation) return res.status(400).json({ success: false, message: 'Designation not found' });
+
+      const employeeFields = [
+        'company_id', 'employee_code', 'name', 'email', 'phone', 'password', 'role', 'department_id', 'designation', 'designation_id', 'status',
+        'address', 'permanent_address', 'dob', 'gender', 'marital_status', 'emergency_contact_name',
+        'emergency_contact_phone', 'joining_date', 'employment_type', 'probation_period', 'basic_salary',
+        'hra', 'conveyance', 'medical_allowance', 'lta', 'other_allowances', 'previous_company',
+        'previous_designation', 'experience_years', 'qualification', 'bank_account', 'bank_name',
+        'ifsc_code', 'branch_name', 'account_holder_name', 'pan_number', 'aadhar_number',
+      ];
+
+      const insertSql = `INSERT INTO employees (${employeeFields.join(', ')}) VALUES (${employeeFields.map(() => '?').join(',')})`;
+      let employeeId = null;
+      let employeeCode = null;
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const conn = await getConnection();
+        try {
+          await conn.query('START TRANSACTION');
+          employeeCode = await generateEmployeeCode(companyId, b.department_id, b.designation_id, b.joining_date, { connection: conn });
+
+          const params = [
+            companyId, employeeCode, b.name, b.email, b.phone || null, hashedPassword,
+            b.role || 'employee', b.department_id || null, designation.name || b.designation || null, b.designation_id || null, 'active',
+            b.address || null, b.permanent_address || null, b.dob || null, b.gender || null,
+            b.marital_status || null, b.emergency_contact_name || null, b.emergency_contact_phone || null,
+            b.joining_date || null, b.employment_type || 'full_time', b.probation_period || '3',
+            b.basic_salary || null, b.hra || null, b.conveyance || null, b.medical_allowance || null,
+            b.lta || null, b.other_allowances || null, b.previous_company || null,
+            b.previous_designation || null, b.experience_years || null, b.qualification || null,
+            b.bank_account || null, b.bank_name || null, b.ifsc_code || null, b.branch_name || null,
+            b.account_holder_name || null, b.pan_number || null, b.aadhar_number || null,
+          ];
+
+          const result = await runSql(conn, insertSql, params);
+          employeeId = result?.insertId || null;
+          await conn.query('COMMIT');
+          break;
+        } catch (err) {
+          await conn.query('ROLLBACK').catch(() => {});
+          if (isEmployeeCodeDuplicateError(err) && attempt < 4) {
+            continue;
+          }
+          throw err;
+        } finally {
+          conn.release();
+        }
+      }
+
+      const accessModules = Array.isArray(b.access_modules) ? b.access_modules : defaultModulesForRole(b.role);
+      if (employeeId) {
+        await setEmployeeAccessModules({ employeeId, companyId, modules: accessModules });
+      }
+
+      return res.json({ success: true, message: 'Employee created successfully', employee_code: employeeCode });
+    }
 
 
 
@@ -1956,11 +2080,17 @@ router.post('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
 
 
 
-    return res.json({ success: true, message: 'Employee created successfully' });
+    return res.json({ success: true, message: 'Employee created successfully' });
 
   } catch (err) {
 
-    return res.status(500).json({ success: false, message: err.message });
+    if (isEmployeeCodeValidationError(err)) {
+      return res.status(err.statusCode || 400).json({ success: false, message: err.message });
+    }
+    if (err?.code === 'ER_DUP_ENTRY' && /email/i.test(String(err.message || ''))) {
+      return res.status(400).json({ success: false, message: 'Employee email already exists' });
+    }
+    return res.status(500).json({ success: false, message: err.message });
 
   }
 
@@ -1968,11 +2098,13 @@ router.post('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
 
 
 
-router.put('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
+router.put('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
 
   try {
 
-    const b = req.body || {};
+    await ensureEmployeeCodeSchema();
+
+    const b = req.body || {};
 
     if (!b.id) return res.status(400).json({ success: false, message: 'Employee ID is required' });
 
@@ -1980,7 +2112,129 @@ router.put('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
 
     const existing = rows[0];
 
-    if (!existing) return res.status(404).json({ success: false, message: 'Employee not found' });
+    if (!existing) return res.status(404).json({ success: false, message: 'Employee not found' });
+
+    {
+      if (!isSuperAdminRole(req.employee) && Number(existing.company_id) !== Number(req.employee.company_id)) {
+        return res.status(404).json({ success: false, message: 'Employee not found' });
+      }
+
+      const requestedCompanyId = getWritableCompanyId(req, b);
+      const companyId = isSuperAdminRole(req.employee) && requestedCompanyId
+        ? requestedCompanyId
+        : existing.company_id || requestedCompanyId;
+      const nextDepartmentId = b.department_id !== undefined ? b.department_id : existing.department_id;
+      const nextDesignationId = b.designation_id !== undefined ? b.designation_id : existing.designation_id;
+      const nextJoiningDate = b.joining_date !== undefined ? b.joining_date : existing.joining_date;
+      const designation = nextDesignationId ? await getDesignationById(nextDesignationId) : null;
+
+      if (nextDesignationId && !designation) {
+        return res.status(400).json({ success: false, message: 'Designation not found' });
+      }
+
+      const basisChanged =
+        String(companyId || '') !== String(existing.company_id || '') ||
+        String(nextDepartmentId || '') !== String(existing.department_id || '') ||
+        String(nextDesignationId || '') !== String(existing.designation_id || '') ||
+        String((nextJoiningDate || '').toString().slice(0, 10)) !== String((existing.joining_date || '').toString().slice(0, 10));
+
+      const needsCodeRegeneration =
+        basisChanged ||
+        !existing.employee_code ||
+        String(existing.employee_code || '').includes('/');
+
+      if (needsCodeRegeneration && (!companyId || !nextDepartmentId || !nextDesignationId || !nextJoiningDate)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Company, department, designation and joining date are required to generate employee code',
+        });
+      }
+
+      const updateFields = [
+        'company_id', 'employee_code', 'name', 'email', 'phone', 'role', 'department_id', 'designation', 'designation_id', 'status',
+        'address', 'permanent_address', 'dob', 'gender', 'marital_status', 'emergency_contact_name',
+        'emergency_contact_phone', 'joining_date', 'employment_type', 'probation_period', 'basic_salary',
+        'hra', 'conveyance', 'medical_allowance', 'lta', 'other_allowances', 'previous_company',
+        'previous_designation', 'experience_years', 'qualification', 'bank_account', 'bank_name',
+        'ifsc_code', 'branch_name', 'account_holder_name', 'pan_number', 'aadhar_number',
+      ];
+
+      let employeeCode = existing.employee_code;
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const conn = await getConnection();
+        try {
+          await conn.query('START TRANSACTION');
+          if (needsCodeRegeneration) {
+            employeeCode = await generateEmployeeCode(companyId, nextDepartmentId, nextDesignationId, nextJoiningDate, {
+              connection: conn,
+              excludeEmployeeId: existing.id,
+            });
+          }
+
+          const nextValuesByField = {
+            company_id: companyId,
+            employee_code: employeeCode,
+            name: b.name !== undefined && b.name !== null ? b.name : existing.name,
+            email: b.email !== undefined && b.email !== null ? b.email : existing.email,
+            phone: b.phone !== undefined && b.phone !== null ? b.phone : existing.phone,
+            role: b.role !== undefined && b.role !== null ? b.role : existing.role,
+            department_id: nextDepartmentId || null,
+            designation: designation?.name || b.designation || existing.designation,
+            designation_id: nextDesignationId || null,
+            status: b.status !== undefined && b.status !== null ? b.status : existing.status,
+            address: b.address !== undefined && b.address !== null ? b.address : existing.address,
+            permanent_address: b.permanent_address !== undefined && b.permanent_address !== null ? b.permanent_address : existing.permanent_address,
+            dob: b.dob !== undefined && b.dob !== null ? b.dob : existing.dob,
+            gender: b.gender !== undefined && b.gender !== null ? b.gender : existing.gender,
+            marital_status: b.marital_status !== undefined && b.marital_status !== null ? b.marital_status : existing.marital_status,
+            emergency_contact_name: b.emergency_contact_name !== undefined && b.emergency_contact_name !== null ? b.emergency_contact_name : existing.emergency_contact_name,
+            emergency_contact_phone: b.emergency_contact_phone !== undefined && b.emergency_contact_phone !== null ? b.emergency_contact_phone : existing.emergency_contact_phone,
+            joining_date: nextJoiningDate || null,
+            employment_type: b.employment_type !== undefined && b.employment_type !== null ? b.employment_type : existing.employment_type,
+            probation_period: b.probation_period !== undefined && b.probation_period !== null ? b.probation_period : existing.probation_period,
+            basic_salary: b.basic_salary !== undefined && b.basic_salary !== null ? b.basic_salary : existing.basic_salary,
+            hra: b.hra !== undefined && b.hra !== null ? b.hra : existing.hra,
+            conveyance: b.conveyance !== undefined && b.conveyance !== null ? b.conveyance : existing.conveyance,
+            medical_allowance: b.medical_allowance !== undefined && b.medical_allowance !== null ? b.medical_allowance : existing.medical_allowance,
+            lta: b.lta !== undefined && b.lta !== null ? b.lta : existing.lta,
+            other_allowances: b.other_allowances !== undefined && b.other_allowances !== null ? b.other_allowances : existing.other_allowances,
+            previous_company: b.previous_company !== undefined && b.previous_company !== null ? b.previous_company : existing.previous_company,
+            previous_designation: b.previous_designation !== undefined && b.previous_designation !== null ? b.previous_designation : existing.previous_designation,
+            experience_years: b.experience_years !== undefined && b.experience_years !== null ? b.experience_years : existing.experience_years,
+            qualification: b.qualification !== undefined && b.qualification !== null ? b.qualification : existing.qualification,
+            bank_account: b.bank_account !== undefined && b.bank_account !== null ? b.bank_account : existing.bank_account,
+            bank_name: b.bank_name !== undefined && b.bank_name !== null ? b.bank_name : existing.bank_name,
+            ifsc_code: b.ifsc_code !== undefined && b.ifsc_code !== null ? b.ifsc_code : existing.ifsc_code,
+            branch_name: b.branch_name !== undefined && b.branch_name !== null ? b.branch_name : existing.branch_name,
+            account_holder_name: b.account_holder_name !== undefined && b.account_holder_name !== null ? b.account_holder_name : existing.account_holder_name,
+            pan_number: b.pan_number !== undefined && b.pan_number !== null ? b.pan_number : existing.pan_number,
+            aadhar_number: b.aadhar_number !== undefined && b.aadhar_number !== null ? b.aadhar_number : existing.aadhar_number,
+          };
+
+          const values = updateFields.map((f) => nextValuesByField[f]);
+          values.push(b.id);
+          const placeholders = updateFields.map((f) => `${f}=?`).join(', ');
+          await runSql(conn, `UPDATE employees SET ${placeholders} WHERE id = ?`, values);
+          await conn.query('COMMIT');
+          break;
+        } catch (err) {
+          await conn.query('ROLLBACK').catch(() => {});
+          if (isEmployeeCodeDuplicateError(err) && attempt < 4) {
+            continue;
+          }
+          throw err;
+        } finally {
+          conn.release();
+        }
+      }
+
+      if (Array.isArray(b.access_modules)) {
+        await setEmployeeAccessModules({ employeeId: b.id, companyId: companyId || req.employee.company_id, modules: b.access_modules });
+      }
+
+      return res.json({ success: true, message: 'Employee updated successfully', employee_code: employeeCode });
+    }
 
 
 
@@ -2018,11 +2272,17 @@ router.put('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
 
     }
 
-    return res.json({ success: true, message: 'Employee updated successfully' });
+    return res.json({ success: true, message: 'Employee updated successfully' });
 
   } catch (err) {
 
-    return res.status(500).json({ success: false, message: err.message });
+    if (isEmployeeCodeValidationError(err)) {
+      return res.status(err.statusCode || 400).json({ success: false, message: err.message });
+    }
+    if (err?.code === 'ER_DUP_ENTRY' && /email/i.test(String(err.message || ''))) {
+      return res.status(400).json({ success: false, message: 'Employee email already exists' });
+    }
+    return res.status(500).json({ success: false, message: err.message });
 
   }
 
@@ -2338,9 +2598,10 @@ router.get('/audit-logs', verifyToken, requireAdmin, async (req, res) => {
 
 
 
-router.get('/companies', verifyToken, requireAdmin, async (req, res) => {
+router.get('/companies', verifyToken, requireSuperAdminOnly, async (req, res) => {
 
-  try {
+  try {
+    await ensureEmployeeCodeSchema();
 
     const rows = await query('SELECT * FROM companies ORDER BY company_name ASC, id DESC LIMIT 200');
 
@@ -2356,8 +2617,9 @@ router.get('/companies', verifyToken, requireAdmin, async (req, res) => {
 
 
 
-router.put('/companies', verifyToken, requireAdmin, async (req, res) => {
-  try {
+router.put('/companies', verifyToken, requireSuperAdminOnly, async (req, res) => {
+  try {
+    await ensureEmployeeCodeSchema();
     const b = req.body || {};
     const id = b.id || b.company_id;
     if (!id) return res.status(400).json({ success: false, message: 'Company ID is required' });
@@ -2365,14 +2627,14 @@ router.put('/companies', verifyToken, requireAdmin, async (req, res) => {
     const existing = rows[0];
     if (!existing) return res.status(404).json({ success: false, message: 'Company not found' });
 
-    const updateFields = ['company_name', 'email', 'phone', 'address', 'city', 'state', 'country', 'status', 'zip_code', 'website', 'tax_id', 'registration_number'];
+    const updateFields = ['company_code', 'company_name', 'email', 'phone', 'address', 'city', 'state', 'country', 'status', 'zip_code', 'website', 'tax_id', 'registration_number'];
     const values = [];
     const fieldsToSet = [];
     
     for (const f of updateFields) {
       if (b[f] !== undefined && b[f] !== null) {
         fieldsToSet.push(`${f}=?`);
-        values.push(b[f]);
+        values.push(f === 'company_code' ? normalizeCodePart(b[f]) : b[f]);
       }
     }
     
@@ -2410,8 +2672,9 @@ router.put('/companies', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
-router.post('/companies', verifyToken, requireAdmin, async (req, res) => {
-  try {
+router.post('/companies', verifyToken, requireSuperAdminOnly, async (req, res) => {
+  try {
+    await ensureEmployeeCodeSchema();
     const b = req.body || {};
     if (!b.company_name || !b.email) {
       return res.status(400).json({ success: false, message: 'Company name and email are required' });
@@ -2461,7 +2724,7 @@ router.post('/companies', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
-router.delete('/companies', verifyToken, requireAdmin, async (req, res) => {
+router.delete('/companies', verifyToken, requireSuperAdminOnly, async (req, res) => {
   try {
     const id = req.query.id || (req.body && (req.body.id || req.body.company_id));
     if (!id) return res.status(400).json({ success: false, message: 'Company ID is required' });

@@ -18,6 +18,9 @@ function AdminEmployees() {
   const canResetPassword = currentRole === 'admin';
   const canToggleStatus = currentRole === 'admin' || currentRole === 'human_resources';
   const [departments, setDepartments] = useState([]);
+  const [designations, setDesignations] = useState([]);
+  const [codeLoading, setCodeLoading] = useState(false);
+  const [codeError, setCodeError] = useState('');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
@@ -36,6 +39,7 @@ function AdminEmployees() {
   const [fetchingDocs, setFetchingDocs] = useState(false);
   const [formData, setFormData] = useState({
     // Basic Information
+    company_id: isSuperAdmin ? '' : currentUser?.company_id || '',
     employee_code: '',
     name: '',
     email: '',
@@ -43,6 +47,7 @@ function AdminEmployees() {
     password: '',
     role: 'employee',
     department_id: '',
+    designation_id: '',
     designation: '',
     status: 'active',
 
@@ -96,6 +101,7 @@ function AdminEmployees() {
   useEffect(() => {
     fetchEmployees();
     fetchDepartments();
+    fetchDesignations();
     if (isSuperAdmin) fetchCompanies();
   }, []);
 
@@ -128,6 +134,17 @@ function AdminEmployees() {
     }
   };
 
+  const fetchDesignations = async () => {
+    try {
+      const response = await api.get('/hrms/designations');
+      if (response.data.success) {
+        setDesignations(response.data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching designations:', error);
+    }
+  };
+
   const fetchCompanies = async () => {
     try {
       const response = await api.get('/admin/companies');
@@ -138,6 +155,22 @@ function AdminEmployees() {
       console.error('Error fetching companies:', error);
       setCompanies([]);
     }
+  };
+
+  const toDateInputValue = (value) => {
+    if (!value) return '';
+    return String(value).slice(0, 10);
+  };
+
+  const findDesignationId = (detail) => {
+    if (detail?.designation_id) return detail.designation_id;
+    const label = String(detail?.designation || detail?.designation_name || '').toLowerCase().trim();
+    if (!label) return '';
+    const match = designations.find((item) => (
+      String(item.name || '').toLowerCase().trim() === label ||
+      String(item.designation_code || '').toLowerCase().trim() === label
+    ));
+    return match?.id || '';
   };
 
   const handleSubmit = async (e) => {
@@ -179,8 +212,11 @@ function AdminEmployees() {
   };
 
   const resetForm = () => {
+    setCodeError('');
+    setCodeLoading(false);
     setFormData({
       // Basic Information
+      company_id: isSuperAdmin ? '' : currentUser?.company_id || '',
       employee_code: '',
       name: '',
       email: '',
@@ -188,6 +224,7 @@ function AdminEmployees() {
       password: '',
       role: 'employee',
       department_id: '',
+      designation_id: '',
       designation: '',
       status: 'active',
 
@@ -302,6 +339,8 @@ function AdminEmployees() {
 
   const handleEdit = async (emp) => {
     setEditingEmployee(emp);
+    setCodeError('');
+    setCodeLoading(false);
 
     let detail = emp;
     try {
@@ -319,6 +358,7 @@ function AdminEmployees() {
 
     setFormData({
       // Basic Information
+      company_id: detail.company_id || currentUser?.company_id || '',
       employee_code: detail.employee_code || '',
       name: detail.name || '',
       email: detail.email || '',
@@ -326,7 +366,8 @@ function AdminEmployees() {
       password: '',
       role: detail.role || 'employee',
       department_id: detail.department_id || '',
-      designation: detail.designation || '',
+      designation_id: findDesignationId(detail),
+      designation: detail.designation_name || detail.designation || '',
       status: detail.status || 'active',
 
       // Personal Details (for offer letters)
@@ -344,7 +385,7 @@ function AdminEmployees() {
       previous_experience: detail.previous_experience || '',
 
       // Employment Details (for offer letters)
-      joining_date: detail.joining_date || '',
+      joining_date: toDateInputValue(detail.joining_date),
       employment_type: detail.employment_type || 'full_time',
       probation_period: detail.probation_period || '3',
       basic_salary: detail.basic_salary || '',
@@ -470,6 +511,66 @@ function AdminEmployees() {
     );
     return departments.filter((d) => deptIds.has(String(d.id)));
   })();
+
+  const formCompanyId = isSuperAdmin ? formData.company_id : (currentUser?.company_id || formData.company_id || 'current');
+  const formDepartmentOptions = (() => {
+    if (!isSuperAdmin) return departments;
+    if (!formData.company_id) return departments;
+    const hasCompanyField = departments.some((d) => d && d.company_id !== undefined && d.company_id !== null);
+    return hasCompanyField
+      ? departments.filter((d) => String(d.company_id) === String(formData.company_id))
+      : departments;
+  })();
+
+  useEffect(() => {
+    if (!showModal) return;
+
+    if (!formCompanyId || !formData.department_id || !formData.designation_id || !formData.joining_date) {
+      setCodeLoading(false);
+      setCodeError('');
+      if (!editingEmployee && formData.employee_code) {
+        setFormData((prev) => ({ ...prev, employee_code: '' }));
+      }
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        setCodeLoading(true);
+        setCodeError('');
+        const response = await api.post('/ajax/generate-employee-code.php', {
+          company_id: formCompanyId,
+          department_id: formData.department_id,
+          designation_id: formData.designation_id,
+          joining_date: formData.joining_date,
+          exclude_employee_id: editingEmployee?.id || null,
+        });
+        if (!cancelled && response.data?.success) {
+          setFormData((prev) => ({ ...prev, employee_code: response.data.employee_code || '' }));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCodeError(error.response?.data?.message || 'Unable to generate employee code');
+          setFormData((prev) => ({ ...prev, employee_code: editingEmployee?.employee_code || '' }));
+        }
+      } finally {
+        if (!cancelled) setCodeLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    showModal,
+    formCompanyId,
+    formData.department_id,
+    formData.designation_id,
+    formData.joining_date,
+    editingEmployee?.id,
+  ]);
 
   const filteredEmployees = baseEmployees.filter(emp => {
     const matchesSearch = filter.search === '' ||
@@ -734,7 +835,7 @@ function AdminEmployees() {
                       <span className="text-xs text-gray-600">{emp.department_name || 'General'}</span>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="text-xs text-gray-600">{emp.designation || 'Staff'}</span>
+                      <span className="text-xs text-gray-600">{emp.designation_name || emp.designation || 'Staff'}</span>
                     </td>
                     <td className="px-4 py-4">
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${emp.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
@@ -951,6 +1052,41 @@ function AdminEmployees() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {isSuperAdmin && (
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Company <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={formData.company_id}
+                          onChange={(e) => setFormData({ ...formData, company_id: e.target.value, department_id: '', employee_code: '' })}
+                          required
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                        >
+                          <option value="">Select Company</option>
+                          {companies.map((company) => (
+                            <option key={company.id} value={company.id}>
+                              {company.company_name}{company.company_code ? ` (${company.company_code})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className={isSuperAdmin ? '' : 'md:col-span-2'}>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Employee Code
+                      </label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={codeLoading ? 'Generating...' : formData.employee_code}
+                        className="w-full px-4 py-3 bg-gradient-to-r from-slate-950 to-blue-950 border border-blue-300/60 rounded-lg outline-none transition-all text-sm font-mono font-bold tracking-wider text-white shadow-inner cursor-not-allowed"
+                        placeholder="Auto generated employee code"
+                      />
+                      {codeError && <p className="mt-2 text-xs font-semibold text-red-600">{codeError}</p>}
+                    </div>
+
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
                         Job Role <span className="text-red-500">*</span>
@@ -980,30 +1116,60 @@ function AdminEmployees() {
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Department
+                        Department <span className="text-red-500">*</span>
                       </label>
                       <select
                         value={formData.department_id}
-                        onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
+                        onChange={(e) => setFormData({ ...formData, department_id: e.target.value, employee_code: '' })}
+                        required
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
                       >
                         <option value="">Select Department</option>
-                        {departments.map(dept => (
-                          <option key={dept.id} value={dept.id}>{dept.name}</option>
+                        {formDepartmentOptions.map(dept => (
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name}{dept.department_code ? ` (${dept.department_code})` : ''}
+                          </option>
                         ))}
                       </select>
                     </div>
 
-                    <div className="md:col-span-2">
+                    <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Job Designation
+                        Job Designation <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={formData.designation_id}
+                        onChange={(e) => {
+                          const selected = designations.find((item) => String(item.id) === String(e.target.value));
+                          setFormData({
+                            ...formData,
+                            designation_id: e.target.value,
+                            designation: selected?.name || '',
+                            employee_code: '',
+                          });
+                        }}
+                        required
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
+                      >
+                        <option value="">Select Designation</option>
+                        {designations.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}{item.designation_code ? ` (${item.designation_code})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Joining Date <span className="text-red-500">*</span>
                       </label>
                       <input
-                        type="text"
-                        value={formData.designation}
-                        onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+                        type="date"
+                        required
+                        value={formData.joining_date}
+                        onChange={(e) => setFormData({ ...formData, joining_date: e.target.value, employee_code: '' })}
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-sm"
-                        placeholder="e.g. Senior Developer"
                       />
                     </div>
 
@@ -1319,6 +1485,10 @@ function AdminEmployees() {
                     </h3>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-500 font-medium">Employee Code</span>
+                        <span className="text-xs text-blue-700 font-mono font-bold">{selectedEmployee.employee_code || 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
                         <span className="text-[10px] text-gray-500 font-medium">Email Address</span>
                         <span className="text-xs text-gray-900 font-semibold">{selectedEmployee.email}</span>
                       </div>
@@ -1341,7 +1511,7 @@ function AdminEmployees() {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] text-gray-500 font-medium">Designation</span>
-                        <span className="text-xs text-gray-900 font-semibold">{selectedEmployee.designation || 'N/A'}</span>
+                        <span className="text-xs text-gray-900 font-semibold">{selectedEmployee.designation_name || selectedEmployee.designation || 'N/A'}</span>
                       </div>
                     </div>
                   </div>

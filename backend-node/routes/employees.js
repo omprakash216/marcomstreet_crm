@@ -2,19 +2,22 @@ const express = require('express');
 const { query } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const { isSuperRole } = require('../middleware/hideSuperAdminData');
+const { ensureEmployeeCodeSchema } = require('../utils/employeeCodeSchema');
 
 const router = express.Router();
 
 router.get('/', verifyToken, async (req, res) => {
   try {
+    await ensureEmployeeCodeSchema();
+
     let rows = [];
     try {
       const isSuper = isSuperRole(req.employee.role);
       const companyId = req.employee.company_id;
       
       const queryStr = isSuper 
-        ? 'SELECT e.id, e.employee_code, e.name, e.email, e.phone, e.role, e.department_id, e.designation, e.status, d.name as department_name FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.status = ? ORDER BY e.name'
-        : "SELECT e.id, e.employee_code, e.name, e.email, e.phone, e.role, e.department_id, e.designation, e.status, d.name as department_name FROM employees e LEFT JOIN departments d ON e.department_id = d.id WHERE e.status = ? AND e.company_id = ? AND LOWER(REPLACE(REPLACE(TRIM(e.role), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin') ORDER BY e.name";
+        ? 'SELECT e.id, e.employee_code, e.name, e.email, e.phone, e.role, e.department_id, e.designation_id, e.designation, e.status, d.name as department_name, dg.name as designation_name FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN designations dg ON e.designation_id = dg.id WHERE e.status = ? ORDER BY e.name'
+        : "SELECT e.id, e.employee_code, e.name, e.email, e.phone, e.role, e.department_id, e.designation_id, e.designation, e.status, d.name as department_name, dg.name as designation_name FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN designations dg ON e.designation_id = dg.id WHERE e.status = ? AND e.company_id = ? AND LOWER(REPLACE(REPLACE(TRIM(e.role), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin') ORDER BY e.name";
         
       const queryParams = isSuper ? ['active'] : ['active', companyId];
       

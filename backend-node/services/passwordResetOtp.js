@@ -1,5 +1,20 @@
 const crypto = require('crypto');
-const { refreshSmsConfig, getSmsConfig, isSmsConfiguredSync } = require('../config/smsConfig');
+const {
+  refreshSmsConfig,
+  getSmsConfig,
+  isSmsConfiguredSync,
+  getSmsConfigFieldErrors,
+  normalizeOtpExpiry,
+} = require('../config/smsConfig');
+
+class SmsProviderConfigError extends Error {
+  constructor(message, fieldErrors = {}) {
+    super(message);
+    this.name = 'SmsProviderConfigError';
+    this.statusCode = 400;
+    this.fieldErrors = fieldErrors;
+  }
+}
 
 function getOtpPrefix() {
   const prefix = String(process.env.OTP_PREFIX || 'VG')
@@ -82,7 +97,9 @@ async function findActiveEmployeeByPhone(query, phoneRaw) {
   } catch (err) {
     if (err && err.code === 'ER_BAD_FIELD_ERROR' && /status/i.test(err.message || '')) {
       rows = await runQuery(false);
-      rows = (rows || []).filter((employee) => !employee.status || String(employee.status).toLowerCase() === 'active');
+      rows = (rows || []).filter(
+        (employee) => !employee.status || String(employee.status).toLowerCase() === 'active'
+      );
     } else {
       throw err;
     }
@@ -98,7 +115,9 @@ async function findActiveEmployeeByPhone(query, phoneRaw) {
       );
     } catch (e) {
       all = await query("SELECT * FROM employees WHERE phone IS NOT NULL AND TRIM(phone) <> ''", []);
-      all = (all || []).filter((employee) => !employee.status || String(employee.status).toLowerCase() === 'active');
+      all = (all || []).filter(
+        (employee) => !employee.status || String(employee.status).toLowerCase() === 'active'
+      );
     }
     const matches = (all || []).filter((employee) => phonesMatch(employee.phone, phoneRaw));
     if (matches.length === 0) return null;
@@ -140,16 +159,17 @@ function normalizeProviderName(raw) {
     .trim()
     .toLowerCase();
   if (!value) return '';
-  if (value === '2factor' || value === 'twofactor') return '2factor';
+  if (value === '2factor' || value === 'twofactor' || value === 'two_factor') return '2factor';
   if (value === 'msg91') return 'msg91';
   if (value === 'fast2sms') return 'fast2sms';
   if (value === 'twilio') return 'twilio';
+  if (value.startsWith('msg91')) return 'msg91';
   return value;
 }
 
 function hasProviderCredentials(provider, cfg) {
   const c = cfg || {};
-  if (provider === 'msg91') return !!c.MSG91_AUTH_KEY;
+  if (provider === 'msg91') return !!(c.MSG91_AUTH_KEY && c.MSG91_TEMPLATE_ID);
   if (provider === '2factor') return !!c.TWO_FACTOR_API_KEY;
   if (provider === 'fast2sms') return !!c.FAST2SMS_API_KEY;
   if (provider === 'twilio') return !!(c.TWILIO_ACCOUNT_SID && c.TWILIO_AUTH_TOKEN && c.TWILIO_FROM_NUMBER);
@@ -160,123 +180,153 @@ function getSmsProviderName(cfg) {
   const c = cfg || {};
   const configured = normalizeProviderName(c.SMS_PROVIDER);
   if (configured) return configured;
-  if (c.MSG91_AUTH_KEY) return 'msg91';
+  if (c.MSG91_AUTH_KEY || c.MSG91_TEMPLATE_ID) return 'msg91';
   if (c.TWO_FACTOR_API_KEY) return '2factor';
   if (c.FAST2SMS_API_KEY) return 'fast2sms';
   if (c.TWILIO_ACCOUNT_SID) return 'twilio';
   return '';
 }
 
-/** 2Factor.in - India OTP SMS (https://2factor.in) */
-async function sendVia2Factor(smsMobile, otp) {
-  const apiKey = process.env.TWO_FACTOR_API_KEY;
-  if (!apiKey) return null;
-
-  const displayCode = formatOtpDisplay(otp);
-  const template = process.env.TWO_FACTOR_TEMPLATE || getOtpPrefix() || 'VGOTP';
-  const url = `https://2factor.in/API/V1/${encodeURIComponent(apiKey)}/SMS/${encodeURIComponent(
-    smsMobile
-  )}/${encodeURIComponent(otp)}/${encodeURIComponent(template)}`;
-
-  const res = await fetch(url);
-  const text = await res.text();
-  let data;
+function parseJsonMaybe(text) {
   try {
-    data = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
-    data = { Details: text };
+    return { raw: text };
   }
-  if (!res.ok || (data.Status && String(data.Status).toLowerCase() !== 'success')) {
-    throw new Error(`2Factor: ${data.Details || data.Message || text.slice(0, 150)}`);
-  }
-  console.log(`[password-reset] 2Factor SMS sent (${displayCode})`);
-  return { ok: true, mode: '2factor' };
 }
 
-/** MSG91 transactional SMS - full message with prefixed OTP (DLT template optional) */
-async function sendViaMsg91Http(smsMobile, otp) {
-  const authkey = process.env.MSG91_AUTH_KEY;
-  if (!authkey) return null;
-
-  const sender = process.env.MSG91_SENDER_ID || getOtpPrefix();
-  const displayCode = formatOtpDisplay(otp);
-  const route = process.env.MSG91_ROUTE || '4';
-  const country = process.env.DEFAULT_PHONE_COUNTRY_CODE || '91';
-  const text = `${displayCode} is your ${process.env.APP_NAME || 'MARCOM CRM'} password reset OTP. Valid 10 minutes. Do not share.`;
-
-  const url =
-    `https://api.msg91.com/api/sendhttp.php?authkey=${encodeURIComponent(authkey)}` +
-    `&mobiles=${encodeURIComponent(smsMobile)}` +
-    `&message=${encodeURIComponent(text)}` +
-    `&sender=${encodeURIComponent(sender)}` +
-    `&route=${encodeURIComponent(route)}` +
-    `&country=${encodeURIComponent(country)}`;
-
-  const res = await fetch(url);
-  const body = await res.text();
-  const trimmed = String(body || '').trim();
-  if (!res.ok || /invalid|error|denied|failed/i.test(trimmed)) {
-    throw new Error(`MSG91 SMS: ${trimmed.slice(0, 200)}`);
-  }
-  if (!trimmed || trimmed.length < 4) {
-    throw new Error(`MSG91 SMS: unexpected response - ${trimmed.slice(0, 100)}`);
-  }
-  return { ok: true, mode: 'msg91_http' };
-}
-
-async function sendViaMsg91OtpApi(smsMobile, otp) {
-  const authkey = process.env.MSG91_AUTH_KEY;
-  if (!authkey) return null;
-
-  const sender = process.env.MSG91_SENDER_ID || getOtpPrefix();
-  const templateId = process.env.MSG91_TEMPLATE_ID;
-  const displayCode = formatOtpDisplay(otp);
-
-  if (templateId) {
-    const url = `https://control.msg91.com/api/v5/otp?otp_expiry=10&template_id=${encodeURIComponent(
-      templateId
-    )}&mobile=${encodeURIComponent(smsMobile)}&authkey=${encodeURIComponent(authkey)}&otp=${encodeURIComponent(displayCode)}`;
-    const res = await fetch(url, { method: 'GET' });
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { raw: text };
-    }
-    if (!res.ok || (data.type && data.type !== 'success')) {
-      throw new Error(`MSG91 OTP: ${data.message || text.slice(0, 150)}`);
-    }
-    return { ok: true, mode: 'msg91_template' };
-  }
-
-  const message = encodeURIComponent(
-    `${getOtpPrefix()}##OTP## is your ${process.env.APP_NAME || 'MARCOM CRM'} password reset OTP. Valid 10 minutes.`
+function responseFailed(data, fallbackText = '') {
+  const status = String(data?.type || data?.Type || data?.status || data?.Status || '').toLowerCase();
+  const message = String(data?.message || data?.Message || data?.msg || data?.Details || fallbackText || '');
+  return (
+    status === 'error' ||
+    status === 'failed' ||
+    status === 'failure' ||
+    /^error$/i.test(message) ||
+    /invalid|failed|failure|denied|unauthorized|not found/i.test(message)
   );
-  const url =
-    `https://api.msg91.com/api/sendotp.php?authkey=${encodeURIComponent(authkey)}` +
-    `&mobile=${encodeURIComponent(smsMobile)}&message=${message}` +
-    `&sender=${encodeURIComponent(sender)}&otp=${encodeURIComponent(otp)}&otp_expiry=10`;
-
-  const res = await fetch(url);
-  const text = await res.text();
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    data = { raw: text };
-  }
-  if (data.type === 'error' || data.message === 'error') {
-    throw new Error(`MSG91 OTP: ${data.msg || data.message || text.slice(0, 150)}`);
-  }
-  return { ok: true, mode: 'msg91_otp' };
 }
 
-async function sendViaFast2Sms(phoneKey, otp) {
-  const apiKey = process.env.FAST2SMS_API_KEY;
-  if (!apiKey) return null;
+function getProviderMessage(data, fallbackText = '') {
+  return String(
+    data?.message || data?.Message || data?.msg || data?.Details || data?.raw || fallbackText || ''
+  ).slice(0, 200);
+}
 
-  const displayCode = formatOtpDisplay(otp);
+function getProviderSessionId(data) {
+  const raw =
+    data?.Details ||
+    data?.details ||
+    data?.session_id ||
+    data?.sessionId ||
+    data?.SessionId ||
+    data?.request_id ||
+    data?.requestId ||
+    data?.RequestId ||
+    '';
+  const value = String(raw || '').trim();
+  return value && !/sent|success|matched|verified/i.test(value) ? value : '';
+}
+
+/** 2Factor.in - India OTP SMS */
+async function sendVia2Factor(smsMobile, otp, cfg) {
+  const apiKey = cfg.TWO_FACTOR_API_KEY;
+  const template = cfg.TWO_FACTOR_TEMPLATE || process.env.TWO_FACTOR_TEMPLATE || '';
+  const parts = [
+    'https://2factor.in/API/V1',
+    encodeURIComponent(apiKey),
+    'SMS',
+    encodeURIComponent(smsMobile),
+    encodeURIComponent(otp),
+  ];
+  if (template) parts.push(encodeURIComponent(template));
+  const url = parts.join('/');
+
+  const res = await fetch(url, { method: 'GET' });
+  const text = await res.text();
+  const data = parseJsonMaybe(text);
+  if (!res.ok || responseFailed(data, text)) {
+    throw new Error(`2Factor: ${getProviderMessage(data, text) || res.status}`);
+  }
+  return {
+    ok: true,
+    provider: '2factor',
+    mode: '2factor',
+    providerSessionId: getProviderSessionId(data),
+    smsMobile,
+  };
+}
+
+async function verifyVia2Factor(providerSessionId, otp, cfg) {
+  if (!providerSessionId) {
+    return { ok: true, provider: '2factor', skipped: true };
+  }
+  const apiKey = cfg.TWO_FACTOR_API_KEY;
+  const url = `https://2factor.in/API/V1/${encodeURIComponent(apiKey)}/SMS/VERIFY/${encodeURIComponent(
+    providerSessionId
+  )}/${encodeURIComponent(otp)}`;
+  const res = await fetch(url, { method: 'GET' });
+  const text = await res.text();
+  const data = parseJsonMaybe(text);
+  if (!res.ok || responseFailed(data, text)) {
+    throw new Error(`2Factor verify: ${getProviderMessage(data, text) || res.status}`);
+  }
+  return { ok: true, provider: '2factor' };
+}
+
+async function sendViaMsg91OtpApi(smsMobile, otp, cfg) {
+  const authkey = cfg.MSG91_AUTH_KEY;
+  const templateId = cfg.MSG91_TEMPLATE_ID;
+  const expiry = normalizeOtpExpiry(cfg.OTP_EXPIRY_MINUTES || 5);
+  const params = new URLSearchParams({
+    otp_expiry: String(expiry),
+    template_id: templateId,
+    mobile: smsMobile,
+    authkey,
+    otp,
+  });
+  const url = `https://control.msg91.com/api/v5/otp?${params.toString()}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      authkey,
+    },
+  });
+  const text = await res.text();
+  const data = parseJsonMaybe(text);
+  if (!res.ok || responseFailed(data, text)) {
+    throw new Error(`MSG91 OTP: ${getProviderMessage(data, text) || res.status}`);
+  }
+  return { ok: true, provider: 'msg91', mode: 'msg91_otp', smsMobile };
+}
+
+async function verifyViaMsg91OtpApi(smsMobile, otp, cfg) {
+  const authkey = cfg.MSG91_AUTH_KEY;
+  const params = new URLSearchParams({
+    mobile: smsMobile,
+    otp,
+    authkey,
+  });
+  const url = `https://control.msg91.com/api/v5/otp/verify?${params.toString()}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+      authkey,
+    },
+  });
+  const text = await res.text();
+  const data = parseJsonMaybe(text);
+  if (!res.ok || responseFailed(data, text)) {
+    throw new Error(`MSG91 verify: ${getProviderMessage(data, text) || res.status}`);
+  }
+  return { ok: true, provider: 'msg91' };
+}
+
+async function sendViaFast2Sms(phoneKey, otp, cfg) {
+  const apiKey = cfg.FAST2SMS_API_KEY;
   const res = await fetch('https://www.fast2sms.com/dev/bulkV2', {
     method: 'POST',
     headers: {
@@ -285,7 +335,7 @@ async function sendViaFast2Sms(phoneKey, otp) {
     },
     body: JSON.stringify({
       route: 'otp',
-      variables_values: displayCode,
+      variables_values: otp,
       numbers: phoneKey,
     }),
   });
@@ -293,17 +343,16 @@ async function sendViaFast2Sms(phoneKey, otp) {
   if (!res.ok || data.return === false) {
     throw new Error(`Fast2SMS: ${data.message || res.status}`);
   }
-  return { ok: true, mode: 'fast2sms' };
+  return { ok: true, provider: 'fast2sms', mode: 'fast2sms' };
 }
 
-async function sendViaTwilio(phoneE164, otp) {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM_NUMBER;
-  if (!sid || !token || !from) return null;
-
-  const displayCode = formatOtpDisplay(otp);
-  const body = `Your ${process.env.APP_NAME || 'MARCOM CRM'} password reset code is ${displayCode}. Valid 10 minutes.`;
+async function sendViaTwilio(phoneE164, otp, cfg) {
+  const sid = cfg.TWILIO_ACCOUNT_SID;
+  const token = cfg.TWILIO_AUTH_TOKEN;
+  const from = cfg.TWILIO_FROM_NUMBER;
+  const body = `Your ${process.env.APP_NAME || 'MARCOM CRM'} password reset code is ${otp}. Valid ${
+    normalizeOtpExpiry(cfg.OTP_EXPIRY_MINUTES || 5)
+  } minutes.`;
   const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
   const auth = Buffer.from(`${sid}:${token}`).toString('base64');
   const params = new URLSearchParams();
@@ -323,41 +372,44 @@ async function sendViaTwilio(phoneE164, otp) {
     const text = await res.text();
     throw new Error(`Twilio: ${res.status} ${text.slice(0, 200)}`);
   }
-  return { ok: true, mode: 'twilio' };
+  return { ok: true, provider: 'twilio', mode: 'twilio' };
 }
 
 function buildProviderAttempts(cfg, smsMobile, phoneKey, e164) {
   const preferred = getSmsProviderName(cfg);
-  const available = ['msg91', '2factor', 'fast2sms', 'twilio'].filter((provider) =>
-    hasProviderCredentials(provider, cfg)
-  );
-
-  const order = [];
-  if (preferred) order.push(preferred);
-  for (const provider of available) {
-    if (!order.includes(provider)) {
-      order.push(provider);
-    }
-  }
+  const order = preferred
+    ? [preferred]
+    : ['msg91', '2factor', 'fast2sms', 'twilio'].filter((provider) => hasProviderCredentials(provider, cfg));
 
   const attempts = [];
   for (const provider of order) {
     if (provider === 'msg91') {
-      attempts.push({ name: 'msg91_otp', fn: (otp) => sendViaMsg91OtpApi(smsMobile, otp) });
-      attempts.push({ name: 'msg91_http', fn: (otp) => sendViaMsg91Http(smsMobile, otp) });
+      attempts.push({ name: 'msg91_otp', fn: (otp) => sendViaMsg91OtpApi(smsMobile, otp, cfg) });
     } else if (provider === '2factor') {
-      attempts.push({ name: '2factor', fn: (otp) => sendVia2Factor(smsMobile, otp) });
+      attempts.push({ name: '2factor', fn: (otp) => sendVia2Factor(smsMobile, otp, cfg) });
     } else if (provider === 'fast2sms') {
-      attempts.push({ name: 'fast2sms', fn: (otp) => sendViaFast2Sms(phoneKey, otp) });
+      attempts.push({ name: 'fast2sms', fn: (otp) => sendViaFast2Sms(phoneKey, otp, cfg) });
     } else if (provider === 'twilio') {
-      attempts.push({ name: 'twilio', fn: (otp) => sendViaTwilio(e164, otp) });
+      attempts.push({ name: 'twilio', fn: (otp) => sendViaTwilio(e164, otp, cfg) });
     }
   }
   return attempts;
 }
 
+function buildMissingConfigError(cfg) {
+  const fieldErrors = getSmsConfigFieldErrors(cfg);
+  const message =
+    fieldErrors.msg91_auth_key ||
+    fieldErrors.msg91_template_id ||
+    fieldErrors.two_factor_api_key ||
+    fieldErrors.status ||
+    fieldErrors.sms_provider ||
+    'Pehle MSG91 ya 2Factor API key save karein (SMS OTP section).';
+  return new SmsProviderConfigError(message, fieldErrors);
+}
+
 /**
- * Send OTP to phone. Fails if no SMS provider or all providers fail.
+ * Send OTP to phone. Fails if selected SMS provider is not fully configured.
  * Never logs OTP to console in production path.
  */
 async function sendOtpToPhone(phoneRaw, otp) {
@@ -367,22 +419,18 @@ async function sendOtpToPhone(phoneRaw, otp) {
   const phoneKey = phoneKeyFromInput(phoneRaw);
   const e164 = toE164(phoneRaw);
 
-  if (!smsMobile) {
-    throw new Error('Invalid phone number');
+  if (!smsMobile || phoneKey.length < 10) {
+    throw new Error('Invalid mobile number. 10 digit Indian mobile number enter karein.');
   }
 
   const cfg = await getSmsConfig();
   if (!isSmsConfiguredSync(cfg)) {
-    throw new Error(
-      'SMS configure nahi hai. Super Admin -> System Settings -> SMS OTP mein API key save karein, ya: node scripts/configure-sms.js --msg91=KEY'
-    );
+    throw buildMissingConfigError(cfg);
   }
 
   const attempts = buildProviderAttempts(cfg, smsMobile, phoneKey, e164);
   if (attempts.length === 0) {
-    throw new Error(
-      'SMS provider configured hai, lekin selected provider ki API key missing hai. Super Admin -> System Settings mein provider aur key verify karein.'
-    );
+    throw buildMissingConfigError(cfg);
   }
 
   const errors = [];
@@ -391,7 +439,7 @@ async function sendOtpToPhone(phoneRaw, otp) {
       const result = await fn(otp);
       if (result) {
         console.log(`[password-reset] SMS sent via ${result.mode} to ${smsMobile.slice(0, 4)}***`);
-        return result;
+        return { ...result, smsMobile };
       }
     } catch (err) {
       errors.push(`${name}: ${err.message}`);
@@ -399,14 +447,30 @@ async function sendOtpToPhone(phoneRaw, otp) {
     }
   }
 
-  throw new Error(
-    errors[0] ||
-      'OTP SMS bhejne mein fail. MSG91 dashboard par sender ID "VG" aur balance check karein.'
-  );
+  throw new Error(errors[0] || 'Provider API failed. SMS dashboard, template ID aur balance check karein.');
+}
+
+async function verifyOtpWithProvider(provider, phoneRaw, otp, providerSessionId) {
+  const normalized = normalizeProviderName(provider);
+  if (!normalized || normalized === 'fast2sms' || normalized === 'twilio') {
+    return { ok: true, skipped: true };
+  }
+
+  await refreshSmsConfig();
+  const cfg = await getSmsConfig();
+  const smsMobile = toSmsMobile(phoneRaw);
+  if (normalized === 'msg91') {
+    return verifyViaMsg91OtpApi(smsMobile, otp, cfg);
+  }
+  if (normalized === '2factor') {
+    return verifyVia2Factor(providerSessionId, otp, cfg);
+  }
+  return { ok: true, skipped: true };
 }
 
 module.exports = {
   OTP_PREFIX: getOtpPrefix(),
+  SmsProviderConfigError,
   getOtpPrefix,
   normalizeDigits,
   phoneKeyFromInput,
@@ -417,6 +481,7 @@ module.exports = {
   formatOtpDisplay,
   parseOtpInput,
   sendOtpToPhone,
+  verifyOtpWithProvider,
   isSmsConfigured,
   isSmsConfiguredSync,
 };

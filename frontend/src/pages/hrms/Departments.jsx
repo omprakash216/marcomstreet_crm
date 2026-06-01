@@ -5,7 +5,7 @@ export default function Departments() {
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: '', description: '' });
+  const [form, setForm] = useState({ name: '', department_code: '', description: '' });
 
   const fetchDepartments = async () => {
     try {
@@ -25,12 +25,12 @@ export default function Departments() {
 
   const resetForm = () => {
     setEditing(null);
-    setForm({ name: '', description: '' });
+    setForm({ name: '', department_code: '', description: '' });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || !form.department_code.trim()) return;
     try {
       if (editing?.id) {
         await api.put(`/departments/${editing.id}`, form);
@@ -48,6 +48,7 @@ export default function Departments() {
     setEditing(dept);
     setForm({
       name: dept.name || '',
+      department_code: dept.department_code || '',
       description: dept.description || '',
     });
   };
@@ -88,6 +89,17 @@ export default function Departments() {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                placeholder="e.g. HR"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Department Code</label>
+              <input
+                type="text"
+                value={form.department_code}
+                onChange={(e) => setForm({ ...form, department_code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                 placeholder="e.g. HR"
                 required
               />
@@ -138,6 +150,7 @@ export default function Departments() {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">SL No</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Code</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Description</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Actions</th>
                   </tr>
@@ -147,6 +160,7 @@ export default function Departments() {
                     <tr key={dept.id} className="hover:bg-slate-50/60">
                       <td className="px-4 py-3 text-slate-500 font-semibold whitespace-nowrap">{String(index + 1).padStart(2, '0')}</td>
                       <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{dept.name}</td>
+                      <td className="px-4 py-3 text-slate-700 font-mono font-semibold whitespace-nowrap">{dept.department_code || '-'}</td>
                       <td className="px-4 py-3 text-slate-600">
                         <div className="max-w-[520px] truncate" title={dept.description || ''}>
                           {dept.description || '-'}

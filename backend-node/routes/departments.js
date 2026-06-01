@@ -1,8 +1,19 @@
 const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
+const { normalizeCodePart } = require('../utils/employeeCode');
+const { ensureEmployeeCodeSchema } = require('../utils/employeeCodeSchema');
 
 const router = express.Router();
+
+router.use(async (_req, _res, next) => {
+  try {
+    await ensureEmployeeCodeSchema();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 function isPrivileged(employee) {
   const role = String(employee?.role || '').toLowerCase().trim();
@@ -47,10 +58,12 @@ router.post('/', verifyToken, async (req, res) => {
     if (!companyId) return res.status(400).json({ success: false, message: 'Missing company context' });
     const b = req.body || {};
     if (!b.name) return res.status(400).json({ success: false, message: 'Name is required' });
+    const departmentCode = normalizeCodePart(b.department_code);
+    if (!departmentCode) return res.status(400).json({ success: false, message: 'Department code is required' });
     const conn = await getConnection();
     const [r] = await conn.execute(
-      'INSERT INTO departments (company_id, name, description) VALUES (?, ?, ?)',
-      [companyId, String(b.name).trim(), b.description || '']
+      'INSERT INTO departments (company_id, name, department_code, description) VALUES (?, ?, ?, ?)',
+      [companyId, String(b.name).trim(), departmentCode, b.description || '']
     );
     conn.release();
     return res.json({ success: true, message: 'Department created successfully', data: { id: r.insertId } });
@@ -69,8 +82,11 @@ router.put('/:id', verifyToken, async (req, res) => {
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ success: false, message: 'Invalid department id' });
     const b = req.body || {};
     if (!b.name) return res.status(400).json({ success: false, message: 'Name is required' });
-    const result = await query('UPDATE departments SET name = ?, description = ? WHERE id = ? AND company_id = ?', [
+    const departmentCode = normalizeCodePart(b.department_code);
+    if (!departmentCode) return res.status(400).json({ success: false, message: 'Department code is required' });
+    const result = await query('UPDATE departments SET name = ?, department_code = ?, description = ? WHERE id = ? AND company_id = ?', [
       String(b.name).trim(),
+      departmentCode,
       b.description || '',
       id,
       companyId,

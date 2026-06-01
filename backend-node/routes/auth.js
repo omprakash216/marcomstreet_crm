@@ -11,8 +11,16 @@ const {
   formatOtpDisplay,
   parseOtpInput,
   sendOtpToPhone,
+  verifyOtpWithProvider,
 } = require('../services/passwordResetOtp');
-const { refreshSmsConfig, getPublicSmsStatus, ensureGlobalSettingsTable } = require('../config/smsConfig');
+const {
+  refreshSmsConfig,
+  getSmsConfig,
+  getPublicSmsStatus,
+  ensureGlobalSettingsTable,
+  ensureSmsSettingsTable,
+  normalizeOtpExpiry,
+} = require('../config/smsConfig');
 const emailPasswordResetRoutes = require('./auth/passwordResetRoutes');
 
 const router = express.Router();
@@ -23,9 +31,11 @@ router.use('/forgot-password/email', emailPasswordResetRoutes);
 /** In-memory rate limit: phone_key -> last epoch ms */
 const otpRequestCooldown = new Map();
 const OTP_COOLDOWN_MS = 60 * 1000;
-const OTP_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_OTP_TTL_MS = 5 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 const RESET_JWT_TTL_SEC = 15 * 60;
+const OTP_WINDOW_MS = 15 * 60 * 1000;
+const OTP_WINDOW_LIMIT = 5;
 
 const COMMON_MODULE_KEYS = ['calendar', 'notifications', 'chat'];
 const CRM_MODULE_KEYS = [
@@ -61,6 +71,38 @@ function hashResetToken(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
 }
 
+async function hasTableColumn(table, column) {
+  const rows = await query(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column]
+  );
+  return Number(rows?.[0]?.count || 0) > 0;
+}
+
+async function addTableColumnIfMissing(table, column, ddl) {
+  if (!(await hasTableColumn(table, column))) {
+    await query(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+}
+
+function getConfiguredOtpTtlMs(cfg) {
+  const minutes = normalizeOtpExpiry(cfg?.OTP_EXPIRY_MINUTES || 5);
+  return minutes > 0 ? minutes * 60 * 1000 : DEFAULT_OTP_TTL_MS;
+}
+
+function getProviderFromSmsResult(result) {
+  const provider = String(result?.provider || '').toLowerCase();
+  if (provider) return provider;
+  const mode = String(result?.mode || '').toLowerCase();
+  if (mode.startsWith('msg91')) return 'msg91';
+  if (mode.includes('2factor')) return '2factor';
+  if (mode.includes('fast2sms')) return 'fast2sms';
+  if (mode.includes('twilio')) return 'twilio';
+  return '';
+}
+
 async function ensurePasswordResetTables() {
   await query(
     `CREATE TABLE IF NOT EXISTS password_reset_otps (
@@ -76,6 +118,11 @@ async function ensurePasswordResetTables() {
       INDEX idx_employee_created (employee_id, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
   );
+  await addTableColumnIfMissing('password_reset_otps', 'provider', 'VARCHAR(30) NULL');
+  await addTableColumnIfMissing('password_reset_otps', 'provider_session_id', 'VARCHAR(180) NULL');
+  await addTableColumnIfMissing('password_reset_otps', 'sms_mobile', 'VARCHAR(24) NULL');
+  await addTableColumnIfMissing('password_reset_otps', 'sent_at', 'DATETIME NULL');
+
   await query(
     `CREATE TABLE IF NOT EXISTS password_reset_sessions (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -399,9 +446,10 @@ const FORGOT_GENERIC_OK = {
   message: 'If this number is registered, you will receive an OTP shortly.',
 };
 
-router.post('/forgot-password/request-otp', async (req, res) => {
+async function requestPasswordResetOtp(req, res) {
   try {
     await ensureGlobalSettingsTable();
+    await ensureSmsSettingsTable();
     await refreshSmsConfig();
     await ensurePasswordResetTables();
     const { phone } = req.body || {};
@@ -419,6 +467,19 @@ router.post('/forgot-password/request-otp', async (req, res) => {
       return res.status(429).json({
         success: false,
         message: 'Please wait a minute before requesting another OTP.',
+      });
+    }
+
+    const windowRows = await query(
+      `SELECT COUNT(*) AS count
+       FROM password_reset_otps
+       WHERE phone_key = ? AND created_at >= ?`,
+      [phoneKey, new Date(now - OTP_WINDOW_MS)]
+    );
+    if (Number(windowRows?.[0]?.count || 0) >= OTP_WINDOW_LIMIT) {
+      return res.status(429).json({
+        success: false,
+        message: '15 minutes mein max 5 OTP allowed hain. Thoda wait karke dubara try karein.',
       });
     }
 
@@ -445,9 +506,10 @@ router.post('/forgot-password/request-otp', async (req, res) => {
       return res.json(FORGOT_GENERIC_OK);
     }
 
+    const smsCfg = await getSmsConfig();
     const otp = generateOtp6();
     const otpHash = await bcrypt.hash(otp, 10);
-    const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+    const expiresAt = new Date(Date.now() + getConfiguredOtpTtlMs(smsCfg));
 
     await query(
       'UPDATE password_reset_otps SET consumed = 1 WHERE phone_key = ? AND consumed = 0',
@@ -469,21 +531,36 @@ router.post('/forgot-password/request-otp', async (req, res) => {
       if (otpRowId) {
         await query('DELETE FROM password_reset_otps WHERE id = ?', [otpRowId]);
       }
-      return res.status(502).json({
+      return res.status(smsErr.statusCode || 502).json({
         success: false,
         message:
           smsErr.message ||
           'OTP SMS nahi bheja ja saka. backend-node/.env mein MSG91_AUTH_KEY ya FAST2SMS_API_KEY set karein.',
+        errors: smsErr.fieldErrors || undefined,
       });
+    }
+    if (otpRowId) {
+      await query(
+        `UPDATE password_reset_otps
+         SET provider = ?, provider_session_id = ?, sms_mobile = ?, sent_at = NOW()
+         WHERE id = ?`,
+        [
+          getProviderFromSmsResult(smsResult),
+          smsResult.providerSessionId || null,
+          smsResult.smsMobile || null,
+          otpRowId,
+        ]
+      );
     }
     otpRequestCooldown.set(phoneKey, now);
 
     const payload = {
       success: true,
-      message: 'OTP aapke registered mobile number par bhej diya gaya hai. SMS verify karein.',
+      message: 'OTP sent successfully',
       data: {
         smsSent: true,
         deliveryMode: smsResult.mode,
+        expiresInMinutes: normalizeOtpExpiry(smsCfg.OTP_EXPIRY_MINUTES || 5),
         otpVerified: false,
       },
     };
@@ -495,11 +572,15 @@ router.post('/forgot-password/request-otp', async (req, res) => {
     console.error('request-otp error:', err);
     return res.status(500).json({ success: false, message: 'Could not send OTP. Try again later.' });
   }
-});
+}
+
+router.post('/forgot-password/request-otp', requestPasswordResetOtp);
+router.post('/forgot-password/send-otp', requestPasswordResetOtp);
 
 router.get('/forgot-password/sms-status', async (req, res) => {
   try {
     await ensureGlobalSettingsTable();
+    await ensureSmsSettingsTable();
     await refreshSmsConfig();
     const status = getPublicSmsStatus();
     return res.json({
@@ -526,7 +607,7 @@ router.post('/forgot-password/verify-otp', async (req, res) => {
     if (!phoneKey || otpStr.length !== 6) {
       return res.status(400).json({
         success: false,
-        message: 'Enter phone number and OTP (VG + 6 digits, e.g. VG123456).',
+        message: 'Enter mobile number and 6 digit OTP.',
       });
     }
 
@@ -554,6 +635,24 @@ router.post('/forgot-password/verify-otp', async (req, res) => {
     if (!match) {
       await query('UPDATE password_reset_otps SET attempts = attempts + 1 WHERE id = ?', [row.id]);
       return res.status(400).json({ success: false, message: 'Incorrect OTP.' });
+    }
+
+    if (row.provider) {
+      try {
+        await verifyOtpWithProvider(
+          row.provider,
+          row.sms_mobile || phone,
+          otpStr,
+          row.provider_session_id || ''
+        );
+      } catch (providerErr) {
+        console.error('provider otp verify error:', providerErr.message);
+        await query('UPDATE password_reset_otps SET attempts = attempts + 1 WHERE id = ?', [row.id]);
+        return res.status(400).json({
+          success: false,
+          message: 'OTP invalid hai ya provider verification fail hua. New OTP request karein.',
+        });
+      }
     }
 
     await query('UPDATE password_reset_otps SET consumed = 1 WHERE id = ?', [row.id]);
@@ -585,7 +684,7 @@ router.post('/forgot-password/verify-otp', async (req, res) => {
   }
 });
 
-router.post('/forgot-password/reset', async (req, res) => {
+async function resetForgotPassword(req, res) {
   try {
     await ensurePasswordResetTables();
     const { resetToken, newPassword } = req.body || {};
@@ -665,7 +764,10 @@ router.post('/forgot-password/reset', async (req, res) => {
     console.error('forgot-password reset error:', err);
     return res.status(500).json({ success: false, message: 'Could not update password.' });
   }
-});
+}
+
+router.post('/forgot-password/reset', resetForgotPassword);
+router.post('/forgot-password/reset-password', resetForgotPassword);
 
 router.post('/logout', verifyToken, (req, res) => {
   return res.json({ success: true, message: 'Logged out' });

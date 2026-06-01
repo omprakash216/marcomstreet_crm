@@ -1,15 +1,143 @@
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { useState, useEffect, useRef, forwardRef } from "react";
+import { useState, useEffect, useRef, useMemo, forwardRef } from "react";
 import { createPortal } from "react-dom";
-import { getEmployee, clearAuth, normalizeRole } from "../utils/auth";
+import { getEmployee, clearAuth, normalizeRole, isSuperAdminRole } from "../utils/auth";
 import api from "../utils/api";
 import MarcomLogo from "./MarcomLogo";
 import NotificationDropdown from "./NotificationDropdown";
+
+function getAdminSidebarSections(showMasterCompanyManagement) {
+  const sections = [
+    {
+      key: "company",
+      label: "Company",
+      icon: "fas fa-building",
+      items: [
+        { to: "/admin/company-profile", icon: "fas fa-id-card", label: "Company Profile" },
+        { to: "/admin/calendar", icon: "fas fa-calendar-alt", label: "Meeting Calendar" },
+        { to: "/admin/chat", icon: "fas fa-comments", label: "Team Chat" },
+        { to: "/admin/notifications", icon: "fas fa-bell", label: "Notifications" },
+      ],
+    },
+    {
+      key: "crm",
+      label: "CRM & Sales",
+      icon: "fas fa-chart-line",
+      items: [
+        { to: "/admin/leads", icon: "fas fa-bullhorn", label: "Leads" },
+        { to: "/admin/clients", icon: "fas fa-user-friends", label: "Clients" },
+        { to: "/admin/followups", icon: "fas fa-phone-volume", label: "Follow-ups" },
+        { to: "/admin/deals-pipeline", icon: "fas fa-filter", label: "Deals / Pipeline" },
+        { to: "/admin/quotations", icon: "fas fa-file-signature", label: "Quotations" },
+        { to: "/admin/quotation-templates", icon: "fas fa-file-invoice", label: "Quotation Formats" },
+        { to: "/admin/invoices", icon: "fas fa-file-invoice-dollar", label: "Invoices" },
+      ],
+    },
+    {
+      key: "finance",
+      label: "Finance & Bank",
+      icon: "fas fa-wallet",
+      items: [
+        { to: "/admin/payments", icon: "fas fa-credit-card", label: "Payments" },
+        { to: "/admin/accounts", icon: "fas fa-university", label: "Bank Accounts" },
+        { to: "/admin/expenses", icon: "fas fa-receipt", label: "Expenses" },
+        {
+          to: "/admin/reports?scope=finance",
+          icon: "fas fa-chart-bar",
+          label: "Finance Reports",
+          activeWhen: (location) => location.pathname === "/admin/reports" && (!location.search || location.search.includes("scope=finance")),
+        },
+      ],
+    },
+    {
+      key: "inventory",
+      label: "Inventory",
+      icon: "fas fa-boxes",
+      items: [
+        { to: "/admin/products", icon: "fas fa-box-open", label: "Products" },
+        { to: "/admin/stock", icon: "fas fa-layer-group", label: "Stock" },
+        { to: "/admin/purchases", icon: "fas fa-shopping-cart", label: "Purchases" },
+        { to: "/admin/suppliers", icon: "fas fa-truck-loading", label: "Suppliers" },
+        { to: "/admin/warehouses", icon: "fas fa-warehouse", label: "Warehouses" },
+        { to: "/admin/inventory", icon: "fas fa-boxes", label: "Inventory Mgmt" },
+      ],
+    },
+    {
+      key: "hrms",
+      label: "HRMS",
+      icon: "fas fa-users-cog",
+      items: [
+        { to: "/admin/employees", icon: "fas fa-users", label: "Employees" },
+        { to: "/admin/departments", icon: "fas fa-sitemap", label: "Departments" },
+        { to: "/admin/attendance", icon: "fas fa-user-clock", label: "Attendance" },
+        { to: "/admin/leaves", icon: "fas fa-calendar-minus", label: "Leaves" },
+        { to: "/admin/payroll", icon: "fas fa-money-check-alt", label: "Payroll" },
+        { to: "/admin/announcements", icon: "fas fa-bullhorn", label: "Announcements" },
+        { to: "/admin/documents", icon: "fas fa-folder-open", label: "Documents" },
+      ],
+    },
+    {
+      key: "projects",
+      label: "Projects & Tasks",
+      icon: "fas fa-project-diagram",
+      items: [
+        { to: "/admin/projects", icon: "fas fa-project-diagram", label: "Projects" },
+        { to: "/admin/tasks", icon: "fas fa-tasks", label: "Tasks" },
+        { to: "/admin/task-board", icon: "fas fa-columns", label: "Task Board" },
+        { to: "/admin/timesheets", icon: "fas fa-clock", label: "Timesheets" },
+        { to: "/admin/task-assignment", icon: "fas fa-clipboard-check", label: "Task Assignments" },
+      ],
+    },
+    {
+      key: "insights",
+      label: "Business Intelligence",
+      icon: "fas fa-brain",
+      items: [
+        { to: "/admin/revenue", icon: "fas fa-money-bill-wave", label: "Revenue & Forecast" },
+        { to: "/admin/insights", icon: "fas fa-lightbulb", label: "Smart Insights" },
+        { to: "/admin/ai-lead-score", icon: "fas fa-robot", label: "AI Lead Scoring" },
+      ],
+    },
+    {
+      key: "system",
+      label: "System & Support",
+      icon: "fas fa-sliders-h",
+      items: [
+        { to: "/admin/api-integration", icon: "fas fa-plug", label: "API Integration" },
+        {
+          to: "/admin/reports?scope=system",
+          icon: "fas fa-file-alt",
+          label: "System Reports",
+          activeWhen: (location) => location.pathname === "/admin/reports" && location.search.includes("scope=system"),
+        },
+        { to: "/admin/export-reports", icon: "fas fa-file-export", label: "Export Reports" },
+        { to: "/admin/support-tickets", icon: "fas fa-life-ring", label: "Support / Tickets" },
+        { to: "/admin/audit-logs", icon: "fas fa-history", label: "Audit Logs" },
+        { to: "/admin/rbac", icon: "fas fa-user-shield", label: "Roles & Access" },
+        { to: "/admin/company-settings", icon: "fas fa-cog", label: "Company Settings" },
+      ],
+    },
+  ];
+
+  if (showMasterCompanyManagement) {
+    sections.splice(1, 0, {
+      key: "master",
+      label: "Master Panel",
+      icon: "fas fa-crown",
+      items: [
+        { to: "/superadmin/companies", icon: "fas fa-building", label: "Companies" },
+      ],
+    });
+  }
+
+  return sections;
+}
 
 export default function AdminLayout() {
   const [employee, setEmployee] = useState(null);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [openSection, setOpenSection] = useState("company");
   const [checkedIn, setCheckedIn] = useState(false);
   const [checkInLoading, setCheckInLoading] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
@@ -144,10 +272,16 @@ export default function AdminLayout() {
   }, [showProfileDropdown]);
 
   const isActive = (path) => {
-    if (path === "/admin") {
+    const pathname = String(path || "").split("?")[0];
+    if (pathname === "/admin") {
       return location.pathname === "/admin";
     }
-    return location.pathname.startsWith(path);
+    return location.pathname.startsWith(pathname);
+  };
+
+  const isItemActive = (item) => {
+    if (typeof item.activeWhen === "function") return item.activeWhen(location);
+    return isActive(item.to);
   };
 
   const handleLogout = async () => {
@@ -164,6 +298,17 @@ export default function AdminLayout() {
 
   const toggleMobileSidebar = () => setShowMobileSidebar(!showMobileSidebar);
   const closeMobileSidebar = () => setShowMobileSidebar(false);
+
+  const showMasterCompanyManagement = employee ? isSuperAdminRole(employee?.role) : false;
+  const sidebarSections = useMemo(
+    () => getAdminSidebarSections(showMasterCompanyManagement),
+    [showMasterCompanyManagement]
+  );
+  const activeSectionKey = sidebarSections.find((section) => section.items.some(isItemActive))?.key || "";
+
+  useEffect(() => {
+    if (activeSectionKey) setOpenSection(activeSectionKey);
+  }, [activeSectionKey]);
 
   if (!employee) return null;
 
@@ -214,7 +359,7 @@ export default function AdminLayout() {
                 Company Admin Panel
               </h1>
               <p className="text-xs font-semibold text-blue-100 truncate">
-                Complete Company Management System & HRMS
+                Complete CRM System & HRMS
               </p>
             </div>
             <span className="flex-shrink-0 inline-flex items-center px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest uppercase text-white bg-white/15 border border-white/30">
@@ -317,78 +462,22 @@ export default function AdminLayout() {
             <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto pb-8 custom-scrollbar">
               <SidebarLink to="/admin" icon="fas fa-tachometer-alt" label="Dashboard" active={isActive("/admin") && location.pathname === "/admin"} onClick={closeMobileSidebar} />
 
-              <div className="pt-4 pb-2">
-                <p className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Company Admin</p>
+              <div className="pt-3 space-y-2">
+                {sidebarSections.map((section) => {
+                  const sectionActive = section.items.some(isItemActive);
+                  return (
+                    <SidebarSection
+                      key={section.key}
+                      section={section}
+                      isOpen={openSection === section.key}
+                      active={sectionActive}
+                      onToggle={() => setOpenSection((current) => (current === section.key ? "" : section.key))}
+                      isItemActive={isItemActive}
+                      onLinkClick={closeMobileSidebar}
+                    />
+                  );
+                })}
               </div>
-              <SidebarLink to="/admin/company-profile" icon="fas fa-id-card" label="Company Profile" active={isActive("/admin/company-profile")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/calendar" icon="fas fa-calendar-alt" label="Meeting Calendar" active={isActive("/admin/calendar")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/chat" icon="fas fa-comments" label="Team Chat" active={isActive("/admin/chat")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/attendance" icon="fas fa-user-clock" label="Attendance" active={isActive("/admin/attendance")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/leaves" icon="fas fa-calendar-minus" label="Leaves" active={isActive("/admin/leaves")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/payroll" icon="fas fa-money-check-alt" label="Payroll" active={isActive("/admin/payroll")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/leads" icon="fas fa-bullhorn" label="Leads" active={isActive("/admin/leads")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/clients" icon="fas fa-user-friends" label="Clients" active={isActive("/admin/clients")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/followups" icon="fas fa-phone-volume" label="Follow-ups" active={isActive("/admin/followups")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/deals-pipeline" icon="fas fa-filter" label="Deals / Pipeline" active={isActive("/admin/deals-pipeline")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/quotations" icon="fas fa-file-signature" label="Quotations" active={isActive("/admin/quotations")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/quotation-templates" icon="fas fa-file-invoice" label="Quotation Formats" active={isActive("/admin/quotation-templates")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/invoices" icon="fas fa-file-invoice-dollar" label="Invoices" active={isActive("/admin/invoices")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/payments" icon="fas fa-credit-card" label="Payments" active={isActive("/admin/payments")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/accounts" icon="fas fa-university" label="Bank Accounts" active={isActive("/admin/accounts")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/expenses" icon="fas fa-receipt" label="Expenses" active={isActive("/admin/expenses")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/reports" icon="fas fa-chart-bar" label="Finance Reports" active={isActive("/admin/reports")} onClick={closeMobileSidebar} />
-
-              <div className="pt-4 pb-2">
-                <p className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Inventory</p>
-              </div>
-              <SidebarLink to="/admin/products" icon="fas fa-box-open" label="Products" active={isActive("/admin/products")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/stock" icon="fas fa-layer-group" label="Stock" active={isActive("/admin/stock")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/purchases" icon="fas fa-shopping-cart" label="Purchases" active={isActive("/admin/purchases")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/suppliers" icon="fas fa-truck-loading" label="Suppliers" active={isActive("/admin/suppliers")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/warehouses" icon="fas fa-warehouse" label="Warehouses" active={isActive("/admin/warehouses")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/inventory" icon="fas fa-boxes" label="Inventory Mgmt" active={isActive("/admin/inventory")} onClick={closeMobileSidebar} />
-
-              <div className="pt-4 pb-2">
-                <p className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Projects & Tasks</p>
-              </div>
-              <SidebarLink to="/admin/projects" icon="fas fa-project-diagram" label="Projects" active={isActive("/admin/projects")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/tasks" icon="fas fa-tasks" label="Tasks" active={isActive("/admin/tasks")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/task-board" icon="fas fa-columns" label="Task Board" active={isActive("/admin/task-board")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/timesheets" icon="fas fa-clock" label="Timesheets" active={isActive("/admin/timesheets")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/task-assignment" icon="fas fa-clipboard-check" label="Task Assignments" active={isActive("/admin/task-assignment")} onClick={closeMobileSidebar} />
-
-              <SidebarLink to="/admin/companies" icon="fas fa-building" label="Companies" active={isActive("/admin/companies")} onClick={closeMobileSidebar} />
-
-              <div className="pt-4 pb-2">
-                <p className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Business Intelligence</p>
-              </div>
-
-              <SidebarLink to="/admin/revenue" icon="fas fa-money-bill-wave" label="Revenue & Forecast" active={isActive("/admin/revenue")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/insights" icon="fas fa-lightbulb" label="Smart Insights" active={isActive("/admin/insights")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/ai-lead-score" icon="fas fa-robot" label="AI Lead Scoring" active={isActive("/admin/ai-lead-score")} onClick={closeMobileSidebar} />
-
-              <div className="pt-4 pb-2">
-                <p className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Operations</p>
-              </div>
-
-              <SidebarLink to="/admin/employees" icon="fas fa-users" label="Employees" active={isActive("/admin/employees")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/departments" icon="fas fa-sitemap" label="Departments" active={isActive("/admin/departments")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/announcements" icon="fas fa-bullhorn" label="Announcements" active={isActive("/admin/announcements")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/notifications" icon="fas fa-bell" label="Notifications" active={isActive("/admin/notifications")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/export-reports" icon="fas fa-file-export" label="Export Reports" active={isActive("/admin/export-reports")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/documents" icon="fas fa-folder-open" label="Documents" active={isActive("/admin/documents")} onClick={closeMobileSidebar} />
-
-              <div className="pt-4 pb-2">
-                <p className="px-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest">System</p>
-              </div>
-
-              <SidebarLink to="/admin/integrations" icon="fas fa-plug" label="Integrations" active={isActive("/admin/integrations")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/api-integration" icon="fas fa-plug" label="API Integration" active={isActive("/admin/api-integration")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/reports" icon="fas fa-file-alt" label="System Reports" active={isActive("/admin/reports")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/support-tickets" icon="fas fa-life-ring" label="Support / Tickets" active={isActive("/admin/support-tickets")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/audit-logs" icon="fas fa-history" label="Audit Logs" active={isActive("/admin/audit-logs")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/rbac" icon="fas fa-user-shield" label="Roles & Access" active={isActive("/admin/rbac")} onClick={closeMobileSidebar} />
-              <SidebarLink to="/admin/company-settings" icon="fas fa-cog" label="Company Settings" active={isActive("/admin/company-settings")} onClick={closeMobileSidebar} />
             </nav>
           </div>
         </aside>
@@ -464,12 +553,52 @@ const ProfileMenu = forwardRef(function ProfileMenu({ employee, onLogout, style 
   );
 });
 
-function SidebarLink({ to, icon, label, active, onClick }) {
+function SidebarSection({ section, isOpen, active, onToggle, isItemActive, onLinkClick }) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50/70 p-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        className={`group flex w-full items-center rounded-lg px-3 py-3 text-left text-sm font-black transition-all ${
+          active || isOpen
+            ? "bg-white text-blue-700 shadow-sm"
+            : "text-gray-700 hover:bg-white hover:text-blue-700"
+        }`}
+      >
+        <i className={`${section.icon} mr-3 w-5 text-center text-base ${active || isOpen ? "text-blue-600" : "text-gray-400 group-hover:text-blue-500"}`}></i>
+        <span className="min-w-0 flex-1 truncate">{section.label}</span>
+        <span className={`mr-2 rounded-full px-2 py-0.5 text-[10px] font-black ${active || isOpen ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-500"}`}>
+          {section.items.length}
+        </span>
+        <i className={`fas fa-chevron-down text-xs text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`}></i>
+      </button>
+
+      {isOpen && (
+        <div className="mt-1 space-y-1 border-t border-gray-100 px-1 py-2">
+          {section.items.map((item) => (
+            <SidebarLink
+              key={`${section.key}-${item.to}-${item.label}`}
+              to={item.to}
+              icon={item.icon}
+              label={item.label}
+              active={isItemActive(item)}
+              onClick={onLinkClick}
+              compact
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SidebarLink({ to, icon, label, active, onClick, compact = false }) {
   return (
     <Link
       to={to}
       onClick={onClick}
-      className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 text-sm font-semibold ${
+      className={`group flex items-center rounded-xl transition-all duration-200 ${compact ? "px-3 py-2.5 text-[13px]" : "px-4 py-3 text-sm"} font-semibold ${
         active
           ? "bg-blue-600 text-white shadow-lg shadow-blue-200 border-b-2 border-blue-700"
           : "text-gray-600 hover:bg-blue-50 hover:text-blue-600 border border-transparent hover:border-blue-100"

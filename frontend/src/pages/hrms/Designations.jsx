@@ -5,7 +5,7 @@ export default function Designations() {
   const [designations, setDesignations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: '', description: '' });
+  const [form, setForm] = useState({ name: '', designation_code: '', description: '' });
 
   const fetchDesignations = async () => {
     try {
@@ -25,12 +25,12 @@ export default function Designations() {
 
   const resetForm = () => {
     setEditing(null);
-    setForm({ name: '', description: '' });
+    setForm({ name: '', designation_code: '', description: '' });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || !form.designation_code.trim()) return;
     try {
       if (editing?.id) {
         await api.put(`/hrms/designations/${editing.id}`, form);
@@ -46,7 +46,7 @@ export default function Designations() {
 
   const handleEdit = (item) => {
     setEditing(item);
-    setForm({ name: item.name || '', description: item.description || '' });
+    setForm({ name: item.name || '', designation_code: item.designation_code || '', description: item.description || '' });
   };
 
   const handleDelete = async (item) => {
@@ -84,6 +84,17 @@ export default function Designations() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                 placeholder="e.g. HR Manager"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Designation Code</label>
+              <input
+                type="text"
+                value={form.designation_code}
+                onChange={(e) => setForm({ ...form, designation_code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                placeholder="e.g. MGR"
                 required
               />
             </div>
@@ -133,6 +144,7 @@ export default function Designations() {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">SL</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Code</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Description</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Actions</th>
                   </tr>
@@ -142,6 +154,7 @@ export default function Designations() {
                     <tr key={item.id} className="hover:bg-slate-50/60">
                       <td className="px-4 py-3 text-slate-600">{idx + 1}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{item.name}</td>
+                      <td className="px-4 py-3 text-slate-700 font-mono font-semibold">{item.designation_code || '-'}</td>
                       <td className="px-4 py-3 text-slate-600">{item.description || '-'}</td>
                       <td className="px-4 py-3 text-right space-x-2">
                         <button

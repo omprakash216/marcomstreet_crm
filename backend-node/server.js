@@ -47,6 +47,12 @@ const accountsRoutes = require('./routes/accounts');
 const publicApiRoutes = require('./routes/publicApi');
 const billingRoutes = require('./routes/billing');
 const expensesRoutes = require('./routes/expenses');
+const ajaxRoutes = require('./routes/ajax');
+const purchasesRoutes = require('./routes/purchases');
+const suppliersRoutes = require('./routes/suppliers');
+const warehousesRoutes = require('./routes/warehouses');
+const supportTicketsRoutes = require('./routes/supportTickets');
+const paymentsRoutes = require('./routes/payments');
 
 // Super Admin Routes
 const superAdminCompanies = require('./routes/superadmin/companies');
@@ -114,6 +120,12 @@ app.use('/api/external', publicApiRoutes);
 app.use('/api/webhook', publicApiRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/expenses', expensesRoutes);
+app.use('/api/ajax', ajaxRoutes);
+app.use('/api/purchases', purchasesRoutes);
+app.use('/api/suppliers', suppliersRoutes);
+app.use('/api/warehouses', warehousesRoutes);
+app.use('/api/support-tickets', supportTicketsRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 // Fallback: some deployments still hit /api/billing/plans but miss the router mount
 app.get('/api/billing/plans', (req, res, next) => {

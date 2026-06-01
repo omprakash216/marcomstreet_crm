@@ -23,6 +23,10 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [quickActionPage, setQuickActionPage] = useState(1);
+  const [employeePage, setEmployeePage] = useState(1);
+  const [taskPage, setTaskPage] = useState(1);
+  const [invoicePage, setInvoicePage] = useState(1);
 
   // Local state for interactive pending tasks checklist
   const [tasksList, setTasksList] = useState([
@@ -150,6 +154,29 @@ export default function AdminDashboard() {
     { id: 'INV-2025-1051', client: 'New Lead Corp', amount: 35000, status: 'Paid', date: '17 May 2025' },
     { id: 'INV-2025-1050', client: 'Marcom CRM', amount: 65000, status: 'Paid', date: '15 May 2025' }
   ];
+
+  const quickActions = [
+    { label: 'Add Employee', icon: 'fa-user-plus', action: () => navigate('/admin/employees'), className: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700' },
+    { label: 'Add Lead', icon: 'fa-plus', action: () => navigate('/admin/leads'), className: 'bg-blue-50 hover:bg-blue-100 text-blue-700' },
+    { label: 'Media Lead', icon: 'fa-photo-video', action: () => navigate('/admin/leads?create=media'), className: 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700' },
+    { label: 'Create Invoice', icon: 'fa-file-invoice-dollar', action: () => navigate('/admin/invoices'), className: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700' },
+    { label: 'Create Quote', icon: 'fa-file-signature', action: () => navigate('/admin/quotations'), className: 'bg-pink-50 hover:bg-pink-100 text-pink-700' },
+    { label: 'Add Expense', icon: 'fa-receipt', action: () => navigate('/admin/expenses'), className: 'bg-amber-50 hover:bg-amber-100 text-amber-700' },
+    { label: 'Add Task', icon: 'fa-tasks', action: () => navigate('/admin/task-assignment'), className: 'bg-purple-50 hover:bg-purple-100 text-purple-700' }
+  ];
+
+  const quickActionPageSize = 4;
+  const employeePageSize = 4;
+  const taskPageSize = 4;
+  const invoicePageSize = 3;
+  const quickActionPages = getPageCount(quickActions.length, quickActionPageSize);
+  const employeePages = getPageCount(topEmployees.length, employeePageSize);
+  const taskPages = getPageCount(tasksList.length, taskPageSize);
+  const invoicePages = getPageCount(recentInvoices.length, invoicePageSize);
+  const visibleQuickActions = paginateItems(quickActions, quickActionPage, quickActionPageSize);
+  const visibleEmployees = paginateItems(topEmployees, employeePage, employeePageSize);
+  const visibleTasks = paginateItems(tasksList, taskPage, taskPageSize);
+  const visibleInvoices = paginateItems(recentInvoices, invoicePage, invoicePageSize);
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-500">
@@ -335,7 +362,7 @@ export default function AdminDashboard() {
       {/* 8 Module Navigation Grid (Core functionality) */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
         <h3 className="text-sm font-extrabold text-gray-900 mb-6 uppercase tracking-wider border-b pb-3 flex items-center gap-2">
-          <i className="fas fa-th-large text-[#2c86ab]"></i> Complete Company Management System
+          <i className="fas fa-th-large text-[#2c86ab]"></i> CRM & HRMS Workspace
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <ModuleCategory
@@ -416,56 +443,44 @@ export default function AdminDashboard() {
       </div>
 
       {/* Footer Widgets Section */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-stretch">
         {/* Quick Actions (Left Column) */}
-        <div className="xl:col-span-1 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
+        <div className="xl:col-span-1 h-full min-h-[390px] bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
           <h4 className="text-xs font-extrabold text-gray-900 mb-4 uppercase tracking-widest">Quick Actions</h4>
-          <div className="grid grid-cols-2 gap-2 text-center text-xs">
-            <button onClick={() => navigate('/admin/employees')} className="p-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl transition">
-              <i className="fas fa-user-plus text-base mb-1 block"></i>
-              Add Employee
-            </button>
-            <button onClick={() => navigate('/admin/leads')} className="p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl transition">
-              <i className="fas fa-plus text-base mb-1 block"></i>
-              Add Lead
-            </button>
-            <button onClick={() => navigate('/admin/leads?create=media')} className="p-3 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 font-bold rounded-xl transition">
-              <i className="fas fa-photo-video text-base mb-1 block"></i>
-              Media Lead
-            </button>
-            <button onClick={() => navigate('/admin/invoices')} className="p-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl transition">
-              <i className="fas fa-file-invoice-dollar text-base mb-1 block"></i>
-              Create Invoice
-            </button>
-            <button onClick={() => navigate('/admin/quotations')} className="p-3 bg-pink-50 hover:bg-pink-100 text-pink-700 font-bold rounded-xl transition">
-              <i className="fas fa-file-signature text-base mb-1 block"></i>
-              Create Quote
-            </button>
-            <button onClick={() => navigate('/admin/expenses')} className="p-3 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl transition">
-              <i className="fas fa-receipt text-base mb-1 block"></i>
-              Add Expense
-            </button>
-            <button onClick={() => navigate('/admin/task-assignment')} className="p-3 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold rounded-xl transition">
-              <i className="fas fa-tasks text-base mb-1 block"></i>
-              Add Task
-            </button>
+          <div className="grid grid-cols-2 gap-3 text-center text-xs">
+            {visibleQuickActions.map((action) => (
+              <button
+                key={action.label}
+                onClick={action.action}
+                className={`h-24 rounded-xl px-3 py-3 font-bold transition flex flex-col items-center justify-center ${action.className}`}
+              >
+                <i className={`fas ${action.icon} text-lg mb-2 block`}></i>
+                <span className="leading-tight">{action.label}</span>
+              </button>
+            ))}
           </div>
+          <PaginationControls
+            page={quickActionPage}
+            totalPages={quickActionPages}
+            onPageChange={setQuickActionPage}
+            label={`${quickActions.length} actions`}
+          />
         </div>
 
         {/* Top Performing Employees & Pending Tasks (Middle Columns) */}
-        <div className="xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        <div className="xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
           {/* Top Performing Employees */}
-          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
+          <div className="h-full min-h-[390px] bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
             <h4 className="text-xs font-extrabold text-gray-900 mb-4 uppercase tracking-widest">Top Performing Employees</h4>
             <div className="space-y-4">
-              {topEmployees.map((e, idx) => (
-                <div key={idx} className="text-xs">
+              {visibleEmployees.map((e, idx) => (
+                <div key={`${e.name}-${idx}`} className="min-h-[66px] text-xs">
                   <div className="flex justify-between items-center text-xs font-bold text-gray-700 mb-1">
-                    <div>
-                      <p className="font-extrabold">{e.name}</p>
+                    <div className="min-w-0 pr-3">
+                      <p className="font-extrabold truncate">{e.name}</p>
                       <p className="text-[9px] text-gray-400 font-medium">{e.role}</p>
                     </div>
-                    <span>₹{e.value.toLocaleString()}</span>
+                    <span className="shrink-0">INR {e.value.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                     <div className="h-full rounded-full transition-all" style={{ width: `${e.progress}%`, backgroundColor: e.color }}></div>
@@ -473,14 +488,20 @@ export default function AdminDashboard() {
                 </div>
               ))}
             </div>
+            <PaginationControls
+              page={employeePage}
+              totalPages={employeePages}
+              onPageChange={setEmployeePage}
+              label={`${topEmployees.length} employees`}
+            />
           </div>
 
           {/* Pending Tasks checklist */}
-          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
+          <div className="h-full min-h-[390px] bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
             <h4 className="text-xs font-extrabold text-gray-900 mb-4 uppercase tracking-widest">Pending Tasks</h4>
             <div className="space-y-3.5">
-              {tasksList.map((t) => (
-                <label key={t.id} className="flex items-start gap-3 text-xs font-bold text-gray-700 cursor-pointer">
+              {visibleTasks.map((t) => (
+                <label key={t.id} className="min-h-[62px] flex items-start gap-3 text-xs font-bold text-gray-700 cursor-pointer rounded-xl p-2 hover:bg-slate-50">
                   <input
                     type="checkbox"
                     checked={t.done}
@@ -489,7 +510,7 @@ export default function AdminDashboard() {
                   />
                   <div className="flex-1">
                     <p className={`${t.done ? 'line-through text-gray-400' : 'text-gray-800'}`}>{t.text}</p>
-                    <div className="flex gap-2 mt-0.5 text-[9px] text-gray-400 font-bold uppercase">
+                    <div className="flex flex-wrap gap-2 mt-1 text-[9px] text-gray-400 font-bold uppercase">
                       <span className={t.priority === 'High' ? 'text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded' : 'text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded'}>
                         {t.priority}
                       </span>
@@ -499,43 +520,48 @@ export default function AdminDashboard() {
                 </label>
               ))}
             </div>
+            <PaginationControls
+              page={taskPage}
+              totalPages={taskPages}
+              onPageChange={setTaskPage}
+              label={`${tasksList.length} tasks`}
+            />
           </div>
         </div>
 
         {/* Recent Invoices Table (Right Column) */}
-        <div className="xl:col-span-1 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
+        <div className="xl:col-span-1 h-full min-h-[390px] bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-xs font-extrabold text-gray-900 uppercase tracking-widest">Recent Invoices</h4>
             <button onClick={() => navigate('/admin/invoices')} className="text-[10px] text-[#2c86ab] hover:underline font-bold">View All</button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-semibold text-gray-600">
-              <thead>
-                <tr className="border-b border-gray-100 text-[10px] text-gray-400 font-bold uppercase">
-                  <th className="pb-2">Invoice No</th>
-                  <th className="pb-2">Client</th>
-                  <th className="pb-2">Amt</th>
-                  <th className="pb-2 text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {recentInvoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-2.5 font-bold text-gray-800">{inv.id}</td>
-                    <td className="py-2.5 max-w-[80px] truncate">{inv.client}</td>
-                    <td className="py-2.5 font-bold text-slate-800">₹{inv.amount.toLocaleString()}</td>
-                    <td className="py-2.5 text-right">
-                      <span className={`inline-flex px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
-                        inv.status === 'Paid' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
-                      }`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-3">
+            {visibleInvoices.map((inv) => (
+              <div key={inv.id} className="min-h-[82px] rounded-xl border border-gray-100 bg-white p-3 hover:bg-slate-50 transition-colors">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-black text-gray-900 text-xs">{inv.id}</p>
+                    <p className="mt-1 truncate text-xs font-semibold text-gray-500">{inv.client}</p>
+                  </div>
+                  <span className={`shrink-0 inline-flex px-2 py-1 rounded-full text-[9px] font-black uppercase ${
+                    inv.status === 'Paid' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                  }`}>
+                    {inv.status}
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                  <span className="font-bold text-gray-400">{inv.date}</span>
+                  <span className="font-black text-slate-900">INR {inv.amount.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+            ))}
           </div>
+          <PaginationControls
+            page={invoicePage}
+            totalPages={invoicePages}
+            onPageChange={setInvoicePage}
+            label={`${recentInvoices.length} invoices`}
+          />
         </div>
       </div>
 
@@ -622,6 +648,50 @@ export default function AdminDashboard() {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function paginateItems(items, page, pageSize) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const start = (safePage - 1) * pageSize;
+  return items.slice(start, start + pageSize);
+}
+
+function getPageCount(totalItems, pageSize) {
+  return Math.max(1, Math.ceil(totalItems / pageSize));
+}
+
+function PaginationControls({ page, totalPages, onPageChange, label }) {
+  const canPrev = page > 1;
+  const canNext = page < totalPages;
+
+  return (
+    <div className="mt-auto flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{label}</span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={!canPrev}
+          onClick={() => onPageChange(page - 1)}
+          className="h-8 w-8 rounded-lg border border-gray-200 bg-white text-xs font-black text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Previous page"
+        >
+          <i className="fas fa-chevron-left"></i>
+        </button>
+        <span className="min-w-[54px] text-center text-[11px] font-black text-gray-700">
+          {page} / {totalPages}
+        </span>
+        <button
+          type="button"
+          disabled={!canNext}
+          onClick={() => onPageChange(page + 1)}
+          className="h-8 w-8 rounded-lg border border-gray-200 bg-white text-xs font-black text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Next page"
+        >
+          <i className="fas fa-chevron-right"></i>
+        </button>
       </div>
     </div>
   );

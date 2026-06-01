@@ -1,16 +1,50 @@
 const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcryptjs');
+const { normalizeCodePart } = require('../utils/employeeCode');
+const { ensureEmployeeCodeSchema } = require('../utils/employeeCodeSchema');
 
-const router = express.Router();
+const router = express.Router();
+
+router.use(async (_req, _res, next) => {
+  try {
+    await ensureEmployeeCodeSchema();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
+function deriveCompanyCode(input, fallback = 'COMP') {
+  const raw = String(input || '').trim();
+  const initials = raw.split(/\s+/).map((part) => part.charAt(0)).join('');
+  return normalizeCodePart(initials || raw).slice(0, 6) || fallback;
+}
+
+function isSuperAdmin(employee) {
+  const role = String(employee?.role || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_');
+
+  return role === 'superadmin' || role === 'super_admin';
+}
+
+function requireSuperAdmin(req, res, next) {
+  if (!isSuperAdmin(req.employee)) {
+    return res.status(403).json({ success: false, message: 'Company management is available only in Super Admin / Master Panel' });
+  }
+
+  next();
+}
 
 // Company login/register (no employee token) - for CompanyLogin.jsx and CompanyManagement.jsx
 router.post('/login', async (req, res) => {
   try {
     const b = req.body || {};
     if (b.company_id) {
-      const rows = await query('SELECT id, company_name, email, phone, address, city, state, country, status FROM companies WHERE id = ?', [b.company_id]);
+      const rows = await query('SELECT id, company_code, company_name, email, phone, address, city, state, country, status FROM companies WHERE id = ?', [b.company_id]);
       const company = rows && rows[0];
       if (!company) return res.status(404).json({ success: false, message: 'Company not found' });
       return res.json({ success: true, data: { company, token: String(company.id) } });
@@ -19,17 +53,17 @@ router.post('/login', async (req, res) => {
     if (!company_name || !email || !phone) {
       return res.status(400).json({ success: false, message: 'Company name, email and phone are required' });
     }
-    let rows = await query('SELECT id, company_name, email, phone, address, city, state, country, status, password FROM companies WHERE email = ? LIMIT 1', [email]);
+    let rows = await query('SELECT id, company_code, company_name, email, phone, address, city, state, country, status, password FROM companies WHERE email = ? LIMIT 1', [email]);
     let company = rows && rows[0];
     if (!company) {
       const conn = await getConnection();
       const hashedPassword = await bcrypt.hash(password || 'password123', 10).catch(() => password || 'password123');
       await conn.execute(
-        `INSERT INTO companies (company_name, email, phone, password, address, city, state, country, status) VALUES (?,?,?,?,?,?,?,?,?)`,
-        [company_name || '', email || '', phone || '', hashedPassword, b.address || '', b.city || '', b.state || '', b.country || '', 'active']
+        `INSERT INTO companies (company_code, company_name, email, phone, password, address, city, state, country, status) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [normalizeCodePart(b.company_code) || deriveCompanyCode(company_name), company_name || '', email || '', phone || '', hashedPassword, b.address || '', b.city || '', b.state || '', b.country || '', 'active']
       );
       conn.release();
-      rows = await query('SELECT id, company_name, email, phone, address, city, state, country, status, password FROM companies WHERE email = ? LIMIT 1', [email]);
+      rows = await query('SELECT id, company_code, company_name, email, phone, address, city, state, country, status, password FROM companies WHERE email = ? LIMIT 1', [email]);
       company = rows && rows[0];
       
       if (company) {
@@ -52,7 +86,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.get('/', verifyToken, async (req, res) => {
+router.get('/', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
     const search = req.query.search || null;
     const status = req.query.status || null;
@@ -60,7 +94,7 @@ router.get('/', verifyToken, async (req, res) => {
     const offset = ((parseInt(req.query.page, 10) || 1) - 1) * limit;
     
     const isSuper = req.employee.role === 'superadmin' || req.employee.role === 'super_admin';
-    let sql = `SELECT id, company_name, email, phone, address, city, state, country, status, created_at, updated_at FROM companies WHERE 1=1`;
+    let sql = `SELECT id, company_code, company_name, email, phone, address, city, state, country, status, created_at, updated_at FROM companies WHERE 1=1`;
     const params = [];
     if (!isSuper && req.employee.company_id) {
       sql += ' AND id = ?';
@@ -77,7 +111,7 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
-router.get('/history', verifyToken, async (req, res) => {
+router.get('/history', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
     const companyId = req.query.company_id || null;
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
@@ -98,7 +132,7 @@ router.get('/history', verifyToken, async (req, res) => {
 router.get('/:id', verifyToken, async (req, res) => {
   try {
     const rows = await query(
-      'SELECT id, company_name, email, phone, address, city, state, country, zip_code, website, tax_id, registration_number, status, created_at, updated_at FROM companies WHERE id = ?',
+      'SELECT id, company_code, company_name, email, phone, address, city, state, country, zip_code, website, tax_id, registration_number, status, created_at, updated_at FROM companies WHERE id = ?',
       [req.params.id]
     );
     const company = rows[0];
@@ -137,13 +171,13 @@ router.get('/:id/quotations', verifyToken, async (req, res) => {
   }
 });
 
-router.put('/update', verifyToken, async (req, res) => {
+router.put('/update', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
     const b = req.body || {};
     if (!b.id) return res.status(400).json({ success: false, message: 'Company ID is required' });
     await query(
-      `UPDATE companies SET company_name=?, email=?, phone=?, address=?, city=?, state=?, country=?, zip_code=?, website=?, tax_id=?, registration_number=?, status=?, updated_at=NOW() WHERE id=?`,
-      [b.company_name, b.email, b.phone, b.address, b.city, b.state, b.country, b.zip_code, b.website, b.tax_id, b.registration_number, b.status || 'active', b.id]
+      `UPDATE companies SET company_code=?, company_name=?, email=?, phone=?, address=?, city=?, state=?, country=?, zip_code=?, website=?, tax_id=?, registration_number=?, status=?, updated_at=NOW() WHERE id=?`,
+      [normalizeCodePart(b.company_code) || deriveCompanyCode(b.company_name), b.company_name, b.email, b.phone, b.address, b.city, b.state, b.country, b.zip_code, b.website, b.tax_id, b.registration_number, b.status || 'active', b.id]
     );
     return res.json({ success: true, message: 'Company updated successfully' });
   } catch (err) {
@@ -151,14 +185,14 @@ router.put('/update', verifyToken, async (req, res) => {
   }
 });
 
-router.post('/', verifyToken, async (req, res) => {
+router.post('/', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
     const b = req.body || {};
     const conn = await getConnection();
     const hashedPassword = await bcrypt.hash(b.password || 'password123', 10).catch(() => b.password || 'password123');
     const [r] = await conn.execute(
-      `INSERT INTO companies (company_name, email, phone, password, address, city, state, country, status) VALUES (?,?,?,?,?,?,?,?,?)`,
-      [b.company_name || '', b.email || '', b.phone || '', hashedPassword, b.address || '', b.city || '', b.state || '', b.country || '', b.status || 'active']
+      `INSERT INTO companies (company_code, company_name, email, phone, password, address, city, state, country, status) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [normalizeCodePart(b.company_code) || deriveCompanyCode(b.company_name), b.company_name || '', b.email || '', b.phone || '', hashedPassword, b.address || '', b.city || '', b.state || '', b.country || '', b.status || 'active']
     );
     conn.release();
     return res.json({ success: true, message: 'Company created', data: { id: r.insertId } });

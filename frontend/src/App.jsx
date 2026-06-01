@@ -3,7 +3,6 @@ import Login from './pages/Login';
 import ForgotPasswordEmail from './pages/ForgotPasswordEmail';
 import VerifyEmailOtp from './pages/VerifyEmailOtp';
 import ResetPasswordEmail from './pages/ResetPasswordEmail';
-import CompanyManagement from './pages/CompanyManagement';
 import SuperAdminCompanyManagement from './pages/superadmin/CompanyManagement';
 import SuperAdminSubscriptionPlans from './pages/superadmin/SubscriptionPlans';
 import SuperAdminAuditLogs from './pages/superadmin/AuditLogs';
@@ -76,6 +75,7 @@ import AdminLayout from './components/AdminLayout';
 import SuperAdminLayout from './components/SuperAdminLayout';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminEmployees from './pages/admin/AdminEmployees';
+import AdminCompanyProfile from './pages/admin/AdminCompanyProfile';
 import AdminApiIntegration from './pages/admin/AdminApiIntegration';
 import AdminRevenue from './pages/admin/AdminRevenue';
 import AdminInsights from './pages/admin/AdminInsights';
@@ -83,16 +83,21 @@ import AdminAttendance from './pages/admin/AdminAttendance';
 import AdminAILeadScore from './pages/admin/AdminAILeadScore';
 import AdminTaskAssignment from './pages/admin/AdminTaskAssignment';
 import AdminTaskBoard from './pages/admin/AdminTaskBoard';
+import AdminDealsPipeline from './pages/admin/AdminDealsPipeline';
 import AdminDepartments from './pages/admin/AdminDepartments';
 import AdminAuditLogs from './pages/admin/AdminAuditLogs';
 import AdminInventory from './pages/admin/AdminInventory';
+import AdminPurchases from './pages/admin/AdminPurchases';
+import AdminSuppliers from './pages/admin/AdminSuppliers';
+import AdminWarehouses from './pages/admin/AdminWarehouses';
 import AdminAccounts from './pages/admin/AdminAccounts';
+import AdminPayments from './pages/admin/AdminPayments';
 import AdminExpenses from './pages/admin/AdminExpenses';
 import AdminCompanySettings from './pages/admin/AdminCompanySettings';
 import AdminQuotationTemplates from './pages/admin/AdminQuotationTemplates';
 import AdminRBAC from './pages/admin/AdminRBAC';
 import DocumentGenerator from './pages/admin/DocumentGenerator';
-import AdminCompanies from './pages/admin/AdminCompanies';
+import AdminSupportTickets from './pages/admin/AdminSupportTickets';
 import AdminFeaturePage from './pages/admin/AdminFeaturePage';
 import ManagerDashboard from './pages/ManagerDashboard';
 import HRDashboard from './pages/HRDashboard';
@@ -226,6 +231,15 @@ function SuperAdminHomeRoute() {
     return <Navigate to={next} replace />;
   }
   return <Navigate to="/superadmin/master" replace />;
+}
+
+function AdminCompaniesRedirect() {
+  const employee = getEmployee();
+  const role = normalizeRole(employee?.role);
+  if (employee && isSuperAdminRole(role)) {
+    return <Navigate to="/superadmin/companies" replace />;
+  }
+  return <Navigate to="/admin" replace />;
 }
 
 function App() {
@@ -415,7 +429,7 @@ function App() {
           <Route path="history" element={<CrmRoute><History /></CrmRoute>} />
           <Route path="whatsapp-hits" element={<CrmRoute><WhatsAppHits /></CrmRoute>} />
           <Route path="reports" element={<CrmRoute><Reports /></CrmRoute>} />
-          <Route path="company-management" element={<CrmRoute><CompanyManagement /></CrmRoute>} />
+          <Route path="company-management" element={<AdminCompaniesRedirect />} />
 
           {/* HRMS Routes */}
           <Route path="hrms/leaves" element={<HrmsRoute><Leaves /></HrmsRoute>} />
@@ -441,51 +455,15 @@ function App() {
           }
         >
           <Route index element={<AdminDashboard />} />
-          <Route
-            path="company-profile"
-            element={
-              <AdminFeaturePage
-                title="Company Profile"
-                description="Manage company profile, brand identity, tax details, and business contact information used across CRM, HRMS, and billing documents."
-                actionLinks={[
-                  { label: 'Open Company Settings', to: '/admin/company-settings' },
-                  { label: 'Open Companies', to: '/admin/companies' },
-                ]}
-              />
-            }
-          />
+          <Route path="company-profile" element={<AdminCompanyProfile />} />
           <Route path="leads" element={<Leads />} />
           <Route path="clients" element={<ClientHistory />} />
           <Route path="followups" element={<Followups />} />
-          <Route
-            path="deals-pipeline"
-            element={
-              <AdminFeaturePage
-                title="Deals Pipeline"
-                description="Track deal stages from qualified lead to closure and monitor conversion trends for sales planning."
-                actionLinks={[
-                  { label: 'Open Leads', to: '/admin/leads' },
-                  { label: 'Open Smart Insights', to: '/admin/insights' },
-                ]}
-              />
-            }
-          />
+          <Route path="deals-pipeline" element={<AdminDealsPipeline />} />
           <Route path="quotations" element={<Quotations />} />
           <Route path="quotation-templates" element={<AdminQuotationTemplates />} />
           <Route path="invoices" element={<Invoices />} />
-          <Route
-            path="payments"
-            element={
-              <AdminFeaturePage
-                title="Payments"
-                description="Track invoice payment receipts, pending dues, and payment follow-ups from one place."
-                actionLinks={[
-                  { label: 'Open Invoices', to: '/admin/invoices' },
-                  { label: 'Open Accounts', to: '/admin/accounts' },
-                ]}
-              />
-            }
-          />
+          <Route path="payments" element={<AdminPayments />} />
           <Route path="chat" element={<Chat />} />
           <Route path="announcements" element={<Announcements />} />
           <Route path="documents" element={<HRDocuments />} />
@@ -511,66 +489,18 @@ function App() {
           <Route path="inventory" element={<AdminInventory />} />
           <Route path="products" element={<AdminInventory />} />
           <Route path="stock" element={<AdminInventory />} />
-          <Route
-            path="purchases"
-            element={
-              <AdminFeaturePage
-                title="Purchases"
-                description="Record procurement entries, vendor transactions, and purchase-based stock updates."
-                actionLinks={[
-                  { label: 'Open Inventory', to: '/admin/inventory' },
-                  { label: 'Open Expenses', to: '/admin/expenses' },
-                ]}
-              />
-            }
-          />
-          <Route
-            path="suppliers"
-            element={
-              <AdminFeaturePage
-                title="Suppliers"
-                description="Manage supplier master data, communication history, and procurement dependencies."
-                actionLinks={[
-                  { label: 'Open Inventory', to: '/admin/inventory' },
-                  { label: 'Open Companies', to: '/admin/companies' },
-                ]}
-              />
-            }
-          />
-          <Route
-            path="warehouses"
-            element={
-              <AdminFeaturePage
-                title="Warehouses"
-                description="Monitor warehouse-level stock availability and movement for inventory planning."
-                actionLinks={[
-                  { label: 'Open Inventory', to: '/admin/inventory' },
-                  { label: 'Open Reports', to: '/admin/reports' },
-                ]}
-              />
-            }
-          />
+          <Route path="purchases" element={<AdminPurchases />} />
+          <Route path="suppliers" element={<AdminSuppliers />} />
+          <Route path="warehouses" element={<AdminWarehouses />} />
           <Route path="accounts" element={<AdminAccounts />} />
           <Route path="expenses" element={<AdminExpenses />} />
           <Route path="company-settings" element={<AdminCompanySettings />} />
           <Route path="rbac" element={<AdminRBAC />} />
           <Route path="reports" element={<Reports />} />
           <Route path="export-reports" element={<SampleReports />} />
-          <Route
-            path="support-tickets"
-            element={
-              <AdminFeaturePage
-                title="Support Tickets"
-                description="Track internal support issues, escalations, and module-specific resolution status."
-                actionLinks={[
-                  { label: 'Open Notifications', to: '/admin/notifications' },
-                  { label: 'Open Audit Logs', to: '/admin/audit-logs' },
-                ]}
-              />
-            }
-          />
+          <Route path="support-tickets" element={<AdminSupportTickets />} />
           <Route path="generate-document/:employeeId" element={<DocumentGenerator />} />
-          <Route path="companies" element={<AdminCompanies />} />
+          <Route path="companies" element={<AdminCompaniesRedirect />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="notifications" element={<Notifications />} />
         </Route>

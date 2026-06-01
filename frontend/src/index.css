@@ -52,6 +52,37 @@ code {
   overflow-x: hidden;
 }
 
+/* Admin modals should live inside the content workspace, not over the
+   fixed topbar/sidebar. This keeps the app chrome visible while dialogs open. */
+.admin-shell .fixed.inset-0 {
+  top: 6rem;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+@media (min-width: 1024px) {
+  .admin-shell .fixed.inset-0 {
+    left: 18rem;
+  }
+}
+
+.admin-shell .fixed.inset-0 > [class*="max-w-6xl"] {
+  max-width: min(56rem, calc(100vw - 2rem));
+}
+
+.admin-shell .fixed.inset-0 > [class*="max-w-5xl"] {
+  max-width: min(52rem, calc(100vw - 2rem));
+}
+
+.admin-shell .fixed.inset-0 > [class*="max-w-4xl"] {
+  max-width: min(48rem, calc(100vw - 2rem));
+}
+
+.admin-shell .fixed.inset-0 > div {
+  max-height: calc(100vh - 8rem);
+}
+
 /* Custom Scrollbar for Dashboard Widgets */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;

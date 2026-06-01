@@ -14,13 +14,19 @@ export default function SystemSettings() {
         storage_limit_default: '5',
         primary_color: '#4f46e5',
         sms_provider: 'msg91',
+        sender_id: 'VG',
         msg91_sender_id: 'VG',
         otp_prefix: 'VG',
+        otp_expiry_minutes: '5',
+        sms_otp_status: 'active',
+        msg91_template_id: '',
         msg91_auth_key: '',
         two_factor_api_key: '',
-        fast2sms_api_key: '',
     });
     const [smsStatus, setSmsStatus] = useState(null);
+    const [smsFieldErrors, setSmsFieldErrors] = useState({});
+    const [saveMessage, setSaveMessage] = useState(null);
+    const [testSmsMessage, setTestSmsMessage] = useState(null);
     const [testPhone, setTestPhone] = useState('');
     const [testingSms, setTestingSms] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -51,11 +57,14 @@ export default function SystemSettings() {
                     storage_limit_default: data.storage_limit_default ?? prev.storage_limit_default,
                     primary_color: data.primary_color ?? prev.primary_color,
                     sms_provider: data.sms_provider ?? prev.sms_provider,
-                    msg91_sender_id: data.msg91_sender_id ?? prev.msg91_sender_id,
-                    otp_prefix: data.otp_prefix ?? prev.otp_prefix,
+                    sender_id: data.sender_id ?? data.msg91_sender_id ?? prev.sender_id,
+                    msg91_sender_id: data.msg91_sender_id ?? data.sender_id ?? prev.msg91_sender_id,
+                    otp_prefix: data.otp_prefix ?? data.sender_id ?? prev.otp_prefix,
+                    otp_expiry_minutes: String(data.otp_expiry_minutes ?? prev.otp_expiry_minutes),
+                    sms_otp_status: data.sms_otp_status ?? prev.sms_otp_status,
+                    msg91_template_id: data.msg91_template_id ?? prev.msg91_template_id,
                     msg91_auth_key: '',
                     two_factor_api_key: '',
-                    fast2sms_api_key: '',
                 }));
             }
         } catch (err) {

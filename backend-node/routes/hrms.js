@@ -6,6 +6,8 @@ const multer = require('multer');
 const { query } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const documentGenerator = require('../services/documentGenerator');
+const { normalizeCodePart } = require('../utils/employeeCode');
+const { ensureEmployeeCodeSchema } = require('../utils/employeeCodeSchema');
 
 const router = express.Router();
 const UPLOADS_HR = path.join(__dirname, '../../uploads/hr_documents');
@@ -1401,6 +1403,7 @@ router.post('/generate_qr', verifyToken, async (req, res) => {
 // --- Designations ---
 router.get('/designations', verifyToken, async (req, res) => {
   try {
+    await ensureEmployeeCodeSchema();
     const rows = await query('SELECT * FROM designations ORDER BY name ASC').catch(() => []);
     return res.json({ success: true, data: rows || [] });
   } catch (err) {
@@ -1410,10 +1413,13 @@ router.get('/designations', verifyToken, async (req, res) => {
 
 router.post('/designations', verifyToken, async (req, res) => {
   if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
-  const { name, description } = req.body || {};
-  if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
   try {
-    await query('INSERT INTO designations (name, description) VALUES (?, ?)', [String(name).trim(), description || null]);
+    await ensureEmployeeCodeSchema();
+    const { name, description } = req.body || {};
+    if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
+    const designationCode = normalizeCodePart(req.body?.designation_code);
+    if (!designationCode) return res.status(400).json({ success: false, message: 'Designation code is required' });
+    await query('INSERT INTO designations (name, designation_code, description) VALUES (?, ?, ?)', [String(name).trim(), designationCode, description || null]);
     return res.json({ success: true, message: 'Designation created' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -1424,10 +1430,13 @@ router.put('/designations/:id', verifyToken, async (req, res) => {
   if (!canAccessAll(req.employee)) return res.status(403).json({ success: false, message: 'Unauthorized' });
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
-  const { name, description } = req.body || {};
-  if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
   try {
-    await query('UPDATE designations SET name = ?, description = ? WHERE id = ?', [String(name).trim(), description || null, id]);
+    await ensureEmployeeCodeSchema();
+    const { name, description } = req.body || {};
+    if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
+    const designationCode = normalizeCodePart(req.body?.designation_code);
+    if (!designationCode) return res.status(400).json({ success: false, message: 'Designation code is required' });
+    await query('UPDATE designations SET name = ?, designation_code = ?, description = ? WHERE id = ?', [String(name).trim(), designationCode, description || null, id]);
     return res.json({ success: true, message: 'Designation updated' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -1439,6 +1448,7 @@ router.delete('/designations/:id', verifyToken, async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ success: false, message: 'Invalid id' });
   try {
+    await ensureEmployeeCodeSchema();
     await query('DELETE FROM designations WHERE id = ?', [id]);
     return res.json({ success: true, message: 'Designation deleted' });
   } catch (err) {
