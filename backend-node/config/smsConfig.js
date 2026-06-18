@@ -1,5 +1,7 @@
 const crypto = require('crypto');
+const dotenv = require('dotenv');
 const { query } = require('./database');
+const { envPath } = require('./env');
 
 const ENC_PREFIX = 'enc:v1:';
 
@@ -381,6 +383,11 @@ async function saveSmsSettings(input = {}) {
 }
 
 async function refreshSmsConfig() {
+  try {
+    dotenv.config({ path: envPath, override: true });
+  } catch (envErr) {
+    console.warn('[sms-config] Failed to reload .env from disk:', envErr.message);
+  }
   let cfg = readEnvConfig();
   try {
     await ensureGlobalSettingsTable();

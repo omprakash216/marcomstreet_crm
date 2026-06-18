@@ -1,6 +1,6 @@
 -- Migration 009: Standard employee code format
--- Format: COMPANYCODE + DEPARTMENTCODE + DESIGNATIONCODE + YEAR + SERIAL
--- Example: VGHRMGR20260001
+-- Format: COMPANYCODE + DEPARTMENTCODE + DESIGNATIONCODE + SERIAL
+-- Example: VGHRMGR00001
 
 DELIMITER $$
 
@@ -84,7 +84,7 @@ CALL add_column_if_missing('employees', 'joining_date', '`joining_date` DATE NUL
 UPDATE companies
 SET company_code = CASE
   WHEN LOWER(company_name) LIKE '%vanya%' OR LOWER(company_name) LIKE '%vg%' THEN 'VG'
-  ELSE UPPER(LEFT(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(company_name, '')), ' ', ''), '/', ''), '-', ''), '.', ''), 6))
+  ELSE COALESCE(NULLIF(UPPER(LEFT(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(company_name, '')), ' ', ''), '/', ''), '-', ''), '.', ''), 6)), ''), 'CMP')
 END
 WHERE company_code IS NULL OR TRIM(company_code) = '';
 
@@ -105,7 +105,7 @@ SET department_code = CASE
   WHEN UPPER(TRIM(name)) IN ('SUP', 'SUPPORT') THEN 'SUP'
   WHEN UPPER(TRIM(name)) IN ('PRD', 'PRODUCTION') THEN 'PRD'
   WHEN UPPER(TRIM(name)) IN ('DES', 'DESIGNER', 'DESIGN', 'CREATIVE') THEN 'DES'
-  ELSE UPPER(LEFT(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(name, '')), ' ', ''), '/', ''), '-', ''), '.', ''), 8))
+  ELSE COALESCE(NULLIF(UPPER(LEFT(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(name, '')), ' ', ''), '/', ''), '-', ''), '.', ''), 8)), ''), 'DEP')
 END
 WHERE department_code IS NULL OR TRIM(department_code) = '';
 
@@ -156,7 +156,7 @@ SET designation_code = CASE
   WHEN UPPER(TRIM(name)) IN ('DIR', 'DIRECTOR') OR UPPER(name) LIKE '%DIRECTOR%' THEN 'DIR'
   WHEN UPPER(TRIM(name)) IN ('EXE', 'EXECUTIVE') OR UPPER(name) LIKE '%EXECUTIVE%' THEN 'EXE'
   WHEN UPPER(TRIM(name)) IN ('INT', 'INTERN') OR UPPER(name) LIKE '%INTERN%' THEN 'INT'
-  ELSE UPPER(LEFT(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(name, '')), ' ', ''), '/', ''), '-', ''), '.', ''), 8))
+  ELSE COALESCE(NULLIF(UPPER(LEFT(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(name, '')), ' ', ''), '/', ''), '-', ''), '.', ''), 8)), ''), 'DSG')
 END
 WHERE designation_code IS NULL OR TRIM(designation_code) = '';
 
@@ -228,8 +228,7 @@ BEGIN
       CONCAT(
         UPPER(c.company_code),
         UPPER(d.department_code),
-        UPPER(g.designation_code),
-        YEAR(e.joining_date)
+        UPPER(g.designation_code)
       ) AS prefix
     FROM employees e
     JOIN companies c ON c.id = e.company_id
@@ -281,7 +280,7 @@ BEGIN
     WHERE prefix = v_prefix;
 
     UPDATE employees
-    SET employee_code = CONCAT(v_prefix, LPAD(v_serial, 4, '0'))
+    SET employee_code = CONCAT(v_prefix, LPAD(v_serial, 5, '0'))
     WHERE id = v_employee_id;
   END LOOP;
 

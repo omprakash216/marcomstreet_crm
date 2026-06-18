@@ -1,7 +1,7 @@
 const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
-const documentGenerator = require('../services/documentGenerator');
+const { generateInvoicePdfBuffer } = require('../services/templateDocumentPdf');
 const { localYmd, nextDocumentNumber } = require('../utils/documentNumbers');
 
 const router = express.Router();
@@ -30,6 +30,14 @@ function normalizeDocumentSettings(row = {}) {
     quotation_template: row.quotation_template || 'standard',
     quotation_header_text: row.quotation_header_text || '',
     quotation_footer_text: row.quotation_footer_text || 'Thank you for your business!',
+    bank_name: row.bank_name || '',
+    account_holder_name: row.account_holder_name || row.account_name || '',
+    account_number: row.account_number || '',
+    ifsc_code: row.ifsc_code || '',
+    branch_name: row.branch_name || '',
+    nature: row.nature || 'Current Account',
+    signature_path: row.signature_path || '',
+    stamp_path: row.stamp_path || '',
   };
 }
 
@@ -252,8 +260,14 @@ router.get('/:id/pdf', verifyToken, async (req, res) => {
       items = [];
     }
 
-    // Generate PDF buffer (letterhead is handled inside documentGenerator.addLetterhead)
-    const pdfBuffer = await documentGenerator.generateInvoice(inv, items);
+    const settings = await getDocumentSettings(req.employee?.company_id);
+    const pdfBuffer = await generateInvoicePdfBuffer({
+      ...inv,
+      client_phone: inv.client_phone || inv.company_phone || inv.phone || '',
+      client_email: inv.client_email || inv.company_email || inv.email || '',
+      client_address: inv.client_address || inv.address || '',
+      items,
+    }, settings);
     if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer) || pdfBuffer.length < 100) {
       return res.status(500).json({ success: false, message: 'Failed to generate invoice PDF' });
     }
@@ -262,8 +276,9 @@ router.get('/:id/pdf', verifyToken, async (req, res) => {
       req.query.download === '1' || req.query.download === 'true' || req.query.disposition === 'attachment';
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', pdfBuffer.length);
-    const safeName = String(inv.invoice_number || `invoice_${id}`).replace(/[^a-zA-Z0-9._-]/g, '_') + '.pdf';
-    res.setHeader('Content-Disposition', `${wantsDownload ? 'attachment' : 'inline'}; filename=\"${safeName}\"`);
+    const numberPart = String(inv.invoice_number || `INV-${id}`).trim();
+    const safeName = `invoice_${numberPart.replace(/[^a-zA-Z0-9._-]/g, '_')}.pdf`;
+    res.setHeader('Content-Disposition', `${wantsDownload ? 'attachment' : 'inline'}; filename="${safeName}"`);
     return res.end(pdfBuffer);
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message || 'Failed to generate invoice PDF' });

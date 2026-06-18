@@ -499,7 +499,6 @@ export default function GlobalUsers({
                             </select>
                         </div>
                         <div className="md:col-span-2 lg:col-span-3">
-                            <label className="text-sm font-semibold text-slate-700">Module Access</label>
                             <ModuleAccessPicker
                                 value={createForm.access_modules}
                                 onChange={(access_modules) => setCreateForm({ ...createForm, access_modules })}
@@ -553,8 +552,8 @@ export default function GlobalUsers({
                                     </td>
                                     <td className="px-6 py-4">
                                         <span className={`inline-flex px-2.5 py-1 text-[10px] font-semibold uppercase rounded-full border ${user.status === 'active'
-                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                            : 'bg-rose-50 text-rose-700 border-rose-200'
                                             }`}>
                                             {user.status}
                                         </span>
@@ -589,11 +588,10 @@ export default function GlobalUsers({
                                                 type="button"
                                                 onClick={() => handleDeactivate(user.id, user.status)}
                                                 title={user.status === 'active' ? 'Suspend User' : 'Activate User'}
-                                                className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all shadow-sm ${
-                                                    user.status === 'active' 
-                                                    ? 'bg-amber-50 text-amber-600 hover:bg-amber-100' 
-                                                    : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
-                                                }`}
+                                                className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all shadow-sm ${user.status === 'active'
+                                                        ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+                                                        : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                                                    }`}
                                             >
                                                 <i className={`fas ${user.status === 'active' ? 'fa-user-slash' : 'fa-user-check'} text-sm`}></i>
                                             </button>
@@ -745,13 +743,12 @@ export default function GlobalUsers({
                                                 minLength={6}
                                                 value={editForm.confirmPassword}
                                                 onChange={(e) => setEditForm({ ...editForm, confirmPassword: e.target.value })}
-                                                className={`mt-1 w-full px-3 py-2 rounded-lg border bg-white outline-none ${
-                                                    editForm.confirmPassword && editForm.confirmPassword !== editForm.newPassword
+                                                className={`mt-1 w-full px-3 py-2 rounded-lg border bg-white outline-none ${editForm.confirmPassword && editForm.confirmPassword !== editForm.newPassword
                                                         ? 'border-red-300 focus:border-red-500'
                                                         : editForm.confirmPassword && editForm.confirmPassword === editForm.newPassword
-                                                        ? 'border-emerald-300 focus:border-emerald-500'
-                                                        : 'border-slate-200 focus:border-indigo-500'
-                                                }`}
+                                                            ? 'border-emerald-300 focus:border-emerald-500'
+                                                            : 'border-slate-200 focus:border-indigo-500'
+                                                    }`}
                                                 placeholder="Repeat password"
                                             />
                                             {editForm.confirmPassword && editForm.confirmPassword !== editForm.newPassword && (
@@ -788,7 +785,6 @@ export default function GlobalUsers({
                                     </select>
                                 </div>
                                 <div className="md:col-span-2">
-                                    <label className="text-xs font-semibold text-slate-600">Module Access</label>
                                     <ModuleAccessPicker
                                         value={editForm.access_modules}
                                         onChange={(access_modules) => setEditForm({ ...editForm, access_modules })}
@@ -888,13 +884,12 @@ export default function GlobalUsers({
                                         minLength={6}
                                         value={resetForm.confirmPassword}
                                         onChange={(e) => setResetForm({ ...resetForm, confirmPassword: e.target.value })}
-                                        className={`mt-1 w-full px-3 py-2.5 rounded-lg border bg-slate-50 focus:bg-white outline-none text-sm ${
-                                            resetForm.confirmPassword && resetForm.confirmPassword !== resetForm.newPassword
+                                        className={`mt-1 w-full px-3 py-2.5 rounded-lg border bg-slate-50 focus:bg-white outline-none text-sm ${resetForm.confirmPassword && resetForm.confirmPassword !== resetForm.newPassword
                                                 ? 'border-red-300 focus:border-red-500'
                                                 : resetForm.confirmPassword && resetForm.confirmPassword === resetForm.newPassword
-                                                ? 'border-emerald-300 focus:border-emerald-500'
-                                                : 'border-slate-200 focus:border-indigo-500'
-                                        }`}
+                                                    ? 'border-emerald-300 focus:border-emerald-500'
+                                                    : 'border-slate-200 focus:border-indigo-500'
+                                            }`}
                                         placeholder="Re-enter password"
                                     />
                                     {resetForm.confirmPassword && resetForm.confirmPassword !== resetForm.newPassword && (
@@ -975,7 +970,6 @@ export default function GlobalUsers({
                                     </select>
                                 </div>
                                 <div className="md:col-span-2">
-                                    <label className="text-xs font-semibold text-slate-600">Module Access</label>
                                     <ModuleAccessPicker
                                         value={createForm.access_modules}
                                         onChange={(access_modules) => setCreateForm({ ...createForm, access_modules })}
@@ -1011,6 +1005,7 @@ function Field({ label, value, onChange, type = 'text', required = false, classN
 
 function ModuleAccessPicker({ value = [], onChange }) {
     const selected = Array.isArray(value) ? value : [];
+    const selectedCount = selected.length;
     const toggle = (key) => {
         if (selected.includes(key)) {
             onChange(selected.filter((item) => item !== key));
@@ -1020,18 +1015,67 @@ function ModuleAccessPicker({ value = [], onChange }) {
     };
 
     return (
-        <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            {ACCESS_MODULES.map((module) => (
-                <label key={module.key} className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                    <input
-                        type="checkbox"
-                        checked={selected.includes(module.key)}
-                        onChange={() => toggle(module.key)}
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    {module.label}
-                </label>
-            ))}
+        <div className="mt-2 w-full max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-slate-200/70 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Module Access</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                        Empty selection means this user will follow default access for their role.
+                    </p>
+                </div>
+                <div className="inline-flex items-center gap-2 self-start rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm">
+                    <i className="fas fa-layer-group text-[11px] text-indigo-600"></i>
+                    {selectedCount} selected
+                </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {ACCESS_MODULES.map((module) => {
+                    const checked = selected.includes(module.key);
+                    return (
+                        <label
+                            key={module.key}
+                            className={`group flex min-h-[72px] w-full min-w-0 cursor-pointer items-center gap-3 overflow-hidden rounded-2xl border px-4 py-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                                checked
+                                    ? 'border-indigo-300 bg-indigo-50/90 shadow-sm ring-1 ring-indigo-100'
+                                    : 'border-slate-200 bg-white hover:border-indigo-200'
+                            }`}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggle(module.key)}
+                                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <div className="min-w-0 flex-1">
+                                <p
+                                    className={`block max-w-full truncate text-[15px] font-bold leading-tight ${
+                                        checked ? 'text-indigo-700' : 'text-slate-800'
+                                    }`}
+                                    title={module.label}
+                                >
+                                    {module.label}
+                                </p>
+                            </div>
+                        </label>
+                    );
+                })}
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs font-medium text-slate-500">
+                    Select only the modules this user should access after login.
+                </p>
+                {selectedCount > 0 && (
+                    <button
+                        type="button"
+                        onClick={() => onChange([])}
+                        className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+                    >
+                        Clear Selection
+                    </button>
+                )}
+            </div>
         </div>
     );
 }

@@ -32,6 +32,7 @@ const emptyForm = {
 
 export default function AdminPayments() {
   const [activeTab, setActiveTab] = useState('invoices');
+  const [currentPage, setCurrentPage] = useState(1);
   const [invoices, setInvoices] = useState([]);
   const [receipts, setReceipts] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -51,6 +52,7 @@ export default function AdminPayments() {
     date_from: '',
     date_to: '',
   });
+  const pageSize = 5;
 
   useEffect(() => {
     fetchAccounts();
@@ -63,6 +65,10 @@ export default function AdminPayments() {
     }, 250);
     return () => clearTimeout(handle);
   }, [filters.search, filters.payment_status, filters.method, filters.account_id, filters.date_from, filters.date_to]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, filters.search, filters.payment_status, filters.method, filters.account_id, filters.date_from, filters.date_to]);
 
   useEffect(() => {
     if (!showPaymentModal) return;
@@ -204,9 +210,15 @@ export default function AdminPayments() {
     event.preventDefault();
     setSaving(true);
     try {
+      const amount = Number(formData.amount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        alert('Payment amount 0 se bada hona chahiye');
+        return;
+      }
+
       const payload = {
         ...formData,
-        amount: Number(formData.amount || 0),
+        amount,
         account_id: formData.account_id || null,
       };
       if (editingPayment) {
@@ -234,6 +246,14 @@ export default function AdminPayments() {
       alert(err.response?.data?.message || 'Payment delete nahi ho paaya');
     }
   };
+
+  const currentList = activeTab === 'invoices' ? invoices : receipts;
+  const totalPages = Math.max(1, Math.ceil(currentList.length / pageSize));
+  const safePage = Math.min(Math.max(currentPage, 1), totalPages);
+  const pageStart = (safePage - 1) * pageSize;
+  const pageEnd = pageStart + pageSize;
+  const pagedInvoices = activeTab === 'invoices' ? invoices.slice(pageStart, pageEnd) : [];
+  const pagedReceipts = activeTab === 'receipts' ? receipts.slice(pageStart, pageEnd) : [];
 
   return (
     <div className="space-y-6">
@@ -378,17 +398,24 @@ export default function AdminPayments() {
 
         {activeTab === 'invoices' ? (
           <InvoiceDueTable
-            invoices={invoices}
+            invoices={pagedInvoices}
             loading={loading}
+            page={safePage}
+            pageSize={pageSize}
+            totalCount={invoices.length}
             onRecordPayment={openPaymentModal}
+            onPageChange={setCurrentPage}
           />
         ) : (
           <ReceiptTable
-            receipts={receipts}
+            receipts={pagedReceipts}
             loading={receiptsLoading}
-            accountById={accountById}
             onEdit={openEditPayment}
             onDelete={deletePayment}
+            page={safePage}
+            pageSize={pageSize}
+            totalCount={receipts.length}
+            onPageChange={setCurrentPage}
           />
         )}
       </div>
@@ -409,115 +436,210 @@ export default function AdminPayments() {
   );
 }
 
-function InvoiceDueTable({ invoices, loading, onRecordPayment }) {
+function InvoiceDueTable({ invoices, loading, onRecordPayment, page, pageSize, totalCount, onPageChange }) {
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const startIndex = totalCount === 0 ? 0 : (safePage - 1) * pageSize;
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="border-b border-gray-200 bg-gray-50 text-[11px] font-black uppercase tracking-[0.16em] text-gray-500">
-            <th className="px-4 py-4">Invoice</th>
-            <th className="px-4 py-4">Customer</th>
-            <th className="px-4 py-4">Due Date</th>
-            <th className="px-4 py-4 text-right">Total</th>
-            <th className="px-4 py-4 text-right">Paid</th>
-            <th className="px-4 py-4 text-right">Pending</th>
-            <th className="px-4 py-4">Status</th>
-            <th className="px-4 py-4 text-right">Action</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {loading ? (
-            <tr>
-              <td colSpan="8" className="px-4 py-16 text-center text-sm font-semibold text-gray-400">Loading payment dues...</td>
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50 text-[11px] font-black uppercase tracking-[0.16em] text-gray-500">
+              <th className="px-4 py-4">SL No</th>
+              <th className="px-4 py-4">Invoice</th>
+              <th className="px-4 py-4">Customer</th>
+              <th className="px-4 py-4">Due Date</th>
+              <th className="px-4 py-4 text-right">Total</th>
+              <th className="px-4 py-4 text-right">Paid</th>
+              <th className="px-4 py-4 text-right">Pending</th>
+              <th className="px-4 py-4">Status</th>
+              <th className="px-4 py-4 text-right">Action</th>
             </tr>
-          ) : invoices.length === 0 ? (
-            <tr>
-              <td colSpan="8" className="px-4 py-16 text-center text-sm font-semibold text-gray-400">No invoices found</td>
-            </tr>
-          ) : invoices.map((invoice) => (
-            <tr key={invoice.id} className="hover:bg-gray-50">
-              <td className="px-4 py-3">
-                <p className="text-sm font-black text-gray-900">{invoice.invoice_number || `Invoice #${invoice.id}`}</p>
-                <p className="text-xs font-semibold text-gray-500">Issued {formatDate(invoice.issue_date || invoice.created_at)}</p>
-              </td>
-              <td className="px-4 py-3">
-                <p className="text-sm font-bold text-gray-800">{invoice.customer_name || '-'}</p>
-                <p className="text-xs text-gray-500">{invoice.contact_person || invoice.phone || '-'}</p>
-              </td>
-              <td className="px-4 py-3 text-sm font-bold text-gray-800">{formatDate(invoice.due_date)}</td>
-              <td className="px-4 py-3 text-right text-sm font-black text-gray-900">{formatCurrency(invoice.total_amount)}</td>
-              <td className="px-4 py-3 text-right text-sm font-black text-emerald-700">{formatCurrency(invoice.paid_amount)}</td>
-              <td className="px-4 py-3 text-right text-sm font-black text-gray-900">{formatCurrency(invoice.due_amount)}</td>
-              <td className="px-4 py-3"><PaymentStatusBadge status={invoice.payment_status} /></td>
-              <td className="px-4 py-3 text-right">
-                <button
-                  type="button"
-                  disabled={Number(invoice.due_amount || 0) <= 0 || invoice.payment_status === 'cancelled'}
-                  onClick={() => onRecordPayment(invoice)}
-                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-400"
-                >
-                  Receive
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {loading ? (
+              <tr>
+                <td colSpan="9" className="px-4 py-16 text-center text-sm font-semibold text-gray-400">Loading payment dues...</td>
+              </tr>
+            ) : invoices.length === 0 ? (
+              <tr>
+                <td colSpan="9" className="px-4 py-16 text-center text-sm font-semibold text-gray-400">No invoices found</td>
+              </tr>
+            ) : invoices.map((invoice, index) => (
+              <tr key={invoice.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 text-sm font-black text-gray-500">
+                  {startIndex + index + 1}
+                </td>
+                <td className="px-4 py-3">
+                  <p className="text-sm font-black text-gray-900">{invoice.invoice_number || `Invoice #${invoice.id}`}</p>
+                  <p className="text-xs font-semibold text-gray-500">Issued {formatDate(invoice.issue_date || invoice.created_at)}</p>
+                </td>
+                <td className="px-4 py-3">
+                  <p className="text-sm font-bold text-gray-800">{invoice.customer_name || '-'}</p>
+                  <p className="text-xs text-gray-500">{invoice.contact_person || invoice.phone || '-'}</p>
+                </td>
+                <td className="px-4 py-3 text-sm font-bold text-gray-800">{formatDate(invoice.due_date)}</td>
+                <td className="px-4 py-3 text-right text-sm font-black text-gray-900">{formatCurrency(invoice.total_amount)}</td>
+                <td className="px-4 py-3 text-right text-sm font-black text-emerald-700">{formatCurrency(invoice.paid_amount)}</td>
+                <td className="px-4 py-3 text-right text-sm font-black text-gray-900">{formatCurrency(invoice.due_amount)}</td>
+                <td className="px-4 py-3"><PaymentStatusBadge status={invoice.payment_status} /></td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    type="button"
+                    disabled={Number(invoice.due_amount || 0) <= 0 || invoice.payment_status === 'cancelled'}
+                    onClick={() => onRecordPayment(invoice)}
+                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-400"
+                  >
+                    Receive
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <PaginationFooter
+        page={safePage}
+        pageSize={pageSize}
+        totalCount={totalCount}
+        noun="invoices"
+        onPageChange={onPageChange}
+      />
     </div>
   );
 }
 
-function ReceiptTable({ receipts, loading, onEdit, onDelete }) {
+function ReceiptTable({ receipts, loading, onEdit, onDelete, page, pageSize, totalCount, onPageChange }) {
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const startIndex = totalCount === 0 ? 0 : (safePage - 1) * pageSize;
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="border-b border-gray-200 bg-gray-50 text-[11px] font-black uppercase tracking-[0.16em] text-gray-500">
-            <th className="px-4 py-4">Receipt</th>
-            <th className="px-4 py-4">Invoice</th>
-            <th className="px-4 py-4">Method</th>
-            <th className="px-4 py-4">Account</th>
-            <th className="px-4 py-4">Reference</th>
-            <th className="px-4 py-4 text-right">Amount</th>
-            <th className="px-4 py-4 text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {loading ? (
-            <tr>
-              <td colSpan="7" className="px-4 py-16 text-center text-sm font-semibold text-gray-400">Loading receipts...</td>
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50 text-[11px] font-black uppercase tracking-[0.16em] text-gray-500">
+              <th className="px-4 py-4">SL No</th>
+              <th className="px-4 py-4">Receipt</th>
+              <th className="px-4 py-4">Invoice</th>
+              <th className="px-4 py-4">Method</th>
+              <th className="px-4 py-4">Account</th>
+              <th className="px-4 py-4">Reference</th>
+              <th className="px-4 py-4 text-right">Amount</th>
+              <th className="px-4 py-4 text-right">Actions</th>
             </tr>
-          ) : receipts.length === 0 ? (
-            <tr>
-              <td colSpan="7" className="px-4 py-16 text-center text-sm font-semibold text-gray-400">No payment receipts found</td>
-            </tr>
-          ) : receipts.map((payment) => (
-            <tr key={payment.id} className="hover:bg-gray-50">
-              <td className="px-4 py-3">
-                <p className="text-sm font-black text-gray-900">PMT-{String(payment.id).padStart(5, '0')}</p>
-                <p className="text-xs font-semibold text-gray-500">{formatDate(payment.payment_date)}</p>
-              </td>
-              <td className="px-4 py-3">
-                <p className="text-sm font-bold text-gray-800">{payment.invoice_number || '-'}</p>
-                <p className="text-xs text-gray-500">{payment.customer_name || '-'}</p>
-              </td>
-              <td className="px-4 py-3 text-sm font-bold text-gray-800">{methodLabel(payment.method)}</td>
-              <td className="px-4 py-3">
-                <p className="text-sm font-bold text-gray-800">{payment.bank_name || 'No bank selected'}</p>
-                <p className="text-xs text-gray-500">{maskAccount(payment.account_number)}</p>
-              </td>
-              <td className="px-4 py-3 text-sm font-semibold text-gray-600">{payment.reference_no || '-'}</td>
-              <td className="px-4 py-3 text-right text-sm font-black text-emerald-700">{formatCurrency(payment.amount)}</td>
-              <td className="px-4 py-3">
-                <div className="flex items-center justify-end gap-2">
-                  <button type="button" onClick={() => onEdit(payment)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Edit</button>
-                  <button type="button" onClick={() => onDelete(payment)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700">Delete</button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {loading ? (
+              <tr>
+                <td colSpan="8" className="px-4 py-16 text-center text-sm font-semibold text-gray-400">Loading receipts...</td>
+              </tr>
+            ) : receipts.length === 0 ? (
+              <tr>
+                <td colSpan="8" className="px-4 py-16 text-center text-sm font-semibold text-gray-400">No payment receipts found</td>
+              </tr>
+            ) : receipts.map((payment, index) => (
+              <tr key={payment.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 text-sm font-black text-gray-500">
+                  {startIndex + index + 1}
+                </td>
+                <td className="px-4 py-3">
+                  <p className="text-sm font-black text-gray-900">PMT-{String(payment.id).padStart(5, '0')}</p>
+                  <p className="text-xs font-semibold text-gray-500">{formatDate(payment.payment_date)}</p>
+                </td>
+                <td className="px-4 py-3">
+                  <p className="text-sm font-bold text-gray-800">{payment.invoice_number || '-'}</p>
+                  <p className="text-xs text-gray-500">{payment.customer_name || '-'}</p>
+                </td>
+                <td className="px-4 py-3 text-sm font-bold text-gray-800">{methodLabel(payment.method)}</td>
+                <td className="px-4 py-3">
+                  <p className="text-sm font-bold text-gray-800">{payment.bank_name || 'No bank selected'}</p>
+                  <p className="text-xs text-gray-500">{maskAccount(payment.account_number)}</p>
+                </td>
+                <td className="px-4 py-3 text-sm font-semibold text-gray-600">{payment.reference_no || '-'}</td>
+                <td className="px-4 py-3 text-right text-sm font-black text-emerald-700">{formatCurrency(payment.amount)}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-2">
+                    <button type="button" onClick={() => onEdit(payment)} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Edit</button>
+                    <button type="button" onClick={() => onDelete(payment)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700">Delete</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <PaginationFooter
+        page={safePage}
+        pageSize={pageSize}
+        totalCount={totalCount}
+        noun="receipts"
+        onPageChange={onPageChange}
+      />
+    </div>
+  );
+}
+
+function PaginationFooter({ page, pageSize, totalCount, noun, onPageChange }) {
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const from = totalCount === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const to = Math.min(safePage * pageSize, totalCount);
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs font-semibold text-gray-500">
+        Showing <span className="font-black text-gray-900">{from}</span> to <span className="font-black text-gray-900">{to}</span> of <span className="font-black text-gray-900">{totalCount}</span> {noun}
+      </p>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onPageChange((current) => Math.max(current - 1, 1))}
+          disabled={safePage === 1}
+          className={`rounded-lg border px-3 py-2 text-xs font-black transition-all ${
+            safePage === 1
+              ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          Prev
+        </button>
+        {Array.from({ length: totalPages }).map((_, index) => {
+          const pageNumber = index + 1;
+          const isActive = pageNumber === safePage;
+          return (
+            <button
+              key={pageNumber}
+              type="button"
+              onClick={() => onPageChange(pageNumber)}
+              className={`min-w-9 rounded-lg border px-3 py-2 text-xs font-black transition-all ${
+                isActive
+                  ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm'
+                  : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              {pageNumber}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => onPageChange((current) => Math.min(current + 1, totalPages))}
+          disabled={safePage === totalPages}
+          className={`rounded-lg border px-3 py-2 text-xs font-black transition-all ${
+            safePage === totalPages
+              ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+          }`}
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 }
@@ -553,11 +675,17 @@ function PaymentModal({ invoice, accounts, formData, setFormData, editing, savin
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Field label="Payment Amount" required>
               <input
-                type="number"
-                min="0.01"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
+                pattern="[0-9]*[.]?[0-9]*"
                 value={formData.amount}
-                onChange={(event) => setFormData((current) => ({ ...current, amount: event.target.value }))}
+                onChange={(event) => setFormData((current) => ({ ...current, amount: sanitizeCurrencyInput(event.target.value) }))}
+                onKeyDown={(event) => {
+                  if (['-', '+', 'e', 'E'].includes(event.key)) {
+                    event.preventDefault();
+                  }
+                }}
+                placeholder="0.00"
                 className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm font-bold outline-none focus:border-emerald-500 focus:bg-white"
                 required
               />
@@ -696,7 +824,26 @@ function maskAccount(value) {
 
 function formatCurrency(value) {
   const number = Number(value || 0);
-  return `INR ${number.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₹${number.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function sanitizeCurrencyInput(value) {
+  const raw = String(value ?? '').replace(/[^0-9.]/g, '');
+  if (!raw) return '';
+
+  const [integerPart = '', ...decimalParts] = raw.split('.');
+  const decimalPart = decimalParts.join('').slice(0, 2);
+  const cleanInteger = integerPart.replace(/^0+(?=\d)/, '');
+
+  if (raw.endsWith('.') && decimalPart.length === 0) {
+    return `${cleanInteger || '0'}.`;
+  }
+
+  if (decimalPart.length > 0) {
+    return `${cleanInteger || '0'}.${decimalPart}`;
+  }
+
+  return cleanInteger || '0';
 }
 
 function formatDate(value) {

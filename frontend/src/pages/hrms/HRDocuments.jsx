@@ -64,37 +64,39 @@ export default function HRDocuments() {
   // Node only: same origin, /serve-pdf from Node
   const BASE_URL = '';
 
-  const downloadDocPdf = async (filePath) => {
-    if (!filePath) return;
-    const cleanPath = String(filePath).trim().replace(/\\/g, '/').replace(/^\/+/, '');
-    const url = `${BASE_URL}/serve-pdf?file=${encodeURIComponent(cleanPath)}&download=1`;
-    const safeName = cleanPath.split('/').pop()?.replace(/[^a-zA-Z0-9._-]/g, '_') || 'document.pdf';
+  const downloadDocPdf = (doc) => {
+    if (!doc?.file_path) return;
+    const cleanPath = String(doc.file_path).trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    const url = `/serve-pdf?file=${encodeURIComponent(cleanPath)}&download=1&ts=${Date.now()}`;
 
-    try {
-      const resp = await fetch(url, { credentials: 'include' });
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => '');
-        throw new Error(txt || `Download failed (${resp.status})`);
-      }
-      const ct = String(resp.headers.get('content-type') || '').toLowerCase();
-      if (!ct.includes('application/pdf')) {
-        const txt = await resp.text().catch(() => '');
-        throw new Error(txt || 'Invalid file type received');
-      }
+    let docType = 'document';
+    const typeLower = String(doc.type || '').toLowerCase();
+    const titleLower = String(doc.title || '').toLowerCase();
+    const pathLower = String(doc.file_path || '').toLowerCase();
 
-      const blob = await resp.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = safeName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000);
-    } catch (e) {
-      console.error(e);
-      alert(e?.message || 'Failed to download document');
+    if (typeLower === 'offer_letter' || pathLower.includes('offer_letter') || titleLower.includes('offer letter')) {
+      docType = 'offer-letter';
+    } else if (typeLower === 'experience_letter' || pathLower.includes('experience_letter') || titleLower.includes('experience letter')) {
+      docType = 'experience-letter';
+    } else if (typeLower === 'joining_form' || pathLower.includes('joining_form') || titleLower.includes('joining form')) {
+      docType = 'joining-form';
+    } else if (typeLower === 'full_and_final' || pathLower.includes('full_and_final') || titleLower.includes('full_and_final') || titleLower.includes('f&f') || titleLower.includes('full and final')) {
+      docType = 'full-and-final';
+    } else if (typeLower && typeLower !== 'other') {
+      docType = typeLower.replace(/_/g, '-');
     }
+
+    const cleanEmpCode = String(doc.employee_code || 'EMP').trim().replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeName = `${docType}_${cleanEmpCode}.pdf`;
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = safeName;
+    link.rel = 'noopener';
+    link.target = '_self';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const handleDeleteDoc = async (doc) => {
@@ -519,7 +521,7 @@ export default function HRDocuments() {
                         </a>
                         <button
                           type="button"
-                          onClick={() => downloadDocPdf(doc.file_path)}
+                          onClick={() => downloadDocPdf(doc)}
                           className="inline-flex items-center justify-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
                           title="Download"
                         >

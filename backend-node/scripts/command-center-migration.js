@@ -320,9 +320,14 @@ async function run() {
     // seed modules if empty
     const [rows] = await conn.execute('SELECT COUNT(*) as c FROM modules');
     if (rows[0].c === 0) {
+      const moduleValuesSql = seedModules.map(() => '(?, ?, ?, ?)').join(', ');
+      const moduleParams = seedModules.reduce((acc, module) => {
+        acc.push(module[0], module[1], module[2], 'enabled');
+        return acc;
+      }, []);
       await conn.query(
-        'INSERT INTO modules (name, code, description, status) VALUES ?',
-        [seedModules.map(m => [...m, 'enabled'])]
+        `INSERT INTO modules (name, code, description, status) VALUES ${moduleValuesSql}`,
+        moduleParams
       );
       console.log('Seeded default modules.');
     }

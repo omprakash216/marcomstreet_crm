@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../utils/api';
+import { isAuthenticated } from '../utils/auth';
 import AIGuidance from '../components/AIGuidance';
 import FollowupModal from '../components/FollowupModal';
 import LeadModal from '../components/LeadModal';
@@ -35,10 +36,9 @@ export default function Leads() {
 
 
   const fetchLeads = async () => {
-    // Check if user is logged in
-    const token = localStorage.getItem('token');
-    if (!token) {
-      console.warn('⚠️ No token found, cannot fetch leads');
+    // Check if user is logged in (use session-based auth, not localStorage token)
+    if (!isAuthenticated()) {
+      console.warn('⚠️ Not authenticated, cannot fetch leads');
       setLoading(false);
       setLeads([]);
       return;
@@ -230,9 +230,8 @@ export default function Leads() {
   };
 
   const handleExport = () => {
-    const token = localStorage.getItem('token');
-    const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.BASE_URL || '');
-    window.open(`${API_BASE_URL || ''}/api/leads/export?token=${encodeURIComponent(token || '')}`, '_blank');
+    // Cookie-based auth: credentials are sent automatically; no token in URL needed
+    window.open('/api/leads/export', '_blank');
   };
 
   const handleCreateLead = (initialValues = {}, title = '') => {
@@ -287,16 +286,28 @@ export default function Leads() {
     }
   };
 
-  const getStatusColor = (status) => {
+  const getStatusSelectStyles = (status) => {
     const colors = {
-      new: 'bg-gray-100 text-gray-800',
-      contacted: 'bg-blue-100 text-blue-800',
-      proposal: 'bg-yellow-100 text-yellow-800',
-      negotiation: 'bg-orange-100 text-orange-800',
-      won: 'bg-green-200 text-green-900',
-      lost: 'bg-red-100 text-red-800',
+      new: 'bg-slate-50 text-slate-700 border-slate-200 focus:ring-slate-200',
+      contacted: 'bg-blue-50 text-blue-700 border-blue-200 focus:ring-blue-200',
+      proposal: 'bg-amber-50 text-amber-700 border-amber-200 focus:ring-amber-200',
+      negotiation: 'bg-orange-50 text-orange-700 border-orange-200 focus:ring-orange-200',
+      won: 'bg-emerald-50 text-emerald-700 border-emerald-200 focus:ring-emerald-200',
+      lost: 'bg-rose-50 text-rose-700 border-rose-200 focus:ring-rose-200',
     };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+    return colors[status] || colors.new;
+  };
+
+  const getStatusBadgeStyles = (status) => {
+    const colors = {
+      new: 'bg-slate-100 text-slate-700',
+      contacted: 'bg-blue-100 text-blue-700',
+      proposal: 'bg-amber-100 text-amber-700',
+      negotiation: 'bg-orange-100 text-orange-700',
+      won: 'bg-emerald-100 text-emerald-700',
+      lost: 'bg-rose-100 text-rose-700',
+    };
+    return colors[status] || colors.new;
   };
 
   const getPriorityColor = (priority) => {
@@ -534,7 +545,7 @@ export default function Leads() {
                     <td className="px-6 py-4 whitespace-nowrap text-center font-medium text-gray-600">
                       {(page - 1) * pageSize + index + 1}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap align-middle">
                       <div className="font-medium">{lead.company_name}</div>
                       <div className="text-sm text-gray-500">{lead.lead_code}</div>
                     </td>
@@ -543,58 +554,64 @@ export default function Leads() {
                       <div className="text-sm text-gray-500">{lead.email}</div>
                       <div className="text-sm text-gray-500">{lead.phone}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <select
-                        value={lead.status}
-                        onChange={(e) => handleStatusUpdate(lead, e.target.value)}
-                        className={`border rounded px-2 py-1 text-sm ${getStatusColor(lead.status)}`}
-                      >
-                        <option value="new">New</option>
-                        <option value="contacted">Contacted</option>
-                        <option value="proposal">Proposal</option>
-                        <option value="negotiation">Negotiation</option>
-                        <option value="won">Won</option>
-                        <option value="lost">Lost</option>
-                      </select>
+                    <td className="px-6 py-4 whitespace-nowrap align-middle">
+                      <div className={`inline-flex items-center overflow-hidden rounded-full border px-1.5 py-1 shadow-sm ${getStatusBadgeStyles(lead.status)}`}>
+                        <select
+                          value={lead.status}
+                          onChange={(e) => handleStatusUpdate(lead, e.target.value)}
+                          className={`appearance-none bg-transparent pl-3 pr-7 py-1 text-xs font-semibold uppercase tracking-widest outline-none focus:ring-0 min-w-[118px] ${getStatusSelectStyles(lead.status)}`}
+                          aria-label="Lead status"
+                        >
+                          <option value="new">New</option>
+                          <option value="contacted">Contacted</option>
+                          <option value="proposal">Proposal</option>
+                          <option value="negotiation">Negotiation</option>
+                          <option value="won">Won</option>
+                          <option value="lost">Lost</option>
+                        </select>
+                        <span className="pointer-events-none pr-2 text-current/60">
+                          <i className="fas fa-chevron-down text-[9px]"></i>
+                        </span>
+                      </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`font-medium ${getPriorityColor(lead.priority)}`}>
-                        {lead.priority}
+                    <td className="px-6 py-4 whitespace-nowrap align-middle">
+                      <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wider ${getPriorityColor(lead.priority)} bg-white shadow-sm`}>
+                        {lead.priority || 'low'}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       ₹{lead.estimated_value?.toLocaleString() || 'N/A'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                    <td className="px-6 py-4 whitespace-nowrap align-middle">
+                      <div className="flex items-center gap-2">
+                        <div className="w-20 bg-slate-200 rounded-full h-2 overflow-hidden">
                           <div
-                            className="bg-blue-600 h-2 rounded-full"
+                            className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2 rounded-full"
                             style={{ width: `${lead.lead_score}%` }}
                           />
                         </div>
-                        <span className="text-sm">{lead.lead_score}</span>
+                        <span className="text-xs font-bold text-slate-600 min-w-[2ch]">{lead.lead_score}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <div className="flex gap-2">
+                    <td className="px-6 py-4 whitespace-nowrap align-middle text-sm">
+                      <div className="inline-flex items-center gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
                         <button
                           onClick={() => handleCall(lead.phone)}
-                          className="text-blue-600 hover:text-blue-800"
+                          className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 transition-all"
                           title="Call"
                         >
                           📞
                         </button>
                         <button
                           onClick={() => handleWhatsApp(lead.phone)}
-                          className="text-green-600 hover:text-green-800"
+                          className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 transition-all"
                           title="WhatsApp"
                         >
                           💬
                         </button>
                         <button
                           onClick={() => navigate(`/meetings?lead_id=${lead.id}`)}
-                          className="text-purple-600 hover:text-purple-800"
+                          className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 hover:text-violet-700 transition-all"
                           title="Log Meeting"
                         >
                           📅
@@ -604,28 +621,28 @@ export default function Leads() {
                             setFollowupLeadId(lead.id);
                             setShowFollowupModal(true);
                           }}
-                          className="text-yellow-600 hover:text-yellow-800"
+                          className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 hover:text-amber-700 transition-all"
                           title="Schedule Follow-up"
                         >
                           📋
                         </button>
                         <button
                           onClick={() => setSelectedLeadId(lead.id)}
-                          className="text-indigo-600 hover:text-indigo-800"
+                          className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700 transition-all"
                           title="AI Guidance"
                         >
                           🤖
                         </button>
                         <button
                           onClick={() => handleEditLead(lead.id)}
-                          className="text-blue-600 hover:text-blue-800"
+                          className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-all"
                           title="Edit Lead"
                         >
                           ✏️
                         </button>
                         <button
                           onClick={() => handleDeleteLead(lead.id)}
-                          className="text-red-600 hover:text-red-800"
+                          className="w-8 h-8 inline-flex items-center justify-center rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 transition-all"
                           title="Delete Lead"
                         >
                           🗑️

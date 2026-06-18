@@ -1,8 +1,41 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../utils/api';
-import { generateInvoicePdf } from '../utils/quotationPdf';
+import { getEmployee } from '../utils/auth';
+import { downloadPdfUrl, openPdfUrlInNewTab, printPdfFromApi, sanitizePdfFileName } from '../utils/pdfActions';
+
+function createDefaultCompanySettings() {
+  return {
+    company_name: '',
+    email: '',
+    phone: '',
+    address: '',
+    gst_number: '',
+    pan_number: '',
+    quotation_template: 'standard',
+    quotation_header_text: '',
+    quotation_footer_text: 'Thank you for your business!',
+    bank_name: '',
+    account_holder_name: '',
+    account_number: '',
+    ifsc_code: '',
+    branch_name: '',
+    nature: 'Current Account',
+    logo_path: '',
+  };
+}
+
+function normalizeCompanySettings(settings = {}) {
+  return {
+    ...createDefaultCompanySettings(),
+    ...settings,
+    quotation_footer_text: settings?.quotation_footer_text ?? 'Thank you for your business!',
+    nature: settings?.nature || 'Current Account',
+  };
+}
 
 export default function Invoices() {
+  const employee = getEmployee();
+  const canEditCompanySettings = ['admin', 'superadmin', 'super_admin'].includes(String(employee?.role || '').toLowerCase());
   const itemsPerPage = 20;
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -12,12 +45,17 @@ export default function Invoices() {
   const [showViewModal, setShowViewModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [leads, setLeads] = useState([]);
+  const [companySettings, setCompanySettings] = useState(createDefaultCompanySettings());
+  const [companySettingsSnapshot, setCompanySettingsSnapshot] = useState(createDefaultCompanySettings());
+  const [companySettingsLoading, setCompanySettingsLoading] = useState(true);
+  const [companySettingsSaving, setCompanySettingsSaving] = useState(false);
+  const [companySettingsError, setCompanySettingsError] = useState('');
+  const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [filters, setFilters] = useState({
     date_from: '',
     date_to: '',
     status: '',
   });
-  const [invoiceSettings, setInvoiceSettings] = useState({});
   const [formData, setFormData] = useState({
     lead_id: '',
     items: [{ item_name: '', description: '', quantity: 1, unit_price: 0 }],
@@ -32,7 +70,10 @@ export default function Invoices() {
   useEffect(() => {
     fetchInvoices();
     fetchLeads();
-    fetchInvoiceSettings();
+  }, []);
+
+  useEffect(() => {
+    fetchCompanySettings();
   }, []);
 
   useEffect(() => {
@@ -158,35 +199,106 @@ export default function Invoices() {
     return '';
   };
 
-  const uploadsBase = useMemo(() => {
-    const base = api.defaults.baseURL || '';
-    return base.replace(/\/api\/?$/, '');
-  }, []);
-
-  const invoicePdfSettings = useMemo(() => ({
-    ...invoiceSettings,
-    logo_url: invoiceSettings.logo_path ? `${uploadsBase}/${invoiceSettings.logo_path}` : '',
-  }), [invoiceSettings, uploadsBase]);
-
-  const fetchInvoiceSettings = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+  const openInvoicePdf = async (invoice, action = 'view') => {
+    if (!invoice?.id) return;
     try {
-      const response = await api.get('/invoices/template-settings');
-      if (response.data?.success) {
-        setInvoiceSettings(response.data.data || {});
+      const safeNumber = sanitizePdfFileName(invoice.invoice_number || `INV-${invoice.id}`, 'invoice');
+      const mode = action === true ? 'download' : action === false ? 'view' : action;
+      if (mode === 'download') {
+        downloadPdfUrl(`/invoices/${invoice.id}/pdf`, {
+          fileName: `invoice_${safeNumber}.pdf`,
+        });
+        return;
       }
-    } catch (_) {
-      setInvoiceSettings({});
+      if (mode === 'print') {
+        await printPdfFromApi(`/invoices/${invoice.id}/pdf`);
+        return;
+      }
+      openPdfUrlInNewTab(`/invoices/${invoice.id}/pdf`);
+    } catch (err) {
+      alert(err.message || 'Failed to open invoice PDF');
     }
   };
 
-  const openInvoicePdf = async (invoice, download = false) => {
-    if (!invoice?.id) return;
+  const fetchCompanySettings = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setCompanySettingsLoading(false);
+      return;
+    }
+
+    setCompanySettingsLoading(true);
+    setCompanySettingsError('');
     try {
-      await generateInvoicePdf(invoice, invoicePdfSettings);
-    } catch (err) {
-      alert(err.response?.data?.message || 'Failed to generate invoice PDF');
+      const response = await api.get('/invoices/template-settings');
+      const nextSettings = normalizeCompanySettings(response?.data?.data || {});
+      setCompanySettings(nextSettings);
+      setCompanySettingsSnapshot(nextSettings);
+    } catch (error) {
+      if (error.response?.status !== 401 && error.code !== 'ERR_NETWORK') {
+        console.error('Error fetching company settings:', error);
+      }
+      const fallbackSettings = createDefaultCompanySettings();
+      setCompanySettings(fallbackSettings);
+      setCompanySettingsSnapshot(fallbackSettings);
+      setCompanySettingsError(error.response?.data?.message || 'Unable to load company bank details.');
+    } finally {
+      setCompanySettingsLoading(false);
+    }
+  };
+
+  const handleCompanySettingChange = (field, value) => {
+    setCompanySettings((current) => ({ ...current, [field]: value }));
+  };
+
+  const buildCompanySettingsPayload = (settings) => ({
+    company_name: settings.company_name || '',
+    email: settings.email || '',
+    phone: settings.phone || '',
+    address: settings.address || '',
+    gst_number: settings.gst_number || '',
+    pan_number: settings.pan_number || '',
+    quotation_template: settings.quotation_template || 'standard',
+    quotation_header_text: settings.quotation_header_text || '',
+    quotation_footer_text: settings.quotation_footer_text || 'Thank you for your business!',
+    bank_name: settings.bank_name || '',
+    account_holder_name: settings.account_holder_name || '',
+    account_number: settings.account_number || '',
+    ifsc_code: settings.ifsc_code || '',
+    branch_name: settings.branch_name || '',
+    nature: settings.nature || 'Current Account',
+    logo_path: settings.logo_path || '',
+  });
+
+  const hasCompanySettingsChanges = () => {
+    if (!canEditCompanySettings) return false;
+    const fields = ['bank_name', 'account_holder_name', 'account_number', 'ifsc_code', 'branch_name', 'nature'];
+    return fields.some((field) => String(companySettings?.[field] ?? '') !== String(companySettingsSnapshot?.[field] ?? ''));
+  };
+
+  const saveCompanySettings = async ({ silent = false } = {}) => {
+    if (!canEditCompanySettings) return true;
+    if (!hasCompanySettingsChanges()) return true;
+
+    setCompanySettingsSaving(true);
+    try {
+      const payload = buildCompanySettingsPayload(companySettings);
+      const response = await api.put('/admin/company-settings', payload);
+      if (response?.data?.success) {
+        const nextSettings = normalizeCompanySettings({ ...companySettings, ...(response.data.data || {}) });
+        setCompanySettings(nextSettings);
+        setCompanySettingsSnapshot(nextSettings);
+        setCompanySettingsError('');
+        return true;
+      }
+      throw new Error(response?.data?.message || 'Failed to save company settings');
+    } catch (error) {
+      if (!silent) {
+        alert(error.response?.data?.message || error.message || 'Failed to save bank details');
+      }
+      return false;
+    } finally {
+      setCompanySettingsSaving(false);
     }
   };
 
@@ -269,7 +381,11 @@ export default function Invoices() {
       return;
     }
 
+    setInvoiceSaving(true);
     try {
+      const companySettingsSaved = await saveCompanySettings({ silent: false });
+      if (!companySettingsSaved) return;
+
       if (editingInvoiceId) {
         await api.put(`/invoices/${editingInvoiceId}`, formData);
       } else {
@@ -290,6 +406,8 @@ export default function Invoices() {
       fetchInvoices();
     } catch (error) {
       alert(error.response?.data?.message || `Failed to ${editingInvoiceId ? 'update' : 'create'} invoice`);
+    } finally {
+      setInvoiceSaving(false);
     }
   };
 
@@ -406,25 +524,25 @@ export default function Invoices() {
       </div>
 
       {/* Invoices List */}
-      <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-[1.5rem] shadow-sm border border-gray-200 overflow-hidden">
         {/* Invoices Content */}
         {loading ? (
           <div className="p-12 text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p className="mt-2 text-gray-600">Loading invoices...</p>
+            <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">Retrieving invoice records...</p>
           </div>
         ) : invoices.length === 0 ? (
           <div className="p-12 text-center">
             <div className="text-6xl mb-4">🧾</div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">No invoices found</h3>
-            <p className="text-gray-600 mb-6">
+            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2">No invoices found</h3>
+            <p className="text-xs text-slate-500 mb-6 max-w-sm mx-auto">
               {filters.date_from || filters.date_to || filters.status
                 ? 'No invoices match your filters. Try adjusting your search criteria.'
                 : 'No invoices logged yet. Start by creating your first invoice.'}
             </p>
             <button
               onClick={() => setShowModal(true)}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg font-semibold hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg"
+              className="px-6 py-3 bg-[#244bd8] text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all active:scale-95"
             >
               Create Invoice
             </button>
@@ -432,104 +550,172 @@ export default function Invoices() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
+              <table className="min-w-[1100px] divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest w-20">SL No</th>
-                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Invoice Number</th>
-                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Company</th>
-                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Issue Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Due Date</th>
-                    <th className="px-4 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Subtotal</th>
-                    <th className="px-4 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Total Amount</th>
-                    <th className="px-4 py-3 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Items</th>
-                    <th className="px-4 py-3 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Status</th>
-                    <th className="px-4 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Actions</th>
+                    <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest w-20">SL No</th>
+                    <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Invoice No</th>
+                    <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Company &amp; Contact</th>
+                    <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Issue Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Due Date</th>
+                    <th className="px-6 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Amount</th>
+                    <th className="px-6 py-3 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Status</th>
+                    <th className="px-6 py-3 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
-                  {currentInvoices.map((invoice, index) => (
-                    <tr key={invoice.id} className="hover:bg-blue-50/40 transition-colors">
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-gray-700">
-                        {indexOfFirstInvoice + index + 1}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => openInvoiceDetails(invoice)}
-                          className="text-sm font-black text-blue-700 hover:text-blue-900 hover:underline"
-                        >
-                          {invoice.invoice_number || `INV-${invoice.id}`}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 min-w-[220px]">
-                        <div className="text-sm font-bold text-gray-900">{invoice.company_name || invoice.client_name || 'No company'}</div>
-                        {invoice.contact_person ? <div className="text-xs text-gray-500 mt-0.5">{invoice.contact_person}</div> : null}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{fmtDate(invoice.issue_date)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{fmtDate(invoice.due_date)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold text-gray-700">Rs. {fmtMoney(invoice.subtotal || 0)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-black text-emerald-700">Rs. {fmtMoney(invoice.total_amount || 0)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-center">
-                        <span className="inline-flex items-center justify-center min-w-8 px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-black">
-                          {Array.isArray(invoice.items) ? invoice.items.length : 0}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-center">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${getStatusColor(invoice.status)}`}>
-                          {invoice.status || 'draft'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <div className="inline-flex items-center justify-end gap-1.5">
-                          <button type="button" onClick={() => openInvoiceDetails(invoice)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900" title="View Details">
-                            <i className="fas fa-eye"></i>
+                  {currentInvoices.map((invoice, index) => {
+                    const itemCount = Array.isArray(invoice.items) ? invoice.items.length : 0;
+                    const companyName = invoice.company_name || invoice.client_name || 'No company';
+                    const contactLine = invoice.contact_person || invoice.client_phone || invoice.client_email || '';
+
+                    return (
+                      <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium text-gray-700">
+                          {indexOfFirstInvoice + index + 1}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => openInvoiceDetails(invoice)}
+                            className="text-sm font-black text-blue-700 hover:text-blue-900 hover:underline"
+                          >
+                            {invoice.invoice_number || `INV-${invoice.id}`}
                           </button>
-                          <button type="button" onClick={() => openEditInvoice(invoice)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-800" title="Edit Invoice">
-                            <i className="fas fa-edit"></i>
-                          </button>
-                          <button type="button" onClick={() => openInvoicePdf(invoice, true)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-800" title="Download PDF">
-                            <i className="fas fa-download"></i>
-                          </button>
-                          <button type="button" onClick={() => handleWhatsAppSend(invoice)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-800" title="WhatsApp">
-                            <i className="fab fa-whatsapp"></i>
-                          </button>
-                          <button type="button" onClick={() => handleDeleteInvoice(invoice)} className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-800" title="Delete Invoice">
-                            <i className="fas fa-trash-alt"></i>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-6 py-4 min-w-[240px]">
+                          <div className="text-sm font-bold text-gray-900 truncate">{companyName}</div>
+                          {contactLine ? <div className="text-xs text-gray-500 mt-0.5 truncate">{contactLine}</div> : null}
+                          <div className="mt-1 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                            Items: {itemCount}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{fmtDate(invoice.issue_date)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{fmtDate(invoice.due_date)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className="text-sm font-black text-gray-900">Rs. {fmtMoney(invoice.total_amount || 0)}</div>
+                          <div className="text-xs text-gray-500">Subtotal: Rs. {fmtMoney(invoice.subtotal || 0)}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${getStatusColor(invoice.status)}`}>
+                            {invoice.status || 'draft'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                          <div className="flex items-center justify-center flex-nowrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openInvoiceDetails(invoice)}
+                              className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                              title="View Details"
+                              aria-label="View Details"
+                            >
+                              <i className="fas fa-eye"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditInvoice(invoice)}
+                              className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-900 transition-colors"
+                              title="Edit Invoice"
+                              aria-label="Edit Invoice"
+                            >
+                              <i className="fas fa-edit"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openInvoicePdf(invoice, 'print')}
+                              className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-900 transition-colors"
+                              title="Print PDF"
+                              aria-label="Print PDF"
+                            >
+                              <i className="fas fa-print"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openInvoicePdf(invoice, 'download')}
+                              className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-900 transition-colors"
+                              title="Download PDF"
+                              aria-label="Download PDF"
+                            >
+                              <i className="fas fa-download"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleWhatsAppSend(invoice)}
+                              className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-900 transition-colors"
+                              title="WhatsApp"
+                              aria-label="WhatsApp"
+                            >
+                              <i className="fab fa-whatsapp"></i>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteInvoice(invoice)}
+                              className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-900 transition-colors"
+                              title="Delete Invoice"
+                              aria-label="Delete Invoice"
+                            >
+                              <i className="fas fa-trash-alt"></i>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
-            <div className="border-t border-gray-200 bg-slate-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="text-xs text-slate-500 font-semibold">
-                Showing <span className="font-black text-slate-800">{indexOfFirstInvoice + 1}</span> to{' '}
-                <span className="font-black text-slate-800">{Math.min(indexOfLastInvoice, invoices.length)}</span> of{' '}
-                <span className="font-black text-slate-800">{invoices.length}</span> invoices
+            <div className="bg-slate-50 border-t border-slate-200 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-xs text-slate-500 font-medium">
+                Showing <span className="font-bold text-slate-800">{indexOfFirstInvoice + 1}</span> to{' '}
+                <span className="font-bold text-slate-800">{Math.min(indexOfLastInvoice, invoices.length)}</span> of{' '}
+                <span className="font-bold text-slate-800">{invoices.length}</span> invoices
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center space-x-1">
                 <button
                   type="button"
-                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                  disabled={safePage <= 1}
-                  className="px-3 py-2 rounded-lg border bg-white text-xs font-black text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                  disabled={safePage === 1}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                    safePage === 1
+                      ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300 active:scale-95'
+                  }`}
                 >
-                  Previous
+                  <i className="fas fa-chevron-left mr-1"></i> Prev
                 </button>
-                <div className="px-3 py-2 rounded-lg bg-white border text-xs font-black text-slate-700">
-                  {safePage} / {totalPages}
-                </div>
+
+                {Array.from({ length: totalPages }).map((_, i) => {
+                  const pageNum = i + 1;
+                  const isSelected = pageNum === safePage;
+                  return (
+                    <button
+                      key={pageNum}
+                      type="button"
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`w-8 h-8 rounded-lg text-xs font-bold transition-all border flex items-center justify-center ${
+                        isSelected
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/10'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+
                 <button
                   type="button"
-                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                  disabled={safePage >= totalPages}
-                  className="px-3 py-2 rounded-lg border bg-white text-xs font-black text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => setCurrentPage((page) => Math.min(page + 1, totalPages))}
+                  disabled={safePage === totalPages}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                    safePage === totalPages
+                      ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300 active:scale-95'
+                  }`}
                 >
-                  Next
+                  Next <i className="fas fa-chevron-right ml-1"></i>
                 </button>
               </div>
             </div>
@@ -1036,6 +1222,144 @@ export default function Invoices() {
                 </div>
               </div>
 
+              {/* Bank Details */}
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                      <i className="fas fa-university text-blue-500 w-4 text-center"></i>
+                      <span>Bank Details</span>
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      {canEditCompanySettings
+                        ? 'Yahan se bank details edit karke invoice PDF aur print me same data use hoga.'
+                        : 'Bank details read-only hain. Sirf admin yahan update kar sakta hai.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {companySettingsSaving && (
+                      <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">Saving...</span>
+                    )}
+                    {canEditCompanySettings && (
+                      <button
+                        type="button"
+                        onClick={() => saveCompanySettings({ silent: false })}
+                        disabled={!hasCompanySettingsChanges() || companySettingsSaving}
+                        className="inline-flex items-center px-4 py-2 rounded-xl border border-blue-200 bg-white text-blue-700 text-[10px] font-black uppercase tracking-widest hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <i className="fas fa-save mr-2"></i>
+                        {hasCompanySettingsChanges() ? 'Save Bank Details' : 'Saved'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {companySettingsError ? (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
+                    {companySettingsError}
+                  </div>
+                ) : null}
+
+                {companySettingsLoading ? (
+                  <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-white/80 p-4 text-center text-xs font-bold uppercase tracking-widest text-slate-400">
+                    Loading bank details...
+                  </div>
+                ) : canEditCompanySettings ? (
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Account Holder Name</label>
+                      <input
+                        type="text"
+                        value={companySettings.account_holder_name || ''}
+                        onChange={(e) => handleCompanySettingChange('account_holder_name', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="Vanya Group"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Bank Name</label>
+                      <input
+                        type="text"
+                        value={companySettings.bank_name || ''}
+                        onChange={(e) => handleCompanySettingChange('bank_name', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="Canara Bank"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Account Number</label>
+                      <input
+                        type="text"
+                        value={companySettings.account_number || ''}
+                        onChange={(e) => handleCompanySettingChange('account_number', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="120039354715"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">IFSC Code</label>
+                      <input
+                        type="text"
+                        value={companySettings.ifsc_code || ''}
+                        onChange={(e) => handleCompanySettingChange('ifsc_code', e.target.value.toUpperCase())}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="CNRB0018686"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Branch Name</label>
+                      <input
+                        type="text"
+                        value={companySettings.branch_name || ''}
+                        onChange={(e) => handleCompanySettingChange('branch_name', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="NOIDA SECTOR 48"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Nature</label>
+                      <select
+                        value={companySettings.nature || 'Current Account'}
+                        onChange={(e) => handleCompanySettingChange('nature', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                      >
+                        <option value="Current Account">Current Account</option>
+                        <option value="Savings Account">Savings Account</option>
+                        <option value="OD Account">OD Account</option>
+                        <option value="CC Account">CC Account</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-[13px]">
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Account Holder Name</p>
+                      <p className="font-semibold text-slate-900">{companySettings.account_holder_name || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Bank Name</p>
+                      <p className="font-semibold text-slate-900">{companySettings.bank_name || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Account Number</p>
+                      <p className="font-semibold text-slate-900">{companySettings.account_number || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">IFSC Code</p>
+                      <p className="font-semibold text-slate-900">{companySettings.ifsc_code || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Branch Name</p>
+                      <p className="font-semibold text-slate-900">{companySettings.branch_name || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Nature</p>
+                      <p className="font-semibold text-slate-900">{companySettings.nature || '-'}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Action Buttons */}
               <div className="flex justify-end space-x-3 pt-6 border-t mt-6">
                 <button
@@ -1050,9 +1374,10 @@ export default function Invoices() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all"
+                  disabled={invoiceSaving || companySettingsSaving}
+                  className="px-6 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all disabled:bg-blue-400 disabled:cursor-not-allowed"
                 >
-                  {editingInvoiceId ? 'Update Invoice' : 'Create Invoice'}
+                  {invoiceSaving ? 'Saving...' : editingInvoiceId ? 'Update Invoice' : 'Create Invoice'}
                 </button>
               </div>
             </form>

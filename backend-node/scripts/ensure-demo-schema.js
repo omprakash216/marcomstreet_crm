@@ -53,7 +53,10 @@ async function run() {
     await safe('ALTER TABLE employees ADD COLUMN conveyance DECIMAL(12,2) NULL DEFAULT 0');
     await safe('ALTER TABLE employees ADD COLUMN medical_allowance DECIMAL(12,2) NULL DEFAULT 0');
     await safe('ALTER TABLE employees ADD COLUMN lta DECIMAL(12,2) NULL DEFAULT 0');
+    await safe('ALTER TABLE employees ADD COLUMN special_allowance DECIMAL(12,2) NULL DEFAULT 0');
     await safe('ALTER TABLE employees ADD COLUMN other_allowances DECIMAL(12,2) NULL DEFAULT 0');
+    await safe('ALTER TABLE employees ADD COLUMN pf_contribution DECIMAL(12,2) NULL DEFAULT 0');
+    await safe('ALTER TABLE employees ADD COLUMN gratuity DECIMAL(12,2) NULL DEFAULT 0');
     await safe('ALTER TABLE employees ADD COLUMN allowances DECIMAL(12,2) NULL DEFAULT 0');
     await safe('ALTER TABLE employees ADD COLUMN deductions DECIMAL(12,2) NULL DEFAULT 0');
     await safe('ALTER TABLE employees ADD COLUMN previous_company VARCHAR(255) NULL');
@@ -134,13 +137,17 @@ async function run() {
     await safe('ALTER TABLE company_settings ADD COLUMN pan_number VARCHAR(20) NULL');
 
     await safe(
-      "CREATE TABLE IF NOT EXISTS hr_leave_types (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(120) NOT NULL, code VARCHAR(30) NULL, default_balance INT NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
+      "CREATE TABLE IF NOT EXISTS hr_leave_types (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(120) NOT NULL, code VARCHAR(30) NULL, default_balance INT NOT NULL DEFAULT 0, description TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)"
     );
+    await safe('ALTER TABLE hr_leave_types ADD COLUMN description TEXT NULL');
     await safe('CREATE UNIQUE INDEX uniq_leave_type_name ON hr_leave_types(name)');
 
     await safe(
       "CREATE TABLE IF NOT EXISTS hr_leave_balances (id INT AUTO_INCREMENT PRIMARY KEY, employee_id INT NOT NULL, leave_type_id INT NOT NULL, balance INT NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, UNIQUE KEY uniq_leave_balance (employee_id, leave_type_id))"
     );
+
+    await safe('ALTER TABLE leaves MODIFY COLUMN type VARCHAR(120) NOT NULL');
+    await safe('ALTER TABLE leaves ADD COLUMN admin_reason TEXT NULL');
 
     // Followups table alignment (CRM)
     await safe("ALTER TABLE followups ADD COLUMN followup_type ENUM('call','email','whatsapp','meeting','other') DEFAULT 'call'");

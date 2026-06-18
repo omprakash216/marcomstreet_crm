@@ -181,21 +181,37 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-500">
       {/* Banner Header */}
-      <div className="bg-gradient-to-r from-blue-900 via-indigo-950 to-blue-900 text-white px-6 py-5 rounded-2xl shadow-lg border border-blue-800 flex items-center justify-between relative overflow-hidden">
+      <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white px-6 py-5 rounded-2xl shadow-lg border border-white/10 flex items-center justify-between relative overflow-hidden">
+        <div className="absolute inset-0 opacity-15 pointer-events-none">
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: 'radial-gradient(circle at 12px 12px, rgba(255,255,255,0.18) 1px, transparent 1px)',
+              backgroundSize: '28px 28px',
+            }}
+          />
+        </div>
         <div className="relative z-10 flex items-center gap-3">
-          <span className="text-white text-2xl font-black"><i className="fas fa-cubes"></i></span>
+          <span className="w-12 h-12 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center text-white text-xl shadow-inner">
+            <i className="fas fa-cubes"></i>
+          </span>
           <div>
-            <h1 className="text-lg font-extrabold tracking-wide uppercase">
-              COMPANY ADMIN PANEL – COMPLETE COMPANY MANAGEMENT SYSTEM
+            <h1 className="text-lg sm:text-xl font-extrabold tracking-wide uppercase">
+              Operations Dashboard
             </h1>
-            <p className="text-xs text-slate-300">
-              One Platform To Run Your Complete Business
+            <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
+              Live overview of tasks, leads, invoices, and team activity in one clean workspace.
             </p>
           </div>
         </div>
-        <span className="hidden md:inline-block relative z-10 bg-white/10 border border-white/20 px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider">
-          ADMIN PORTAL
-        </span>
+        <div className="hidden md:flex relative z-10 items-center gap-2">
+          <span className="bg-white/10 border border-white/15 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-slate-100">
+            Admin Workspace
+          </span>
+          <span className="bg-emerald-500/15 border border-emerald-400/20 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-emerald-100">
+            Live Summary
+          </span>
+        </div>
       </div>
 
       {/* 8 Stats Cards Row */}

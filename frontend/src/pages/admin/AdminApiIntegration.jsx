@@ -37,6 +37,9 @@ export default function AdminApiIntegration() {
   const [apiTestResponse, setApiTestResponse] = useState(null);
   const [apiTestError, setApiTestError] = useState('');
   const navigate = useNavigate();
+  const apiEndpoint = typeof window !== 'undefined'
+    ? new URL('/api/external/leads', window.location.origin).toString()
+    : '/api/external/leads';
 
   useEffect(() => {
     const employee = getEmployee();
@@ -442,7 +445,7 @@ export default function AdminApiIntegration() {
           <div className="bg-gray-50 border rounded-lg p-4 font-mono text-sm overflow-x-auto">
             <p className="text-blue-700 font-bold mb-1 uppercase text-xs">Primary Endpoint (POST):</p>
             <p className="text-gray-900 break-all select-all">
-              {window.location.origin.replace('5175', '3000')}/api/external/leads
+              {apiEndpoint}
             </p>
           </div>
 
@@ -475,7 +478,7 @@ export default function AdminApiIntegration() {
           <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
             <div className="flex items-center space-x-2 text-amber-600">
               <i className="fas fa-exclamation-triangle text-xs"></i>
-              <span className="text-[10px] font-bold uppercase">Note: Replace localhost:3000 with your server IP for production.</span>
+              <span className="text-[10px] font-bold uppercase">Note: This endpoint follows your deployed domain automatically.</span>
             </div>
             <button
               onClick={() => navigate('/admin/leads')}

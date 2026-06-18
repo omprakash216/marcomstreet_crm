@@ -108,14 +108,13 @@ export default function Login({ portalType = 'default' }) {
 
       if (response.data && response.data.success) {
         const employee = response.data.data?.employee;
-        const token = response.data.data?.token;
 
-        if (!employee || !token) {
+        if (!employee) {
           setError('Invalid response format from server');
           return;
         }
 
-        setEmployee(employee, token);
+        setEmployee(employee);
         const nextRoute = getDefaultPortalRoute(employee);
         navigate(nextRoute, { replace: true });
       } else {
@@ -339,7 +338,20 @@ export default function Login({ portalType = 'default' }) {
               />
             </div>
 
-            <div className="mb-6 text-right">
+            <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  navigate('/forgot-password', {
+                    state: {
+                      email: formData.email || '',
+                    },
+                  });
+                }}
+                className="text-sm font-semibold text-blue-600 underline decoration-blue-300 underline-offset-4 hover:text-blue-800"
+              >
+                Forgot password?
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -347,17 +359,11 @@ export default function Login({ portalType = 'default' }) {
                   setError('');
                   setForgotMessage('');
                   setOtpVerified(false);
+                  setResetToken('');
                 }}
-                className="text-sm text-blue-600 hover:text-blue-800 underline"
+                className="text-sm font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-800"
               >
-                Forgot password?
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('/forgot-password')}
-                className="ml-3 text-sm text-indigo-600 hover:text-indigo-800 underline"
-              >
-                Email OTP
+                Use SMS OTP
               </button>
             </div>
 

@@ -1,20 +1,30 @@
 export const getEmployee = () => {
-  const employee = localStorage.getItem('employee');
-  return employee ? JSON.parse(employee) : null;
+  const employee = sessionStorage.getItem('employee');
+  if (!employee) return null;
+  try {
+    const parsed = JSON.parse(employee);
+    if (parsed && !localStorage.getItem('token')) {
+      localStorage.setItem('token', 'session-cookie-active');
+    }
+    return parsed;
+  } catch {
+    sessionStorage.removeItem('employee');
+    return null;
+  }
 };
 
-export const setEmployee = (employee, token) => {
-  localStorage.setItem('employee', JSON.stringify(employee));
-  localStorage.setItem('token', token);
+export const setEmployee = (employee) => {
+  sessionStorage.setItem('employee', JSON.stringify(employee));
+  localStorage.setItem('token', 'session-cookie-active');
 };
 
 export const clearAuth = () => {
-  localStorage.removeItem('employee');
+  sessionStorage.removeItem('employee');
   localStorage.removeItem('token');
 };
 
 export const isAuthenticated = () => {
-  return !!localStorage.getItem('token');
+  return !!sessionStorage.getItem('employee');
 };
 
 export const normalizeRole = (role) => {
@@ -60,6 +70,12 @@ const COMMON_MODULE_KEYS = [
   'chat',
 ];
 
+const POSH_MODULE_KEYS = [
+  'posh',
+  'posh_portal',
+  'posh_management',
+];
+
 const HR_ROLE_KEYS = new Set([
   'human_resources',
   'human_resource',
@@ -90,6 +106,16 @@ export const isHrRole = (role) => {
   return HR_ROLE_KEYS.has(normalizeRole(role));
 };
 
+export const isHrPortalRole = (role) => {
+  const normalized = normalizeRole(role);
+  return isSuperAdminRole(normalized) || normalized === 'admin' || isHrRole(normalized);
+};
+
+export const isPoshManagementRole = (employee) => {
+  const role = normalizeRole(employee?.role);
+  return isSuperAdminRole(role) || role === 'admin' || role === 'manager' || isHrRole(role) || normalizeModuleCode(employee?.posh_role) === 'icc';
+};
+
 export const isModuleRestrictedEmployee = (employee) => {
   if (typeof employee?.module_restricted === 'boolean') {
     return employee.module_restricted;
@@ -107,6 +133,7 @@ export const getExpandedAccessModules = (employeeOrModules) => {
   const normalized = new Set(rawModules.map(normalizeModuleCode).filter(Boolean));
   if (normalized.has('crm')) CRM_MODULE_KEYS.forEach((key) => normalized.add(key));
   if (normalized.has('hrms')) HRMS_MODULE_KEYS.forEach((key) => normalized.add(key));
+  if (normalized.has('posh')) POSH_MODULE_KEYS.forEach((key) => normalized.add(key));
   COMMON_MODULE_KEYS.forEach((key) => normalized.add(key));
   return Array.from(normalized);
 };
@@ -119,6 +146,10 @@ export const hasModuleAccess = (employee, moduleKey) => {
   }
 
   if (isSuperAdminRole(employee?.role)) return true;
+  if (POSH_MODULE_KEYS.includes(normalizedKey)) {
+    const expanded = new Set(getExpandedAccessModules(employee));
+    return expanded.has(normalizedKey);
+  }
   if (!isModuleRestrictedEmployee(employee)) return true;
   const expanded = new Set(getExpandedAccessModules(employee));
   return expanded.has(normalizedKey);
@@ -137,6 +168,10 @@ export const hasHrmsModuleAccess = (employee) => {
   return hasAnyModuleAccess(employee, HRMS_MODULE_KEYS);
 };
 
+export const hasPoshModuleAccess = (employee) => {
+  return hasAnyModuleAccess(employee, POSH_MODULE_KEYS);
+};
+
 export const getDefaultPortalRoute = (employee) => {
   if (!employee) return '/login';
   const role = normalizeRole(employee?.role);
@@ -149,16 +184,23 @@ export const getDefaultPortalRoute = (employee) => {
   if (!moduleRestricted) {
     if (role === 'admin') return '/admin';
     if (role === 'manager') return '/manager';
-    if (isHrRole(role)) return '/hr';
+    if (isHrPortalRole(role)) return '/hr';
     if (role === 'designer_manager') return '/designer-manager';
     return '/';
   }
 
   const canCRM = hasCrmModuleAccess(employee);
   const canHRMS = hasHrmsModuleAccess(employee);
+  const canPOSH = hasPoshModuleAccess(employee);
+
+  if (canPOSH && !canCRM && !canHRMS) {
+    if (role === 'admin') return '/admin/posh';
+    if (isHrRole(role) || isPoshManagementRole(employee)) return '/hr/posh';
+    return '/posh';
+  }
 
   if (canHRMS && !canCRM) {
-    return '/hr';
+    return isHrPortalRole(role) ? '/hr' : '/hrms/leaves';
   }
   if (canCRM && !canHRMS) {
     if (role === 'admin') return '/admin';
@@ -169,7 +211,7 @@ export const getDefaultPortalRoute = (employee) => {
   if (canCRM && canHRMS) {
     if (role === 'admin') return '/admin';
     if (role === 'manager') return '/manager';
-    if (isHrRole(role)) return '/hr';
+    if (isHrPortalRole(role)) return '/hr';
     return '/';
   }
 

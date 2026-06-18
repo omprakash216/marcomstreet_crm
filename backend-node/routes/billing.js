@@ -1,7 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { query, getConnection } = require('../config/database');
+const { query } = require('../config/database');
+const { buildCompanyAdminEmployeeCode, normalizeCompanyCode, deriveCompanyCodeFromName } = require('../utils/companyCode');
 
 const router = express.Router();
 
@@ -20,6 +21,8 @@ async function ensureTables() {
       currency VARCHAR(8) NOT NULL DEFAULT 'INR',
       gateway_reference VARCHAR(128) NULL,
       temp_password VARCHAR(64) NULL,
+      activation_status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      activated_at DATETIME NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       paid_at DATETIME NULL,
       UNIQUE KEY uniq_email_plan_pending (email, plan, status)
@@ -55,6 +58,51 @@ function generatePassword(len = 10) {
   return out;
 }
 
+const VALID_PAYMENT_METHODS = new Set([
+  'upi_phonepe',
+  'upi_gpay',
+  'upi_paytm',
+  'card',
+  'debit_card',
+  'netbanking',
+]);
+
+function normalizePaymentMethod(value) {
+  const method = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!method) return '';
+  if (VALID_PAYMENT_METHODS.has(method)) return method;
+  if (method === 'upi') return 'upi_phonepe';
+  if (method === 'credit_card') return 'card';
+  return '';
+}
+
+function getPlanLabel(plan) {
+  const normalized = String(plan || '').trim().toLowerCase();
+  if (normalized === 'starter') return 'Starter';
+  if (normalized === 'business') return 'Business';
+  if (normalized === 'enterprise') return 'Enterprise';
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : 'Plan';
+}
+
+function buildGatewayReference(method, paymentDetails = {}) {
+  const providedReference = String(
+    paymentDetails.transactionId
+    || paymentDetails.transaction_id
+    || paymentDetails.referenceId
+    || paymentDetails.reference_id
+    || paymentDetails.bankReference
+    || paymentDetails.bank_reference
+    || ''
+  ).trim();
+
+  if (providedReference) {
+    return providedReference;
+  }
+
+  const prefix = method.startsWith('upi_') ? 'UPI' : method === 'netbanking' ? 'NB' : 'CARD';
+  return `${prefix}-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
+}
+
 // Public pricing plans for landing page (no auth)
 router.get('/plans', async (_req, res) => {
   try {
@@ -87,6 +135,40 @@ router.get('/plans', async (_req, res) => {
     });
 
     return res.json({ success: true, data: rows });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/session/:sessionId', async (req, res) => {
+  try {
+    await ensureTables();
+    const sessionId = String(req.params.sessionId || '').trim();
+    if (!sessionId) {
+      return res.status(400).json({ success: false, message: 'sessionId is required' });
+    }
+
+    const rows = await query(
+      `SELECT id, email, full_name, company, plan, status, payment_method, amount, currency, created_at, paid_at, activation_status, activated_at
+       FROM subscription_sessions
+       WHERE id = ?
+       LIMIT 1`,
+      [sessionId]
+    );
+
+    const session = rows && rows[0];
+    if (!session) {
+      return res.status(404).json({ success: false, message: 'Session not found' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...session,
+        plan_label: getPlanLabel(session.plan),
+        payment_method: normalizePaymentMethod(session.payment_method),
+      },
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -130,25 +212,26 @@ router.post('/checkout', async (req, res) => {
 });
 
 router.post('/confirm', async (req, res) => {
-  const conn = await getConnection();
   try {
     await ensureTables();
     const sessionId = String((req.body && req.body.sessionId) || '').trim();
-    const paymentMethod = String((req.body && req.body.paymentMethod) || '').trim().toLowerCase();
+    const paymentMethod = normalizePaymentMethod((req.body && req.body.paymentMethod) || '');
+    const paymentDetails = (req.body && req.body.paymentDetails && typeof req.body.paymentDetails === 'object')
+      ? req.body.paymentDetails
+      : {};
     if (!sessionId) return res.status(400).json({ success: false, message: 'sessionId is required' });
+    if (!paymentMethod) return res.status(400).json({ success: false, message: 'paymentMethod is required' });
 
-    const sessions = await conn.execute('SELECT * FROM subscription_sessions WHERE id = ? LIMIT 1', [sessionId]);
-    const session = sessions && sessions[0] && sessions[0][0];
+    const sessions = await query('SELECT * FROM subscription_sessions WHERE id = ? LIMIT 1', [sessionId]);
+    const session = Array.isArray(sessions) ? sessions[0] : null;
     if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
     if (session.status === 'paid') {
       return res.json({ success: true, data: { email: session.email, sessionId, alreadyPaid: true } });
     }
 
-    if (!paymentMethod) return res.status(400).json({ success: false, message: 'paymentMethod is required' });
-
     // Mark session paid and store payment method / gateway reference
-    const gatewayRef = 'MOCK-' + Date.now();
-    await conn.execute(
+    const gatewayRef = buildGatewayReference(paymentMethod, paymentDetails);
+    await query(
       'UPDATE subscription_sessions SET status = ?, paid_at = NOW(), payment_method = ?, gateway_reference = ? WHERE id = ?',
       ['paid', paymentMethod, gatewayRef, sessionId]
     );
@@ -162,13 +245,10 @@ router.post('/confirm', async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
-  } finally {
-    conn.release();
   }
 });
 
 router.post('/activate', async (req, res) => {
-  const conn = await getConnection();
   try {
     await ensureTables();
     const sessionId = String((req.body && req.body.sessionId) || '').trim();
@@ -177,8 +257,8 @@ router.post('/activate', async (req, res) => {
       return res.status(400).json({ success: false, message: 'sessionId and password are required' });
     }
 
-    const sessions = await conn.execute('SELECT * FROM subscription_sessions WHERE id = ? LIMIT 1', [sessionId]);
-    const session = sessions && sessions[0] && sessions[0][0];
+    const sessions = await query('SELECT * FROM subscription_sessions WHERE id = ? LIMIT 1', [sessionId]);
+    const session = Array.isArray(sessions) ? sessions[0] : null;
     if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
     if (session.status !== 'paid') return res.status(400).json({ success: false, message: 'Payment not completed for this session' });
     if (session.activation_status === 'done') {
@@ -186,31 +266,53 @@ router.post('/activate', async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(password, 10).catch(() => password);
+    const safeCompanyName = String(session.company || '').trim() || 'New Company';
+    const safeEmail = String(session.email || '').trim().toLowerCase();
 
-    // 1. Create the company first
-    const [compRes] = await conn.execute(
-      `INSERT INTO companies (company_code, company_name, email, phone, status)
-       VALUES (?, ?, ?, ?, 'active')`,
-      ['COMP' + Date.now(), session.company || 'New Company', session.email, '', 'active']
-    );
-    const companyId = compRes.insertId;
+    // 1. Create or reuse the company first so activation retries stay idempotent.
+    let companyCode = normalizeCompanyCode('', safeCompanyName) || deriveCompanyCodeFromName(safeCompanyName, 'CMP');
+    let companyId = 0;
+    const existingCompanyRows = await query(
+      'SELECT id, company_code FROM companies WHERE LOWER(email) = LOWER(?) OR LOWER(company_name) = LOWER(?) LIMIT 1',
+      [safeEmail, safeCompanyName]
+    ).catch(() => []);
+    const existingCompany = Array.isArray(existingCompanyRows) ? existingCompanyRows[0] : null;
 
-    const existing = await conn.execute('SELECT id FROM employees WHERE LOWER(email) = LOWER(?) LIMIT 1', [session.email]);
-    const existingRow = existing && existing[0] && existing[0][0];
-    if (!existingRow) {
-      await conn.execute(
-        `INSERT INTO employees (company_id, employee_code, name, email, password, role, status, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,'active', NOW(), NOW())`,
-        [companyId, 'EMP' + Date.now(), session.full_name || 'Subscriber', session.email, hashed, 'admin']
+    if (existingCompany) {
+      companyId = Number(existingCompany.id || 0);
+      companyCode = String(existingCompany.company_code || companyCode || '').trim();
+      await query(
+        'UPDATE companies SET company_code = ?, company_name = ?, email = ?, phone = ?, status = ? WHERE id = ?',
+        [companyCode, safeCompanyName, safeEmail, '', 'active', companyId]
       );
     } else {
-      await conn.execute(
-        'UPDATE employees SET company_id = ?, password = ?, status = ?, updated_at = NOW() WHERE id = ?',
-        [companyId, hashed, 'active', existingRow.id]
+      const companyInsert = await query(
+        `INSERT INTO companies (company_code, company_name, email, phone, status)
+         VALUES (?, ?, ?, ?, 'active')`,
+        [String(companyCode || '').trim(), safeCompanyName, safeEmail, '']
+      );
+      companyId = Number(companyInsert?.insertId || 0);
+    }
+
+    const existing = await query('SELECT id FROM employees WHERE LOWER(email) = LOWER(?) LIMIT 1', [safeEmail]);
+    const existingRow = Array.isArray(existing) ? existing[0] : null;
+    if (!existingRow) {
+      const adminEmployeeCode = await buildCompanyAdminEmployeeCode(companyCode, companyId, {
+        companyName: safeCompanyName,
+      });
+      await query(
+        `INSERT INTO employees (company_id, employee_code, name, email, password, role, status, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,'active', NOW(), NOW())`,
+        [companyId, String(adminEmployeeCode || '').trim(), String(session.full_name || 'Subscriber').trim(), safeEmail, hashed, 'admin']
+      );
+    } else {
+      await query(
+        'UPDATE employees SET company_id = ?, name = ?, email = ?, password = ?, status = ?, updated_at = NOW() WHERE id = ?',
+        [companyId, String(session.full_name || existingRow.name || 'Subscriber').trim(), safeEmail, hashed, 'active', existingRow.id]
       );
     }
 
-    await conn.execute(
+    await query(
       'UPDATE subscription_sessions SET activation_status = ?, activated_at = NOW() WHERE id = ?',
       ['done', sessionId]
     );
@@ -221,8 +323,6 @@ router.post('/activate', async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
-  } finally {
-    conn.release();
   }
 });
 

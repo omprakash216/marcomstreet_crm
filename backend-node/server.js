@@ -53,6 +53,9 @@ const suppliersRoutes = require('./routes/suppliers');
 const warehousesRoutes = require('./routes/warehouses');
 const supportTicketsRoutes = require('./routes/supportTickets');
 const paymentsRoutes = require('./routes/payments');
+const poshEmployeeRoutes = require('./routes/poshEmployee');
+const poshHrRoutes = require('./routes/poshHr');
+const clientsRoutes = require('./routes/clients');
 
 // Super Admin Routes
 const superAdminCompanies = require('./routes/superadmin/companies');
@@ -73,14 +76,77 @@ const superAdminSecurity = require('./routes/superadmin/security');
 const superAdminSystem = require('./routes/superadmin/system');
 const superAdminSupport = require('./routes/superadmin/support');
 const superAdminWhiteLabel = require('./routes/superadmin/whiteLabel');
+const superAdminPosh = require('./routes/superadmin/posh');
 const { apiAuditLogger } = require('./middleware/apiAuditLogger');
 const { hideSuperAdminData } = require('./middleware/hideSuperAdminData');
 
 const app = express();
+app.set('trust proxy', 1);
+
+function getForwardedHost(req) {
+  return String(req.get('x-forwarded-host') || req.get('host') || '')
+    .split(',')[0]
+    .trim();
+}
+
+function isSecureRequest(req) {
+  if (req.secure) return true;
+  const forwardedProto = String(req.get('x-forwarded-proto') || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  return forwardedProto === 'https';
+}
+
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    const host = getForwardedHost(req);
+    if (!host || host.startsWith('localhost') || host.startsWith('127.0.0.1') || isSecureRequest(req)) {
+      return next();
+    }
+
+    return res.redirect(308, `https://${host}${req.originalUrl || req.url || '/'}`);
+  });
+
+  app.use((req, res, next) => {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+}
+
+const cookieParser = require('cookie-parser');
+const session = require('express-session');
+const MySQLStore = require('express-mysql-session')(session);
+const { getPool } = require('./config/database');
 
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(express.json({ limit: '150mb' }));
+app.use(express.urlencoded({ extended: true, limit: '150mb' }));
+
+const sessionStore = new MySQLStore({
+  clearExpired: true,
+  checkExpirationInterval: 900000, // 15 mins
+  expiration: 8 * 60 * 60 * 1000, // 8 hours absolute
+}, getPool());
+
+app.use(
+  session({
+    key: 'sid',
+    secret: process.env.JWT_SECRET || 'marcom_crm_secret_key_2024',
+    store: sessionStore,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+    },
+  })
+);
 
 // PDF serve - MUST be before /api so path /serve-pdf works (fixes PDF open/download + MIME)
 app.use('/serve-pdf', servePdfRoutes);
@@ -126,6 +192,9 @@ app.use('/api/suppliers', suppliersRoutes);
 app.use('/api/warehouses', warehousesRoutes);
 app.use('/api/support-tickets', supportTicketsRoutes);
 app.use('/api/payments', paymentsRoutes);
+app.use('/api/employee/posh', poshEmployeeRoutes);
+app.use('/api/hr/posh', poshHrRoutes);
+app.use('/api/clients', clientsRoutes);
 
 // Fallback: some deployments still hit /api/billing/plans but miss the router mount
 app.get('/api/billing/plans', (req, res, next) => {
@@ -152,6 +221,7 @@ app.use('/api/superadmin/security', superAdminSecurity);
 app.use('/api/superadmin/system', superAdminSystem);
 app.use('/api/superadmin/support', superAdminSupport);
 app.use('/api/superadmin/white-label', superAdminWhiteLabel);
+app.use('/api/superadmin/posh', superAdminPosh);
 
 app.get('/api/check', (req, res) => {
   res.json({ success: true, message: 'Node backend is running', build: '2026-03-15', db_query_mode: QUERY_MODE });

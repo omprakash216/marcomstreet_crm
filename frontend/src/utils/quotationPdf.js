@@ -145,7 +145,17 @@ async function loadLogoDataUrl(url) {
 function drawLogoSlot(doc, logoDataUrl, x, y, w = 28, h = 18, accent = [15, 47, 110]) {
   if (logoDataUrl) {
     try {
-      doc.addImage(logoDataUrl, imageTypeFromDataUrl(logoDataUrl), x, y, w, h);
+      const props = typeof doc.getImageProperties === 'function' ? doc.getImageProperties(logoDataUrl) : null;
+      if (props && props.width && props.height) {
+        const scale = Math.min(w / props.width, h / props.height);
+        const drawW = Math.max(1, props.width * scale);
+        const drawH = Math.max(1, props.height * scale);
+        const drawX = x + (w - drawW) / 2;
+        const drawY = y + (h - drawH) / 2;
+        doc.addImage(logoDataUrl, imageTypeFromDataUrl(logoDataUrl), drawX, drawY, drawW, drawH);
+      } else {
+        doc.addImage(logoDataUrl, imageTypeFromDataUrl(logoDataUrl), x, y, w, h);
+      }
       return;
     } catch (_) {}
   }
@@ -200,16 +210,10 @@ function drawHeader(doc, q, settings, config, logoDataUrl, meta) {
   const title = meta.titleUpper;
   const numberText = meta.documentNumber || '';
 
-  if (config.goldBorder) {
-    doc.setDrawColor(...accent);
-    doc.setLineWidth(0.6);
-    doc.rect(8, 8, pageW - 16, 281);
-  }
-
   if (config.header === 'dark') {
     doc.setFillColor(...accent);
     doc.rect(0, 0, pageW, 42, 'F');
-    drawLogoSlot(doc, logoDataUrl, ml, 8, 26, 18, [255, 255, 255]);
+    drawLogoSlot(doc, logoDataUrl, ml, 8, 26, 26, [255, 255, 255]);
     drawCompanyBlock(doc, settings, ml + 32, 15, 90, {
       nameSize: 12,
       nameColor: [255, 255, 255],
@@ -227,45 +231,48 @@ function drawHeader(doc, q, settings, config, logoDataUrl, meta) {
   }
 
   if (config.header === 'center' || config.header === 'gold') {
-    drawLogoSlot(doc, logoDataUrl, pageW / 2 - 14, 10, 28, 18, accent);
-    drawCompanyBlock(doc, settings, pageW / 2 - 65, 34, 130, {
+    drawLogoSlot(doc, logoDataUrl, pageW / 2 - 13, 10, 26, 26, accent);
+    drawCompanyBlock(doc, settings, pageW / 2 - 65, 38, 130, {
       center: true,
       nameColor: [17, 24, 39],
       fontSize: 7,
     });
     doc.setDrawColor(...accent);
     doc.setLineWidth(0.5);
-    doc.line(ml, 57, pageW - mr, 57);
+    doc.line(ml, 59, pageW - mr, 59);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(config.header === 'gold' ? 16 : 15);
     doc.setTextColor(...accent);
-    doc.text(title, pageW / 2, 67, { align: 'center' });
+    doc.text(title, pageW / 2, 69, { align: 'center' });
     if (headerText) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
-      doc.text(doc.splitTextToSize(headerText, 120), pageW / 2, 73, { align: 'center' });
+      doc.text(doc.splitTextToSize(headerText, 120), pageW / 2, 75, { align: 'center' });
     }
-    return headerText ? 84 : 78;
+    return headerText ? 86 : 80;
   }
 
   if (config.header === 'left') {
-    drawLogoSlot(doc, logoDataUrl, ml, 10, 28, 18, accent);
-    drawCompanyBlock(doc, settings, ml + 34, 16, 88, {
+    const logoSize = 38;
+    drawLogoSlot(doc, logoDataUrl, ml, 14, logoSize, logoSize, accent);
+    drawCompanyBlock(doc, settings, ml + logoSize + 8, 20, 82, {
+      nameSize: 11,
       nameColor: [17, 24, 39],
-      fontSize: 7,
+      fontSize: 6.6,
+      lineHeight: 3.6,
     });
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
+    doc.setFontSize(17);
     doc.setTextColor(...accent);
-    doc.text(title, pageW - mr, 19, { align: 'right' });
+    doc.text(title, pageW - mr, 20.5, { align: 'right' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(75, 85, 99);
-    doc.text(`${meta.numberLabel}: ${numberText}`, pageW - mr, 28, { align: 'right' });
-    doc.text(`Date: ${formatDate(q.issue_date)}`, pageW - mr, 34, { align: 'right' });
+    doc.text(`${meta.numberLabel}: ${numberText}`, pageW - mr, 29.5, { align: 'right' });
+    doc.text(`Date: ${formatDate(q.issue_date)}`, pageW - mr, 35.5, { align: 'right' });
     doc.setDrawColor(...accent);
-    doc.line(ml, 48, pageW - mr, 48);
-    return 58;
+    doc.line(ml, 56, pageW - mr, 56);
+    return 64;
   }
 
   if (config.header === 'minimal') {
@@ -289,13 +296,13 @@ function drawHeader(doc, q, settings, config, logoDataUrl, meta) {
   doc.text(title, ml, 23);
   doc.setDrawColor(...accent);
   doc.setLineWidth(0.5);
-  doc.line(ml, 31, pageW - mr, 31);
+  doc.line(ml, 35, pageW - mr, 35);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(17, 24, 39);
   doc.text(`${meta.numberLabel}: ${numberText}`, pageW - mr, 24, { align: 'right' });
   doc.text(`Date: ${formatDate(q.issue_date)}`, pageW - mr, 31, { align: 'right' });
-  return 45;
+  return 49;
 }
 
 function drawParties(doc, q, settings, startY) {
@@ -321,8 +328,8 @@ function drawParties(doc, q, settings, startY) {
   return Math.max(startY + 36, fromEndY, toEndY) + 2;
 }
 
-function drawTotals(doc, q, config, startY) {
-  const { pageW, mr } = A4;
+function drawTotals(doc, q, config, startY, settings = {}) {
+  const { pageW, ml, mr } = A4;
   const accent = config.accent;
   const boxW = 78;
   const x = pageW - mr - boxW;
@@ -359,31 +366,91 @@ function drawTotals(doc, q, config, startY) {
   doc.setTextColor(255, 255, 255);
   doc.text('TOTAL', x + 3, y);
   doc.text(formatCurrency(total), x + boxW - 3, y, { align: 'right' });
-  return y + 10;
+
+  // ─── Total in Words (Left Side) ───
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(...accent);
+  doc.text('Total In Words', ml, startY);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(17, 24, 39);
+  const words = toIndianRupeesWords(total);
+  doc.text(words, ml, startY + 5.5);
+
+  // ─── Bank Details (Left Side, below Total in Words) ───
+  if (settings.bank_name || settings.account_number) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...accent);
+    doc.text('Bank Details', ml, startY + 15);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(55, 65, 81);
+
+    let bankY = startY + 20.5;
+    const details = [
+      ['Account Name :', settings.account_holder_name || settings.company_name || 'VANYA GROUP'],
+      ['Bank Name :', settings.bank_name || 'Canara Bank'],
+      ['Account Number :', settings.account_number || '120039354715'],
+      ['IFSC Code :', settings.ifsc_code || 'CNRB0018686'],
+      ['Branch Name :', settings.branch_name || 'NOIDA SECTOR 48'],
+      ['Nature :', settings.nature || 'Current Account'],
+    ];
+
+    details.forEach(([lbl, val]) => {
+      doc.setFont('helvetica', 'bold');
+      doc.text(lbl, ml, bankY);
+      doc.setFont('helvetica', 'normal');
+      doc.text(val, ml + 28, bankY);
+      bankY += 4.0;
+    });
+  }
+
+  // ─── Signature Block (Right Side, below Totals Box) ───
+  const sigY = startY + 44;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(...accent);
+  doc.text('Signature', x, sigY);
+
+  // Rounded rectangle box for signature
+  doc.setDrawColor(...accent);
+  doc.setLineWidth(0.35);
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(x, sigY + 2.5, boxW, 14, 1.5, 1.5, 'D');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(75, 85, 99);
+  doc.text('Authorized Signatory', x, sigY + 20.5);
+
+  return Math.max(y + 10, sigY + 24, startY + 44);
 }
 
-function drawFooter(doc, settings, config) {
+function drawFooter(doc, settings, config, template = {}) {
   const pageCount = doc.getNumberOfPages();
   const { pageW, pageH, ml, mr } = A4;
   const footerText = settings.quotation_footer_text || 'Thank you for your business!';
   for (let page = 1; page <= pageCount; page += 1) {
     doc.setPage(page);
-    if (config.darkFooter) {
-      doc.setFillColor(...config.accent);
-      doc.rect(0, pageH - 18, pageW, 18, 'F');
-      doc.setTextColor(226, 232, 240);
-    } else if (config.orangeFooter) {
+    if (template.key !== 'minimal_clean') {
       doc.setFillColor(...config.accent);
       doc.rect(0, pageH - 14, pageW, 14, 'F');
       doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(footerText, pageW / 2, pageH - 5.5, { align: 'center' });
     } else {
-      doc.setDrawColor(...config.accent);
+      doc.setDrawColor(0, 0, 0);
       doc.line(ml, pageH - 16, pageW - mr, pageH - 16);
       doc.setTextColor(75, 85, 99);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.text(doc.splitTextToSize(footerText, pageW - ml - mr), pageW / 2, pageH - 8, { align: 'center' });
     }
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.text(doc.splitTextToSize(footerText, pageW - ml - mr), pageW / 2, pageH - 8, { align: 'center' });
   }
 }
 
@@ -408,7 +475,7 @@ async function generateDocumentPdf(documentData, rawSettings = {}, options = {})
     ? ''
     : await loadLogoDataUrl(settings.logo_url);
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true, putOnlyUsedFonts: true });
   const { pageW, pageH, ml, mr } = A4;
   const contentW = pageW - ml - mr;
 
@@ -458,49 +525,76 @@ async function generateDocumentPdf(documentData, rawSettings = {}, options = {})
     y = 24;
   }
 
-  y = drawTotals(doc, documentData, config, y);
+  y = drawTotals(doc, documentData, config, y, settings);
 
   const notes = documentData.notes || '';
   const terms = documentData.terms_conditions || documentData.payment_terms || '';
   if (notes || terms) {
     const sectionY = Math.min(y + 8, pageH - 54);
-    const halfW = contentW / 2 - 5;
-    doc.setDrawColor(226, 232, 240);
-    doc.line(ml, sectionY - 3, pageW - mr, sectionY - 3);
-    if (notes) {
+    const sectionRight = x - 6;
+
+    const lineGap = 4.0;
+    const labelGap = 2;
+    let infoY = sectionY + 2;
+
+    const drawInlineInfo = (label, value, yPos) => {
+      if (!value) return yPos;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
-      doc.setTextColor(17, 24, 39);
-      doc.text('Notes', ml, sectionY + 2);
-      drawWrappedText(doc, [notes], ml, sectionY + 8, halfW, { fontSize: 7.5, lineHeight: 4 });
+      doc.setTextColor(...accent);
+      doc.text(label, ml, yPos);
+      const labelWidth = doc.getTextWidth(label) + labelGap;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(55, 65, 81);
+      const valueX = ml + labelWidth;
+      const wrapped = doc.splitTextToSize(value, Math.max(42, sectionRight - valueX));
+      doc.text(wrapped, valueX, yPos);
+      return yPos + Math.max(wrapped.length, 1) * lineGap;
+    };
+
+    if (notes) {
+      infoY = drawInlineInfo('Notes :', notes, infoY);
+      infoY += 0.8;
     }
     if (terms) {
-      const termsX = ml + contentW / 2 + 5;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(17, 24, 39);
-      doc.text('Terms & Conditions', termsX, sectionY + 2);
-      drawWrappedText(doc, [terms], termsX, sectionY + 8, halfW, { fontSize: 7.5, lineHeight: 4 });
+      infoY = drawInlineInfo('Terms & Conditions :', terms, infoY);
     }
   }
 
-  if (config.goldBorder) {
+  if (template.key !== 'minimal_clean') {
     const pages = doc.getNumberOfPages();
     for (let p = 1; p <= pages; p += 1) {
       doc.setPage(p);
       doc.setDrawColor(...config.accent);
-      doc.setLineWidth(0.6);
-      doc.rect(8, 8, pageW - 16, pageH - 16);
+      doc.setLineWidth(config.goldBorder ? 0.55 : 0.4);
+      doc.rect(8, 8, pageW - 16, pageH - 26);
     }
   }
 
-  drawFooter(doc, settings, config);
+  drawFooter(doc, settings, config, template);
   const safeNumber = String(documentNumber || 'download').replace(/[^a-zA-Z0-9._-]/g, '_');
-  doc.save(`${meta.filenamePrefix}-${safeNumber}.pdf`);
+  const fileName = `${meta.filenamePrefix}-${safeNumber}.pdf`;
+  const outputMode = String(options.output || 'save').toLowerCase();
+
+  if (outputMode === 'blob') {
+    return doc.output('blob');
+  }
+
+  if (outputMode === 'arraybuffer') {
+    return doc.output('arraybuffer');
+  }
+
+  if (outputMode === 'dataurl' || outputMode === 'datauristring') {
+    return doc.output('datauristring');
+  }
+
+  doc.save(fileName);
+  return fileName;
 }
 
-export async function generateQuotationPdf(quotation, rawSettings = {}) {
+export async function generateQuotationPdf(quotation, rawSettings = {}, options = {}) {
   return generateDocumentPdf(quotation, rawSettings, {
+    ...options,
     documentTitle: 'Quotation',
     numberLabel: 'Quotation No',
     filenamePrefix: 'Quotation',
@@ -508,7 +602,7 @@ export async function generateQuotationPdf(quotation, rawSettings = {}) {
   });
 }
 
-export async function generateInvoicePdf(invoice, rawSettings = {}) {
+export async function generateInvoicePdf(invoice, rawSettings = {}, options = {}) {
   const normalizedInvoice = {
     ...invoice,
     quotation_number: invoice.invoice_number || invoice.id,
@@ -518,9 +612,10 @@ export async function generateInvoicePdf(invoice, rawSettings = {}) {
     client_phone: invoice.company_phone || invoice.phone || invoice.client_phone || '',
   };
   return generateDocumentPdf(normalizedInvoice, rawSettings, {
-    documentTitle: 'Invoice',
+    ...options,
+    documentTitle: 'Tax Invoice',
     numberLabel: 'Invoice No',
-    filenamePrefix: 'Invoice',
+    filenamePrefix: 'TaxInvoice',
     documentNumber: invoice.invoice_number || invoice.id,
   });
 }

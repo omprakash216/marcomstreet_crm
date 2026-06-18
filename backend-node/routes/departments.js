@@ -26,6 +26,31 @@ function requireCompany(employee) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function deriveDepartmentCode(name) {
+  const rawName = String(name || '').trim();
+  if (!rawName) return '';
+
+  const bracketMatch = rawName.match(/\(([^)]+)\)/);
+  if (bracketMatch) {
+    const bracketCode = normalizeCodePart(bracketMatch[1]);
+    if (bracketCode) return bracketCode.slice(0, 20);
+  }
+
+  const parts = rawName.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if (parts.length > 1) {
+    const initials = normalizeCodePart(parts.map((part) => part[0]).join(''));
+    if (initials) return initials.slice(0, 20);
+  }
+
+  return normalizeCodePart(rawName).slice(0, 20);
+}
+
+function resolveDepartmentCode(value, fallbackName) {
+  const explicit = normalizeCodePart(value);
+  if (explicit) return explicit.slice(0, 20);
+  return deriveDepartmentCode(fallbackName);
+}
+
 router.get('/', verifyToken, async (req, res) => {
   try {
     const isSuper = ['superadmin', 'super_admin'].includes(String(req.employee?.role || '').toLowerCase().trim());
@@ -57,13 +82,14 @@ router.post('/', verifyToken, async (req, res) => {
     const companyId = requireCompany(req.employee);
     if (!companyId) return res.status(400).json({ success: false, message: 'Missing company context' });
     const b = req.body || {};
-    if (!b.name) return res.status(400).json({ success: false, message: 'Name is required' });
-    const departmentCode = normalizeCodePart(b.department_code);
+    const name = String(b.name || '').trim();
+    if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
+    const departmentCode = resolveDepartmentCode(b.department_code, name);
     if (!departmentCode) return res.status(400).json({ success: false, message: 'Department code is required' });
     const conn = await getConnection();
     const [r] = await conn.execute(
       'INSERT INTO departments (company_id, name, department_code, description) VALUES (?, ?, ?, ?)',
-      [companyId, String(b.name).trim(), departmentCode, b.description || '']
+      [companyId, name, departmentCode, b.description || '']
     );
     conn.release();
     return res.json({ success: true, message: 'Department created successfully', data: { id: r.insertId } });
@@ -81,11 +107,17 @@ router.put('/:id', verifyToken, async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ success: false, message: 'Invalid department id' });
     const b = req.body || {};
-    if (!b.name) return res.status(400).json({ success: false, message: 'Name is required' });
-    const departmentCode = normalizeCodePart(b.department_code);
+    const name = String(b.name || '').trim();
+    if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
+    const existingRows = await query('SELECT department_code, name FROM departments WHERE id = ? AND company_id = ? LIMIT 1', [id, companyId]);
+    const existing = existingRows && existingRows[0];
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Department not found' });
+    }
+    const departmentCode = resolveDepartmentCode(b.department_code, name || existing.name);
     if (!departmentCode) return res.status(400).json({ success: false, message: 'Department code is required' });
     const result = await query('UPDATE departments SET name = ?, department_code = ?, description = ? WHERE id = ? AND company_id = ?', [
-      String(b.name).trim(),
+      name,
       departmentCode,
       b.description || '',
       id,

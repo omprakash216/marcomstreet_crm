@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const { query } = require('../config/database');
-const { verifyToken } = require('../middleware/auth');
+const { verifyToken, verifyTokenNoTouch } = require('../middleware/auth');
 const { isSuperRole } = require('../middleware/hideSuperAdminData');
 
 const router = express.Router();
@@ -23,7 +23,7 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
 });
 
-router.get('/', verifyToken, async (req, res) => {
+router.get('/', verifyTokenNoTouch, async (req, res) => {
   try {
     const action = req.query.action || 'messages';
     const employeeId = req.employee.id;
@@ -35,24 +35,50 @@ router.get('/', verifyToken, async (req, res) => {
       try {
         if (requesterIsSuper) {
           users = await query(
-            `SELECT e.id, e.name, e.email, e.role, d.name as department
+            `SELECT e.id, e.name, e.email, e.role, d.name as department,
+                    (
+                      SELECT MAX(cm.created_at)
+                      FROM chat_messages cm
+                      WHERE (cm.from_employee_id = e.id AND cm.to_employee_id = ?)
+                         OR (cm.from_employee_id = ? AND cm.to_employee_id = e.id)
+                    ) AS last_message_time,
+                    (
+                      SELECT COUNT(*)
+                      FROM chat_messages um
+                      WHERE um.from_employee_id = e.id
+                        AND um.to_employee_id = ?
+                        AND um.is_read = 0
+                    ) AS unread_count
              FROM employees e
              LEFT JOIN departments d ON e.department_id = d.id
              WHERE e.id != ? AND e.status = 'active'
-             ORDER BY e.name ASC`,
-            [employeeId]
+             ORDER BY COALESCE(last_message_time, e.created_at) DESC, unread_count DESC, e.name ASC`,
+            [employeeId, employeeId, employeeId, employeeId]
           );
         } else {
           users = await query(
-            `SELECT e.id, e.name, e.email, e.role, d.name as department
+            `SELECT e.id, e.name, e.email, e.role, d.name as department,
+                    (
+                      SELECT MAX(cm.created_at)
+                      FROM chat_messages cm
+                      WHERE (cm.from_employee_id = e.id AND cm.to_employee_id = ?)
+                         OR (cm.from_employee_id = ? AND cm.to_employee_id = e.id)
+                    ) AS last_message_time,
+                    (
+                      SELECT COUNT(*)
+                      FROM chat_messages um
+                      WHERE um.from_employee_id = e.id
+                        AND um.to_employee_id = ?
+                        AND um.is_read = 0
+                    ) AS unread_count
              FROM employees e
              LEFT JOIN departments d ON e.department_id = d.id
              WHERE e.id != ?
                AND e.status = 'active'
                AND e.company_id = ?
                AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(e.role,'')), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin')
-             ORDER BY e.name ASC`,
-            [employeeId, requesterCompanyId]
+             ORDER BY COALESCE(last_message_time, e.created_at) DESC, unread_count DESC, e.name ASC`,
+            [employeeId, employeeId, employeeId, employeeId, requesterCompanyId]
           );
         }
       } catch (qErr) {

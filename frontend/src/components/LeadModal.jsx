@@ -94,14 +94,27 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
     e.preventDefault();
     setLoading(true);
 
+    // Sanitize: only send known primitive fields — prevents any accidental
+    // DOM element reference from causing a circular JSON error in Axios.
+    const payload = {
+      company_name: String(formData.company_name || ''),
+      contact_person: String(formData.contact_person || ''),
+      email: formData.email ? String(formData.email) : null,
+      phone: formData.phone ? String(formData.phone) : null,
+      assigned_to: formData.assigned_to ? String(formData.assigned_to) : null,
+      source: String(formData.source || 'website'),
+      status: String(formData.status || 'new'),
+      priority: String(formData.priority || 'medium'),
+      estimated_value: formData.estimated_value !== '' ? Number(formData.estimated_value) || null : null,
+      notes: formData.notes ? String(formData.notes) : null,
+    };
+
     try {
       let response;
       if (isEditing) {
-        // Update lead
-        response = await api.put('/leads/crud', { ...formData, id: leadId });
+        response = await api.put('/leads/crud', { ...payload, id: leadId });
       } else {
-        // Create new lead
-        response = await api.post('/leads/crud', formData);
+        response = await api.post('/leads/crud', payload);
       }
 
       if (response.data.success) {
@@ -121,22 +134,35 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
   };
 
   const handleInputChange = (e) => {
+    if (!e?.target?.name) return; // guard against non-input-event calls
     const { name, value } = e.target;
+    // Only accept primitive values — never allow DOM nodes into state
+    const safeValue = (value !== null && typeof value === 'object') ? '' : value;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: safeValue
     }));
   };
 
   if (!showModal) return null;
 
-  const overlayClass = presentation === 'contained'
-    ? 'absolute inset-0 z-30 flex items-start justify-center overflow-y-auto p-3 sm:p-4 md:p-6'
-    : 'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm';
+  const isInline = presentation === 'inline';
+  const isContained = presentation === 'contained';
+  const overlayClass = isInline
+    ? 'relative z-20 w-full'
+    : isContained
+      ? 'absolute inset-x-0 top-0 z-30 flex items-start justify-center overflow-y-auto bg-white/80 p-3 backdrop-blur-sm sm:p-4 md:p-6'
+      : 'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm';
+  const shellClass = isInline
+    ? 'mx-auto w-full max-w-3xl overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-xl'
+    : 'bg-white rounded-[1.5rem] w-full max-w-4xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200';
+  const formClass = isInline ? 'p-4 sm:p-5' : 'p-6';
+  const gridClass = isInline ? 'grid grid-cols-1 gap-4 lg:grid-cols-2' : 'grid grid-cols-1 md:grid-cols-2 gap-y-1 gap-x-8';
+  const inputClass = 'w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium transition-all focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500';
 
   return (
     <div className={overlayClass}>
-      <div className="bg-white rounded-[1.5rem] w-full max-w-4xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200">
+      <div className={shellClass}>
         {/* Modal Header */}
         <div className="bg-[#244bd8] p-4 text-white flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -158,8 +184,8 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-y-1 gap-x-8">
+        <form onSubmit={handleSubmit} className={formClass}>
+          <div className={gridClass}>
             {/* Left Column */}
             <div className="space-y-4">
               <div>
@@ -174,7 +200,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   onChange={handleInputChange}
                   required
                   placeholder="Enter company name"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
+                  className={inputClass}
                 />
               </div>
 
@@ -190,7 +216,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   onChange={handleInputChange}
                   required
                   placeholder="Full name of contact"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
+                  className={inputClass}
                 />
               </div>
 
@@ -205,7 +231,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   value={formData.email}
                   onChange={handleInputChange}
                   placeholder="example@company.com"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
+                  className={inputClass}
                 />
               </div>
 
@@ -220,7 +246,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   value={formData.phone}
                   onChange={handleInputChange}
                   placeholder="+91 XXXXX XXXXX"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
+                  className={inputClass}
                 />
               </div>
 
@@ -233,7 +259,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   name="assigned_to"
                   value={formData.assigned_to}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
+                  className={inputClass}
                 >
                   <option value="">Select Employee</option>
                   {employees.map(employee => (
@@ -256,7 +282,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   name="source"
                   value={formData.source}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
+                  className={inputClass}
                 >
                   <option value="website">Website</option>
                   <option value="media">Media Lead</option>
@@ -277,7 +303,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   name="status"
                   value={formData.status}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
+                  className={inputClass}
                 >
                   <option value="new">New</option>
                   <option value="contacted">Contacted</option>
@@ -297,7 +323,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   name="priority"
                   value={formData.priority}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
+                  className={inputClass}
                 >
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
@@ -318,7 +344,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   onChange={handleInputChange}
                   step="0.01"
                   placeholder="0.00"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm"
+                  className={inputClass}
                 />
               </div>
 
@@ -333,7 +359,7 @@ export default function LeadModal({ showModal, setShowModal, leadId, onSuccess, 
                   onChange={handleInputChange}
                   rows={1}
                   placeholder="Comments..."
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium text-sm min-h-[38px] resize-none"
+                  className={`${inputClass} min-h-[38px] resize-none`}
                 />
               </div>
             </div>

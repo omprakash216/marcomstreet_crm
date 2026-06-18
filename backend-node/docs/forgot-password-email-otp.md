@@ -1,55 +1,18 @@
-# Forgot Password & Reset Password (Email OTP)
+# Forgot Password via Email OTP
 
-## Overview
-This module adds isolated email OTP based password reset flow without changing existing login/SMS modules.
+This module implements a secure email-based forgot-password flow without breaking the existing SMS OTP flow used elsewhere in the app.
 
-## Endpoints
-Base: `/api/auth/forgot-password/email`
+## Primary Endpoints
 
-### 1) Request OTP
-`POST /request`
+Base: `/api/auth/forgot-password`
 
-Request:
-```json
-{
-  "email": "user@company.com"
-}
-```
-
-Response (generic, anti-enumeration):
-```json
-{
-  "success": true,
-  "message": "If this email is registered, an OTP has been sent."
-}
-```
-
-### 2) Verify OTP
-`POST /verify`
+### 1) Send OTP
+`POST /send-otp`
 
 Request:
 ```json
 {
-  "email": "user@company.com",
-  "otp": "123456"
-}
-```
-
-Success:
-```json
-{
-  "success": true,
-  "message": "OTP verified successfully."
-}
-```
-
-### 3) Resend OTP
-`POST /resend`
-
-Request:
-```json
-{
-  "email": "user@company.com"
+  "email": "admin@vanyagroup.com"
 }
 ```
 
@@ -57,18 +20,22 @@ Response:
 ```json
 {
   "success": true,
-  "message": "If this email is registered, an OTP has been sent."
+  "message": "If this email is registered, OTP has been sent.",
+  "data": {
+    "expiresAt": "2026-06-17T12:34:56.000Z",
+    "resendAvailableAt": "2026-06-17T12:30:56.000Z"
+  }
 }
 ```
 
-### 4) Reset Password
-`POST /reset`
+### 2) Verify OTP
+`POST /verify-otp`
 
 Request:
 ```json
 {
-  "email": "user@company.com",
-  "newPassword": "Strong@123"
+  "email": "admin@vanyagroup.com",
+  "otp": "482913"
 }
 ```
 
@@ -76,52 +43,120 @@ Success:
 ```json
 {
   "success": true,
-  "message": "Password reset successful. Please login with your new password."
+  "message": "OTP verified successfully.",
+  "resetToken": "secure-temporary-token",
+  "data": {
+    "resetToken": "secure-temporary-token",
+    "resetTokenExpiresAt": "2026-06-17T12:40:56.000Z"
+  }
 }
 ```
 
+### 3) Reset Password
+`POST /reset`
+
+Request:
+```json
+{
+  "email": "admin@vanyagroup.com",
+  "resetToken": "secure-temporary-token",
+  "newPassword": "Admin@12345!",
+  "confirmPassword": "Admin@12345!"
+}
+```
+
+Success:
+```json
+{
+  "success": true,
+  "message": "Password reset successfully. Please login."
+}
+```
+
+## Legacy Aliases
+
+For backward compatibility, these routes are also accepted:
+- `/api/auth/forgot-password/request-otp`
+- `/api/auth/forgot-password/verify-otp`
+- `/api/auth/forgot-password/reset-password`
+- `/api/auth/forgot-password/email/request`
+- `/api/auth/forgot-password/email/verify`
+- `/api/auth/forgot-password/email/resend`
+- `/api/auth/forgot-password/email/reset`
+
 ## Security Controls
-- OTP hashed with bcrypt.
-- OTP expiry: 5 minutes.
-- OTP attempt lock after max attempts.
+
+- OTPs are bcrypt-hashed before storage.
+- OTP expiry: 5 minutes by default.
+- OTP max attempts: 3 by default.
 - Resend cooldown: 30 seconds.
-- Generic responses for request/resend to prevent email enumeration.
-- Request rate-limiting by IP + email.
-- Password strength validation.
-- OTP replay prevention (`otp` cleared after verify).
-- JWT invalidation via `tokenVersion` increment on password reset.
+- Per-email OTP cap: 5 per hour.
+- Per-IP OTP cap: 10 per hour.
+- Reset token is randomly generated, then hashed before storage.
+- Reset token expiry: 10 minutes by default.
+- Passwords are validated with strong password rules.
+- After reset, all old OTP and reset-token rows for that email are invalidated.
+- Generic responses reduce account enumeration.
 
-## SMTP Setup
-Use one of:
-- Generic SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`)
-- Gmail (`GMAIL_USER`, `GMAIL_PASS`)
-- Brevo (`USE_BREVO_SMTP=true`, `BREVO_SMTP_USER`, `BREVO_SMTP_PASS`)
+## Database
 
-## DB Update
-Run SQL from:
+The app stores both SMS and email reset data in the same `password_reset_otps` table. The email flow uses the additional fields below:
+
+- `user_id`
+- `email`
+- `purpose`
+- `max_attempts`
+- `is_used`
+- `used_at`
+- `is_blocked`
+- `reset_token_hash`
+- `reset_token_expires_at`
+- `ip_address`
+- `user_agent`
+
+See:
+- `database/password_reset_otps.sql`
 - `database/password_reset_email_otp.sql`
 
-## Quick Test (curl)
+## SMTP Setup
+
+Use any of these:
+- Generic SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL`
+- Gmail shortcut: `GMAIL_USER`, `GMAIL_PASS`
+- Brevo shortcut: `USE_BREVO_SMTP=true`, `BREVO_SMTP_USER`, `BREVO_SMTP_PASS`
+
+Production me `ALLOW_EMAIL_PREVIEW` false rehna chahiye. Preview mode sirf local testing ke liye hai.
+
+Super Admin panel me `Global System Settings` ka `Email OTP (Forgot Password)` section use karke bhi SMTP values save ki ja sakti hain. The backend reads the saved values and refreshes the transporter cache automatically.
+
+Recommended OTP env:
+
+```env
+OTP_EXPIRY_MINUTES=5
+OTP_MAX_ATTEMPTS=3
+OTP_RESEND_COOLDOWN_SECONDS=30
+RESET_TOKEN_EXPIRY_MINUTES=10
+PASSWORD_RESET_BRAND_NAME=Vanya Group
+OTP_PREFIX=VG
+ALLOW_EMAIL_PREVIEW=false
+```
+
+## Quick Test
+
 ```bash
-curl -X POST http://localhost:3000/api/auth/forgot-password/email/request \
+curl -X POST http://localhost:3000/api/auth/forgot-password/send-otp \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"user@company.com\"}"
+  -d "{\"email\":\"admin@vanyagroup.com\"}"
 ```
 
 ```bash
-curl -X POST http://localhost:3000/api/auth/forgot-password/email/verify \
+curl -X POST http://localhost:3000/api/auth/forgot-password/verify-otp \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"user@company.com\",\"otp\":\"123456\"}"
+  -d "{\"email\":\"admin@vanyagroup.com\",\"otp\":\"482913\"}"
 ```
 
 ```bash
-curl -X POST http://localhost:3000/api/auth/forgot-password/email/reset \
+curl -X POST http://localhost:3000/api/auth/forgot-password/reset \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"user@company.com\",\"newPassword\":\"Strong@123\"}"
+  -d "{\"email\":\"admin@vanyagroup.com\",\"resetToken\":\"secure-temporary-token\",\"newPassword\":\"Admin@12345!\",\"confirmPassword\":\"Admin@12345!\"}"
 ```
-
-## Deployment Notes
-- Set production SMTP credentials in `backend-node/.env`.
-- Keep `DISABLE_EMAIL_SENDING=false` in production.
-- If using Gmail, use an app password (not account password).
-- Ensure reverse proxy passes real client IP (`X-Forwarded-For`) for rate-limiting quality.

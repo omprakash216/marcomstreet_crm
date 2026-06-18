@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 
 export default function Notifications() {
@@ -7,6 +7,10 @@ export default function Notifications() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('unread'); // 'unread' or 'all'
   const [markingAll, setMarkingAll] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isAdminRoute = location.pathname.startsWith('/admin');
+  const chatPath = isAdminRoute ? '/admin/chat' : '/chat';
 
   useEffect(() => {
     fetchNotifications();
@@ -35,6 +39,17 @@ export default function Notifications() {
       fetchNotifications();
     } catch (error) {
       console.error('Error marking message as read:', error);
+    }
+  };
+
+  const handleOpenNotification = async (fromUserId) => {
+    if (!fromUserId) return;
+    try {
+      await api.get(`/chat?user_id=${fromUserId}`);
+    } catch (error) {
+      console.error('Error opening notification chat:', error);
+    } finally {
+      navigate(`${chatPath}?user_id=${fromUserId}`, { state: { selectedUserId: fromUserId } });
     }
   };
 
@@ -170,9 +185,10 @@ export default function Notifications() {
             {notifications.map((notif) => (
               <div
                 key={notif.id}
+                onClick={() => handleOpenNotification(notif.from_employee_id)}
                 className={`p-5 hover:bg-gray-50/80 transition-all flex items-start gap-4 ${
                   !notif.is_read ? 'bg-blue-50/15 border-l-4 border-[#2c86ab]' : ''
-                }`}
+                } cursor-pointer`}
               >
                 {/* User Avatar */}
                 <div className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white font-extrabold shadow-sm text-lg ${
@@ -203,6 +219,7 @@ export default function Notifications() {
                         href={`/${notif.file_path}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={(event) => event.stopPropagation()}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50/50 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100/50 transition-colors"
                       >
                         <i className="fas fa-paperclip"></i>
@@ -213,16 +230,23 @@ export default function Notifications() {
 
                   {/* Action Bar */}
                   <div className="flex items-center gap-4 mt-3">
-                    <Link
-                      to={`/chat?user_id=${notif.from_employee_id}`}
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleOpenNotification(notif.from_employee_id);
+                      }}
                       className="inline-flex items-center gap-1.5 text-xs font-bold text-[#2c86ab] hover:text-[#1e607d] transition-colors"
                     >
                       <i className="fas fa-reply"></i>
                       Reply in Chat
-                    </Link>
+                    </button>
                     {!notif.is_read && (
                       <button
-                        onClick={() => handleMarkAsRead(notif.from_employee_id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleMarkAsRead(notif.from_employee_id);
+                        }}
                         className="text-xs font-bold text-gray-400 hover:text-gray-600 transition-colors"
                       >
                         Mark as Read

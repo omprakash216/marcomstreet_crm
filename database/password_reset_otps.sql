@@ -1,13 +1,34 @@
--- Password reset OTP storage (also auto-created by backend on first use)
+-- Unified password reset OTP storage for SMS and Email flows
 CREATE TABLE IF NOT EXISTS password_reset_otps (
   id INT AUTO_INCREMENT PRIMARY KEY,
   phone_key VARCHAR(32) NOT NULL,
   employee_id INT NOT NULL,
-  otp_hash VARCHAR(120) NOT NULL,
-  expires_at DATETIME NOT NULL,
+  user_id INT NULL,
+  email VARCHAR(255) NULL,
+  otp_hash VARCHAR(255) NOT NULL,
+  purpose VARCHAR(50) NOT NULL DEFAULT 'forgot_password',
   attempts INT NOT NULL DEFAULT 0,
+  max_attempts INT NOT NULL DEFAULT 3,
+  expires_at DATETIME NOT NULL,
+  is_used TINYINT(1) NOT NULL DEFAULT 0,
+  used_at DATETIME NULL,
+  is_blocked TINYINT(1) NOT NULL DEFAULT 0,
+  reset_token_hash CHAR(64) NULL,
+  reset_token_expires_at DATETIME NULL,
+  ip_address VARCHAR(64) NULL,
+  user_agent VARCHAR(255) NULL,
   consumed TINYINT(1) NOT NULL DEFAULT 0,
+  provider VARCHAR(30) NULL,
+  provider_session_id VARCHAR(180) NULL,
+  sms_mobile VARCHAR(24) NULL,
+  sent_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_phone_expires (phone_key, expires_at),
-  INDEX idx_employee_created (employee_id, created_at)
+  INDEX idx_employee_created (employee_id, created_at),
+  INDEX idx_email_created (email, created_at),
+  INDEX idx_email_purpose (email, purpose, created_at),
+  INDEX idx_user_created (user_id, created_at),
+  INDEX idx_ip_created (ip_address, created_at),
+  INDEX idx_reset_token (reset_token_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -55,6 +55,7 @@ import WhatsAppHits from './pages/WhatsAppHits';
 import Reports from './pages/Reports';
 import SampleReports from './pages/SampleReports';
 import ClientHistory from './pages/ClientHistory';
+import AdminClients from './pages/admin/AdminClients';
 import GroupMeetings from './pages/GroupMeetings';
 import Leaves from './pages/hrms/Leaves';
 import Attendance from './pages/hrms/Attendance';
@@ -70,6 +71,7 @@ import Settings from './pages/hrms/Settings';
 import HRReports from './pages/hrms/HRReports';
 import Chat from './pages/chat/Chat';
 import Notifications from './pages/Notifications';
+import PublicJoiningForm from './pages/public/PublicJoiningForm';
 import Layout from './components/Layout';
 import AdminLayout from './components/AdminLayout';
 import SuperAdminLayout from './components/SuperAdminLayout';
@@ -98,7 +100,7 @@ import AdminQuotationTemplates from './pages/admin/AdminQuotationTemplates';
 import AdminRBAC from './pages/admin/AdminRBAC';
 import DocumentGenerator from './pages/admin/DocumentGenerator';
 import AdminSupportTickets from './pages/admin/AdminSupportTickets';
-import AdminFeaturePage from './pages/admin/AdminFeaturePage';
+import POSHPortal from './pages/posh/POSHPortal';
 import ManagerDashboard from './pages/ManagerDashboard';
 import HRDashboard from './pages/HRDashboard';
 import DesignerManagerDashboard from './pages/DesignerManagerDashboard';
@@ -113,6 +115,8 @@ import {
   isSuperAdminRole,
   hasCrmModuleAccess,
   hasHrmsModuleAccess,
+  hasPoshModuleAccess,
+  isHrPortalRole,
   getDefaultPortalRoute,
 } from './utils/auth';
 import LandingPage from './pages/LandingPage';
@@ -121,8 +125,11 @@ import Payment from './pages/Payment';
 import SetPassword from './pages/SetPassword';
 import CompanyLogin from './pages/CompanyLogin';
 
+import ProtectedRoute from './components/ProtectedRoute';
+import AutoLogout from './components/AutoLogout';
+
 function PrivateRoute({ children }) {
-  return isAuthenticated() ? children : <LandingPage />;
+  return <ProtectedRoute>{children}</ProtectedRoute>;
 }
 
 function fallbackRoute(employee) {
@@ -131,65 +138,43 @@ function fallbackRoute(employee) {
 }
 
 function CrmRoute({ children }) {
-  if (!isAuthenticated()) return <Navigate to="/login" />;
   const employee = getEmployee();
-  if (!employee) return <Navigate to="/login" />;
-  if (hasCrmModuleAccess(employee)) return children;
+  if (employee && hasCrmModuleAccess(employee)) return children;
   return <Navigate to={fallbackRoute(employee)} replace />;
 }
 
 function HrmsRoute({ children }) {
-  if (!isAuthenticated()) return <Navigate to="/login" />;
   const employee = getEmployee();
-  if (!employee) return <Navigate to="/login" />;
-  if (hasHrmsModuleAccess(employee)) return children;
+  if (employee && hasHrmsModuleAccess(employee)) return children;
   return <Navigate to={fallbackRoute(employee)} replace />;
 }
 
 function AdminRoute({ children }) {
-  if (!isAuthenticated()) {
-    return <Navigate to="/login" />;
-  }
-  const employee = getEmployee();
-  if (!employee) {
-    return <Navigate to="/login" />;
-  }
-  const role = normalizeRole(employee?.role);
-  const roleAllowed = role === 'admin' || isSuperAdminRole(role);
-  if (roleAllowed && hasCrmModuleAccess(employee)) {
-    return children;
-  }
-  return <Navigate to={fallbackRoute(employee)} replace />;
+  return (
+    <ProtectedRoute allowedRoles={['admin', 'superadmin', 'super_admin']}>
+      {children}
+    </ProtectedRoute>
+  );
 }
 
 function ManagerRoute({ children }) {
-  if (!isAuthenticated()) {
-    return <Navigate to="/login" />;
-  }
-  const employee = getEmployee();
-  if (!employee) {
-    return <Navigate to="/login" />;
-  }
-  const role = normalizeRole(employee?.role);
-  const roleAllowed = role === 'admin' || role === 'manager' || isSuperAdminRole(role);
-  if (roleAllowed && hasCrmModuleAccess(employee)) {
-    return children;
-  }
-  return <Navigate to={fallbackRoute(employee)} replace />;
+  return (
+    <ProtectedRoute allowedRoles={['admin', 'manager', 'superadmin', 'super_admin']}>
+      {children}
+    </ProtectedRoute>
+  );
 }
 
 function HRRoute({ children }) {
-  if (!isAuthenticated()) {
-    return <Navigate to="/login" />;
-  }
-  const employee = getEmployee();
-  if (!employee) {
-    return <Navigate to="/login" />;
-  }
-  if (hasHrmsModuleAccess(employee)) {
-    return children;
-  }
-  return <Navigate to={fallbackRoute(employee)} replace />;
+  return (
+    <ProtectedRoute allowedRoles={['admin', 'superadmin', 'super_admin', 'hr', 'human_resources', 'human_resource', 'humanresources', 'hr_manager', 'hrmanager']}>
+      {children}
+    </ProtectedRoute>
+  );
+}
+
+function PoshRoute({ children }) {
+  return <ProtectedRoute>{children}</ProtectedRoute>;
 }
 
 function CompanyRoute({ children }) {
@@ -199,24 +184,18 @@ function CompanyRoute({ children }) {
   if (companyToken && company) {
     return children;
   }
-  // Redirect to employee login if company not logged in
   return <Navigate to="/login" replace />;
 }
 
 function SuperAdminRoute({ children }) {
-  if (!isAuthenticated()) {
-    return <Navigate to="/login" />;
-  }
-  const employee = getEmployee();
-  const role = normalizeRole(employee?.role);
-  if (employee && isSuperAdminRole(role)) {
-    return children;
-  }
-  return <Navigate to="/" />;
+  return (
+    <ProtectedRoute allowedRoles={['superadmin', 'super_admin']}>
+      {children}
+    </ProtectedRoute>
+  );
 }
 
 function EmployeeHomeRoute() {
-  if (!isAuthenticated()) return <Navigate to="/login" />;
   const employee = getEmployee();
   if (!employee) return <Navigate to="/login" />;
   const next = getDefaultPortalRoute(employee);
@@ -252,259 +231,269 @@ function App() {
         v7_relativeSplatPath: true,
       }}
     >
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/login/master" element={<Login portalType="master" />} />
-        <Route path="/login/setup" element={<Login portalType="setup" />} />
-        <Route path="/forgot-password" element={<ForgotPasswordEmail />} />
-        <Route path="/forgot-password/verify" element={<VerifyEmailOtp />} />
-        <Route path="/forgot-password/reset" element={<ResetPasswordEmail />} />
-        <Route path="/company/login" element={<CompanyLogin />} />
-        <Route path="/subscribe" element={<Subscription />} />
-        <Route path="/pay" element={<Payment />} />
-        <Route path="/set-password" element={<SetPassword />} />
+      <AutoLogout>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/login/master" element={<Login portalType="master" />} />
+          <Route path="/login/setup" element={<Login portalType="setup" />} />
+          <Route path="/forgot-password" element={<ForgotPasswordEmail />} />
+          <Route path="/forgot-password/verify" element={<VerifyEmailOtp />} />
+          <Route path="/forgot-password/reset" element={<ResetPasswordEmail />} />
+          <Route path="/company/login" element={<CompanyLogin />} />
+          <Route path="/crm" element={<LandingPage />} />
+          <Route path="/hrms" element={<LandingPage />} />
+          <Route path="/subscribe" element={<Subscription />} />
+          <Route path="/pay" element={<Payment />} />
+          <Route path="/set-password" element={<SetPassword />} />
+          <Route path="/public/joining-form" element={<PublicJoiningForm />} />
+          <Route path="/public/joining-form/:token" element={<PublicJoiningForm />} />
 
-        {/* Company Routes - Separate from Employee Routes */}
-        <Route
-          path="/company/details"
-          element={
-            <CompanyRoute>
-              <Layout />
-            </CompanyRoute>
-          }
-        >
-          <Route index element={<CompanyDetails />} />
-        </Route>
-
-        {/* Super Admin Routes */}
-        <Route
-          path="/superadmin"
-          element={
-            <SuperAdminRoute>
-              <SuperAdminLayout />
-            </SuperAdminRoute>
-          }
-        >
-          <Route index element={<SuperAdminHomeRoute />} />
-          <Route path="master" element={<SuperAdminDashboard forcedView="master" />} />
-          <Route path="setup" element={<SuperAdminDashboard forcedView="superadmin" />} />
-          <Route path="companies" element={<SuperAdminCompanyManagement />} />
-          <Route path="create-company" element={<CreateCompanyPage />} />
-          <Route path="subscriptions" element={<SuperAdminSubscriptionPlans />} />
-          <Route path="plans" element={<SuperAdminSubscriptionPlans />} />
-          <Route path="plan-assign" element={<PlanAssignPage />} />
-          <Route path="modules" element={<SuperAdminModuleManager />} />
-          <Route path="module-assign" element={<ModuleAssignPage />} />
-          <Route path="users" element={<SuperAdminGlobalUsers />} />
-          <Route path="roles" element={<RolesAccessPage />} />
-          <Route path="super-admins" element={<SuperAdminUsersPage />} />
-          <Route path="admins-users" element={<AdminsAndUsersPage />} />
-          <Route path="company-admins" element={<CompanyAdminsPage />} />
-          <Route path="access-assign" element={<AccessAssignPage />} />
-          <Route path="reports" element={<SetupReportsPage />} />
-          <Route path="setup-reports" element={<SetupReportsPage />} />
-          <Route path="my-activity" element={<MyActivityPage />} />
-          <Route path="tickets" element={<SupportTicketsPage />} />
-          <Route path="support-tickets" element={<SupportTicketsPage />} />
-          <Route path="profile" element={<SuperAdminProfilePage />} />
-          <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
-          <Route path="settings" element={<SuperAdminSettings />} />
-          <Route path="security-center" element={<SecurityCenterPage />} />
-          <Route path="system-monitor" element={<SystemMonitorPage />} />
-          <Route path="white-label-settings" element={<WhiteLabelSettingsPage />} />
-          <Route path="templates" element={<TemplateCenterPage type="email" />} />
-          <Route path="templates/invoice" element={<TemplateCenterPage type="invoice" />} />
-          <Route path="templates/quotation" element={<TemplateCenterPage type="quotation" />} />
-          <Route path="templates/whatsapp" element={<TemplateCenterPage type="whatsapp" />} />
-          <Route path="templates/employee" element={<TemplateCenterPage type="employee" />} />
-          <Route path="crm" element={<SuperAdminCrmControl />} />
-          <Route path="hrms-control" element={<SuperAdminHrmsControl />} />
-          <Route path="billing/invoices" element={<SuperAdminBillingInvoices />} />
-          <Route path="billing/transactions" element={<SuperAdminBillingTransactions />} />
-          <Route path="billing/requests" element={<SuperAdminSubscriptionRequests />} />
-          <Route path="feature-flags" element={<SuperAdminFeatureFlags />} />
-          <Route path="analytics/revenue" element={<SuperAdminAnalyticsRevenue />} />
-          <Route path="analytics/usage" element={<SuperAdminAnalyticsUsage />} />
-          <Route path="integrations/api" element={<SuperAdminIntegrationsApi />} />
-          <Route path="integrations/webhooks" element={<SuperAdminIntegrationsWebhooks />} />
-          <Route path="notifications/email-templates" element={<SuperAdminNotificationsEmailTemplates />} />
-          <Route path="security/login-sessions" element={<SuperAdminSecurityLoginSessions />} />
-          <Route path="system/backups" element={<SuperAdminSystemBackups />} />
-        </Route>
-
-        {/* Manager Routes */}
-        <Route
-          path="/manager"
-          element={
-            <ManagerRoute>
-              <Layout />
-            </ManagerRoute>
-          }
-        >
-          <Route index element={<ManagerDashboard />} />
-          <Route path="leads" element={<Leads />} />
-          <Route path="meetings" element={<Meetings />} />
-          <Route path="tasks" element={<Tasks />} />
-          <Route path="followups" element={<Followups />} />
-          <Route path="quotations" element={<Quotations />} />
-          <Route path="sample-reports" element={<SampleReports />} />
-          <Route path="client-history" element={<ClientHistory />} />
-          <Route path="group-meetings" element={<GroupMeetings />} />
-          <Route path="invoices" element={<Invoices />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="history" element={<History />} />
-          <Route path="whatsapp" element={<WhatsAppHits />} />
-          <Route path="hrms/attendance" element={<HrmsRoute><Attendance /></HrmsRoute>} />
-          <Route path="hrms/leaves" element={<HrmsRoute><Leaves /></HrmsRoute>} />
-          <Route path="chat" element={<Chat />} />
-          <Route path="calendar" element={<Calendar />} />
-        </Route>
-
-        {/* Designer Manager Routes */}
-        <Route
-          path="/designer-manager"
-          element={
-            <PrivateRoute>
-              <Layout />
-            </PrivateRoute>
-          }
-        >
-          <Route index element={<DesignerManagerDashboard />} />
-          <Route path="tasks" element={<Tasks />} />
-          <Route path="meetings" element={<Meetings />} />
-          <Route path="chat" element={<Chat />} />
-          <Route path="calendar" element={<Calendar />} />
-        </Route>
-
-        {/* HR Routes */}
-        <Route
-          path="/hr"
-          element={
-            <HRRoute>
-              <Layout />
-            </HRRoute>
-          }
-        >
-          <Route index element={<HRDashboard />} />
-          <Route path="employees" element={<AdminEmployees />} />
-          <Route path="meetings" element={<CrmRoute><Meetings /></CrmRoute>} />
-          <Route path="hrms/attendance" element={<Attendance />} />
-          <Route path="hrms/leaves" element={<Leaves />} />
-          <Route path="hrms/documents" element={<HRDocuments />} />
-          <Route path="hrms/salary" element={<SalarySlips />} />
-          <Route path="hrms/departments" element={<Departments />} />
-          <Route path="hrms/designations" element={<Designations />} />
-          <Route path="hrms/shifts" element={<Shifts />} />
-          <Route path="hrms/holidays" element={<Holidays />} />
-          <Route path="hrms/announcements" element={<Announcements />} />
-          <Route path="hrms/performance" element={<Performance />} />
-          <Route path="hrms/settings" element={<Settings />} />
-          <Route path="hrms/reports" element={<HRReports />} />
-          <Route path="hrms/joining-qr" element={<JoiningQRGenerator />} />
-          <Route path="hrms/joining-submissions" element={<JoiningSubmissions />} />
-          <Route path="chat" element={<Chat />} />
-          <Route path="calendar" element={<Calendar />} />
-        </Route>
-
-        {/* Employee Routes */}
-        <Route
-          path="/"
-          element={
-            <PrivateRoute>
-              <Layout />
-            </PrivateRoute>
-          }
-        >
-          <Route index element={<EmployeeHomeRoute />} />
-          <Route path="employee-dashboard" element={<CrmRoute><EmployeeDashboard /></CrmRoute>} />
-          <Route path="leads" element={<CrmRoute><Leads /></CrmRoute>} />
-          <Route path="meetings" element={<CrmRoute><Meetings /></CrmRoute>} />
-          <Route path="tasks" element={<CrmRoute><Tasks /></CrmRoute>} />
-          <Route path="followups" element={<CrmRoute><Followups /></CrmRoute>} />
-          <Route path="quotations" element={<CrmRoute><Quotations /></CrmRoute>} />
-          <Route path="invoices" element={<CrmRoute><Invoices /></CrmRoute>} />
-          <Route path="sample-reports" element={<CrmRoute><SampleReports /></CrmRoute>} />
-          <Route path="client-history" element={<CrmRoute><ClientHistory /></CrmRoute>} />
-          <Route path="group-meetings" element={<CrmRoute><GroupMeetings /></CrmRoute>} />
-          <Route path="history" element={<CrmRoute><History /></CrmRoute>} />
-          <Route path="whatsapp-hits" element={<CrmRoute><WhatsAppHits /></CrmRoute>} />
-          <Route path="reports" element={<CrmRoute><Reports /></CrmRoute>} />
-          <Route path="company-management" element={<AdminCompaniesRedirect />} />
-
-          {/* HRMS Routes */}
-          <Route path="hrms/leaves" element={<HrmsRoute><Leaves /></HrmsRoute>} />
-          <Route path="hrms/attendance" element={<HrmsRoute><Attendance /></HrmsRoute>} />
-          <Route path="hrms/documents" element={<HrmsRoute><HRDocuments /></HrmsRoute>} />
-          <Route path="hrms/salary-slips" element={<HrmsRoute><SalarySlips /></HrmsRoute>} />
-
-          {/* Chat Route */}
-          <Route path="chat" element={<Chat />} />
-
-          {/* Notifications Route */}
-          <Route path="calendar" element={<Calendar />} />
-          <Route path="notifications" element={<Notifications />} />
-        </Route>
-
-        {/* Admin Routes */}
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <AdminLayout />
-            </AdminRoute>
-          }
-        >
-          <Route index element={<AdminDashboard />} />
-          <Route path="company-profile" element={<AdminCompanyProfile />} />
-          <Route path="leads" element={<Leads />} />
-          <Route path="clients" element={<ClientHistory />} />
-          <Route path="followups" element={<Followups />} />
-          <Route path="deals-pipeline" element={<AdminDealsPipeline />} />
-          <Route path="quotations" element={<Quotations />} />
-          <Route path="quotation-templates" element={<AdminQuotationTemplates />} />
-          <Route path="invoices" element={<Invoices />} />
-          <Route path="payments" element={<AdminPayments />} />
-          <Route path="chat" element={<Chat />} />
-          <Route path="announcements" element={<Announcements />} />
-          <Route path="documents" element={<HRDocuments />} />
-          <Route path="employees" element={<AdminEmployees />} />
-          <Route path="api-integration" element={<AdminApiIntegration />} />
+          {/* Company Routes - Separate from Employee Routes */}
           <Route
-            path="integrations"
-            element={<Navigate to="/admin/api-integration" replace />}
-          />
-          <Route path="revenue" element={<AdminRevenue />} />
-          <Route path="insights" element={<AdminInsights />} />
-          <Route path="attendance" element={<AdminAttendance />} />
-          <Route path="leaves" element={<Leaves />} />
-          <Route path="payroll" element={<SalarySlips />} />
-          <Route path="ai-lead-score" element={<AdminAILeadScore />} />
-          <Route path="task-assignment" element={<AdminTaskAssignment />} />
-          <Route path="projects" element={<Tasks />} />
-          <Route path="tasks" element={<Tasks />} />
-          <Route path="task-board" element={<AdminTaskBoard />} />
-          <Route path="timesheets" element={<Calendar />} />
-          <Route path="departments" element={<AdminDepartments />} />
-          <Route path="audit-logs" element={<AdminAuditLogs />} />
-          <Route path="inventory" element={<AdminInventory />} />
-          <Route path="products" element={<AdminInventory />} />
-          <Route path="stock" element={<AdminInventory />} />
-          <Route path="purchases" element={<AdminPurchases />} />
-          <Route path="suppliers" element={<AdminSuppliers />} />
-          <Route path="warehouses" element={<AdminWarehouses />} />
-          <Route path="accounts" element={<AdminAccounts />} />
-          <Route path="expenses" element={<AdminExpenses />} />
-          <Route path="company-settings" element={<AdminCompanySettings />} />
-          <Route path="rbac" element={<AdminRBAC />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="export-reports" element={<SampleReports />} />
-          <Route path="support-tickets" element={<AdminSupportTickets />} />
-          <Route path="generate-document/:employeeId" element={<DocumentGenerator />} />
-          <Route path="companies" element={<AdminCompaniesRedirect />} />
-          <Route path="calendar" element={<Calendar />} />
-          <Route path="notifications" element={<Notifications />} />
-        </Route>
-      </Routes>
+            path="/company/details"
+            element={
+              <CompanyRoute>
+                <Layout />
+              </CompanyRoute>
+            }
+          >
+            <Route index element={<CompanyDetails />} />
+          </Route>
+
+          {/* Super Admin Routes */}
+          <Route
+            path="/superadmin"
+            element={
+              <SuperAdminRoute>
+                <SuperAdminLayout />
+              </SuperAdminRoute>
+            }
+          >
+            <Route index element={<SuperAdminHomeRoute />} />
+            <Route path="master" element={<SuperAdminDashboard forcedView="master" />} />
+            <Route path="setup" element={<SuperAdminDashboard forcedView="superadmin" />} />
+            <Route path="companies" element={<SuperAdminCompanyManagement />} />
+            <Route path="create-company" element={<CreateCompanyPage />} />
+            <Route path="subscriptions" element={<SuperAdminSubscriptionPlans />} />
+            <Route path="plans" element={<SuperAdminSubscriptionPlans />} />
+            <Route path="plan-assign" element={<PlanAssignPage />} />
+            <Route path="modules" element={<SuperAdminModuleManager />} />
+            <Route path="module-assign" element={<ModuleAssignPage />} />
+            <Route path="users" element={<SuperAdminGlobalUsers />} />
+            <Route path="roles" element={<RolesAccessPage />} />
+            <Route path="super-admins" element={<SuperAdminUsersPage />} />
+            <Route path="admins-users" element={<AdminsAndUsersPage />} />
+            <Route path="company-admins" element={<CompanyAdminsPage />} />
+            <Route path="access-assign" element={<AccessAssignPage />} />
+            <Route path="reports" element={<SetupReportsPage />} />
+            <Route path="setup-reports" element={<SetupReportsPage />} />
+            <Route path="my-activity" element={<MyActivityPage />} />
+            <Route path="tickets" element={<SupportTicketsPage />} />
+            <Route path="support-tickets" element={<SupportTicketsPage />} />
+            <Route path="profile" element={<SuperAdminProfilePage />} />
+            <Route path="audit-logs" element={<SuperAdminAuditLogs />} />
+            <Route path="settings" element={<SuperAdminSettings />} />
+            <Route path="security-center" element={<SecurityCenterPage />} />
+            <Route path="system-monitor" element={<SystemMonitorPage />} />
+            <Route path="white-label-settings" element={<WhiteLabelSettingsPage />} />
+            <Route path="templates" element={<TemplateCenterPage type="email" />} />
+            <Route path="templates/invoice" element={<TemplateCenterPage type="invoice" />} />
+            <Route path="templates/quotation" element={<TemplateCenterPage type="quotation" />} />
+            <Route path="templates/whatsapp" element={<TemplateCenterPage type="whatsapp" />} />
+            <Route path="templates/employee" element={<TemplateCenterPage type="employee" />} />
+            <Route path="crm" element={<SuperAdminCrmControl />} />
+            <Route path="hrms-control" element={<SuperAdminHrmsControl />} />
+            <Route path="billing/invoices" element={<SuperAdminBillingInvoices />} />
+            <Route path="billing/transactions" element={<SuperAdminBillingTransactions />} />
+            <Route path="billing/requests" element={<SuperAdminSubscriptionRequests />} />
+            <Route path="feature-flags" element={<SuperAdminFeatureFlags />} />
+            <Route path="analytics/revenue" element={<SuperAdminAnalyticsRevenue />} />
+            <Route path="analytics/usage" element={<SuperAdminAnalyticsUsage />} />
+            <Route path="integrations/api" element={<SuperAdminIntegrationsApi />} />
+            <Route path="integrations/webhooks" element={<SuperAdminIntegrationsWebhooks />} />
+            <Route path="notifications/email-templates" element={<SuperAdminNotificationsEmailTemplates />} />
+            <Route path="security/login-sessions" element={<SuperAdminSecurityLoginSessions />} />
+            <Route path="system/backups" element={<SuperAdminSystemBackups />} />
+            <Route path="posh" element={<POSHPortal mode="superadmin" />} />
+          </Route>
+
+          {/* Manager Routes */}
+          <Route
+            path="/manager"
+            element={
+              <ManagerRoute>
+                <Layout />
+              </ManagerRoute>
+            }
+          >
+            <Route index element={<ManagerDashboard />} />
+            <Route path="leads" element={<Leads />} />
+            <Route path="meetings" element={<Meetings />} />
+            <Route path="tasks" element={<Tasks />} />
+            <Route path="followups" element={<Followups />} />
+            <Route path="quotations" element={<Quotations />} />
+            <Route path="sample-reports" element={<SampleReports />} />
+            <Route path="client-history" element={<ClientHistory />} />
+            <Route path="group-meetings" element={<GroupMeetings />} />
+            <Route path="invoices" element={<Invoices />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="history" element={<History />} />
+            <Route path="whatsapp" element={<WhatsAppHits />} />
+            <Route path="hrms/attendance" element={<HrmsRoute><Attendance /></HrmsRoute>} />
+            <Route path="hrms/leaves" element={<HrmsRoute><Leaves /></HrmsRoute>} />
+            <Route path="chat" element={<Chat />} />
+            <Route path="calendar" element={<Calendar />} />
+          </Route>
+
+          {/* Designer Manager Routes */}
+          <Route
+            path="/designer-manager"
+            element={
+              <PrivateRoute>
+                <Layout />
+              </PrivateRoute>
+            }
+          >
+            <Route index element={<DesignerManagerDashboard />} />
+            <Route path="tasks" element={<Tasks />} />
+            <Route path="meetings" element={<Meetings />} />
+            <Route path="chat" element={<Chat />} />
+            <Route path="calendar" element={<Calendar />} />
+          </Route>
+
+          {/* HR Routes */}
+          <Route
+            path="/hr"
+            element={
+              <HRRoute>
+                <Layout />
+              </HRRoute>
+            }
+          >
+            <Route index element={<HRDashboard />} />
+            <Route path="employees" element={<AdminEmployees />} />
+            <Route path="meetings" element={<CrmRoute><Meetings /></CrmRoute>} />
+            <Route path="hrms/attendance" element={<Attendance />} />
+            <Route path="hrms/leaves" element={<Leaves />} />
+            <Route path="hrms/documents" element={<HRDocuments />} />
+            <Route path="hrms/salary" element={<SalarySlips />} />
+            <Route path="hrms/departments" element={<Departments />} />
+            <Route path="hrms/designations" element={<Designations />} />
+            <Route path="hrms/shifts" element={<Shifts />} />
+            <Route path="hrms/holidays" element={<Holidays />} />
+            <Route path="hrms/announcements" element={<Announcements />} />
+            <Route path="hrms/performance" element={<Performance />} />
+            <Route path="hrms/settings" element={<Settings />} />
+            <Route path="hrms/reports" element={<HRReports />} />
+            <Route path="hrms/joining-qr" element={<JoiningQRGenerator />} />
+            <Route path="hrms/joining-submissions" element={<JoiningSubmissions />} />
+            <Route path="posh" element={<PoshRoute><POSHPortal mode="hr" /></PoshRoute>} />
+            <Route path="chat" element={<Chat />} />
+            <Route path="calendar" element={<Calendar />} />
+          </Route>
+
+          {/* Employee Routes */}
+          <Route
+            path="/"
+            element={
+              <PrivateRoute>
+                <Layout />
+              </PrivateRoute>
+            }
+          >
+            <Route index element={<EmployeeHomeRoute />} />
+            <Route path="employee-dashboard" element={<CrmRoute><EmployeeDashboard /></CrmRoute>} />
+            <Route path="leads" element={<CrmRoute><Leads /></CrmRoute>} />
+            <Route path="meetings" element={<CrmRoute><Meetings /></CrmRoute>} />
+            <Route path="tasks" element={<CrmRoute><Tasks /></CrmRoute>} />
+            <Route path="followups" element={<CrmRoute><Followups /></CrmRoute>} />
+            <Route path="quotations" element={<CrmRoute><Quotations /></CrmRoute>} />
+            <Route path="invoices" element={<CrmRoute><Invoices /></CrmRoute>} />
+            <Route path="sample-reports" element={<CrmRoute><SampleReports /></CrmRoute>} />
+            <Route path="client-history" element={<CrmRoute><ClientHistory /></CrmRoute>} />
+            <Route path="group-meetings" element={<CrmRoute><GroupMeetings /></CrmRoute>} />
+            <Route path="history" element={<CrmRoute><History /></CrmRoute>} />
+            <Route path="whatsapp-hits" element={<CrmRoute><WhatsAppHits /></CrmRoute>} />
+            <Route path="reports" element={<CrmRoute><Reports /></CrmRoute>} />
+            <Route path="company-management" element={<AdminCompaniesRedirect />} />
+
+            {/* HRMS Routes */}
+            <Route path="hrms/leaves" element={<HrmsRoute><Leaves /></HrmsRoute>} />
+            <Route path="hrms/attendance" element={<HrmsRoute><Attendance /></HrmsRoute>} />
+            <Route path="hrms/documents" element={<HrmsRoute><HRDocuments /></HrmsRoute>} />
+            <Route path="hrms/salary-slips" element={<HrmsRoute><SalarySlips /></HrmsRoute>} />
+            <Route path="posh" element={<PoshRoute><POSHPortal mode="employee" /></PoshRoute>} />
+
+            {/* Chat Route */}
+            <Route path="chat" element={<Chat />} />
+
+            {/* Notifications Route */}
+            <Route path="calendar" element={<Calendar />} />
+            <Route path="notifications" element={<Notifications />} />
+          </Route>
+
+          {/* Admin Routes */}
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute>
+                <AdminLayout />
+              </AdminRoute>
+            }
+          >
+            <Route index element={<AdminDashboard />} />
+            <Route path="company-profile" element={<AdminCompanyProfile />} />
+            <Route path="leads" element={<Leads />} />
+            <Route path="clients" element={<AdminClients />} />
+            <Route path="followups" element={<Followups />} />
+            <Route path="deals-pipeline" element={<AdminDealsPipeline />} />
+            <Route path="quotations" element={<Quotations />} />
+            <Route path="quotation-templates" element={<AdminQuotationTemplates />} />
+            <Route path="invoices" element={<Invoices />} />
+            <Route path="payments" element={<AdminPayments />} />
+            <Route path="chat" element={<Chat />} />
+            <Route path="announcements" element={<Announcements />} />
+            <Route path="documents" element={<HRDocuments />} />
+            <Route path="employees" element={<AdminEmployees />} />
+            <Route path="api-integration" element={<AdminApiIntegration />} />
+            <Route
+              path="integrations"
+              element={<Navigate to="/admin/api-integration" replace />}
+            />
+            <Route path="revenue" element={<AdminRevenue />} />
+            <Route path="insights" element={<AdminInsights />} />
+            <Route path="attendance" element={<AdminAttendance />} />
+            <Route path="leaves" element={<Leaves />} />
+            <Route path="payroll" element={<SalarySlips />} />
+            <Route path="ai-lead-score" element={<AdminAILeadScore />} />
+            <Route path="task-assignment" element={<AdminTaskAssignment />} />
+            <Route path="projects" element={<Tasks />} />
+            <Route path="tasks" element={<Tasks />} />
+            <Route path="task-board" element={<AdminTaskBoard />} />
+            <Route path="timesheets" element={<Calendar />} />
+            <Route path="departments" element={<AdminDepartments />} />
+            <Route path="audit-logs" element={<AdminAuditLogs />} />
+            <Route path="inventory" element={<AdminInventory />} />
+            <Route path="products" element={<AdminInventory />} />
+            <Route path="stock" element={<AdminInventory />} />
+            <Route path="purchases" element={<AdminPurchases />} />
+            <Route path="suppliers" element={<AdminSuppliers />} />
+            <Route path="warehouses" element={<AdminWarehouses />} />
+            <Route path="accounts" element={<AdminAccounts />} />
+            <Route path="expenses" element={<AdminExpenses />} />
+            <Route path="company-settings" element={<AdminCompanySettings />} />
+            <Route path="rbac" element={<AdminRBAC />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="export-reports" element={<SampleReports />} />
+            <Route path="support-tickets" element={<AdminSupportTickets />} />
+            <Route path="posh" element={<PoshRoute><POSHPortal mode="admin" /></PoshRoute>} />
+            <Route path="generate-document/:employeeId" element={<DocumentGenerator />} />
+            <Route path="companies" element={<AdminCompaniesRedirect />} />
+            <Route path="calendar" element={<Calendar />} />
+            <Route path="notifications" element={<Notifications />} />
+          </Route>
+        </Routes>
+      </AutoLogout>
     </Router>
     </ErrorBoundary>
   );

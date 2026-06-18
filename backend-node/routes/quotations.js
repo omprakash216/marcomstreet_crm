@@ -2,6 +2,7 @@ const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const { localYmd, nextDocumentNumber } = require('../utils/documentNumbers');
+const { generateQuotationPdfBuffer } = require('../services/templateDocumentPdf');
 
 const router = express.Router();
 
@@ -22,6 +23,14 @@ function normalizeQuotationSettings(row = {}) {
     quotation_template: row.quotation_template || 'standard',
     quotation_header_text: row.quotation_header_text || '',
     quotation_footer_text: row.quotation_footer_text || 'Thank you for your business!',
+    bank_name: row.bank_name || '',
+    account_holder_name: row.account_holder_name || row.account_name || '',
+    account_number: row.account_number || '',
+    ifsc_code: row.ifsc_code || '',
+    branch_name: row.branch_name || '',
+    nature: row.nature || 'Current Account',
+    signature_path: row.signature_path || '',
+    stamp_path: row.stamp_path || '',
   };
 }
 
@@ -46,8 +55,11 @@ router.get('/', verifyToken, async (req, res) => {
     const empId = req.employee?.id;
     const manager = isManagerOrAdmin(req.employee);
 
-    let sql = `SELECT q.*, l.company_name, l.contact_person
-      FROM quotations q LEFT JOIN leads l ON q.lead_id = l.id WHERE q.company_id = ?`;
+    let sql = `SELECT q.*, l.company_name, l.contact_person, e.name AS employee_name, e.role AS employee_role
+      FROM quotations q
+      LEFT JOIN leads l ON q.lead_id = l.id
+      LEFT JOIN employees e ON q.employee_id = e.id
+      WHERE q.company_id = ?`;
     const params = [req.employee.company_id];
     if (!manager && empId) {
       sql += ' AND q.employee_id = ?';
@@ -92,9 +104,10 @@ router.get('/:id', verifyToken, async (req, res) => {
 
     // Fetch quotation details
     const quotationRows = await query(
-      `SELECT q.*, l.company_name, l.contact_person
+      `SELECT q.*, l.company_name, l.contact_person, e.name AS employee_name, e.role AS employee_role
        FROM quotations q
        LEFT JOIN leads l ON q.lead_id = l.id
+       LEFT JOIN employees e ON q.employee_id = e.id
        WHERE q.id = ? AND q.company_id = ?`,
       [id, req.employee.company_id]
     );
@@ -124,7 +137,65 @@ router.get('/:id', verifyToken, async (req, res) => {
   }
 });
 
-// POST /quotations - create (sales): draft or send for approval (status sent)
+// GET /quotations/:id/pdf - generate and download quotation PDF
+router.get('/:id/pdf', verifyToken, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid quotation id' });
+    }
+
+    const rows = await query(
+      `SELECT q.*, l.company_name, l.contact_person, l.phone, l.email
+       FROM quotations q
+       LEFT JOIN leads l ON q.lead_id = l.id
+       WHERE q.id = ? AND q.company_id = ?`,
+      [id, req.employee.company_id]
+    );
+    const quotation = Array.isArray(rows) ? rows[0] : null;
+    if (!quotation) {
+      return res.status(404).json({ success: false, message: 'Quotation not found' });
+    }
+
+    // Access check: non-managers can only view their own quotations
+    if (!isManagerOrAdmin(req.employee) && quotation.employee_id !== req.employee.id) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    let items = [];
+    try {
+      items = await query('SELECT * FROM quotation_items WHERE quotation_id = ? ORDER BY id ASC', [id]);
+    } catch (_) {
+      items = [];
+    }
+
+    const settings = await getQuotationSettings(req.employee?.company_id);
+    const pdfBuffer = await generateQuotationPdfBuffer({
+      ...quotation,
+      client_phone: quotation.client_phone || quotation.phone || '',
+      client_email: quotation.client_email || quotation.email || '',
+      client_address: quotation.client_address || quotation.address || '',
+      items,
+    }, settings);
+    if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer) || pdfBuffer.length < 100) {
+      return res.status(500).json({ success: false, message: 'Failed to generate quotation PDF' });
+    }
+
+    const wantsDownload =
+      req.query.download === '1' || req.query.download === 'true' || req.query.disposition === 'attachment';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', pdfBuffer.length);
+    const safeName = `quotation_${String(quotation.quotation_number || `QT-${id}`).replace(/[^a-zA-Z0-9._-]/g, '_')}.pdf`;
+    res.setHeader('Content-Disposition', `${wantsDownload ? 'attachment' : 'inline'}; filename="${safeName}"`);
+    return res.end(pdfBuffer);
+  } catch (err) {
+    console.error('Quotation PDF error:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to generate quotation PDF' });
+  }
+});
+
+
+// POST /quotations - create (employee: draft or send for approval, manager/admin: approved)
 router.post('/', verifyToken, async (req, res) => {
   let conn;
   try {
@@ -145,8 +216,9 @@ router.post('/', verifyToken, async (req, res) => {
     const validUntil = b.valid_until || null;
     const notes = b.notes || '';
     const termsConditions = b.terms_conditions || '';
-    const sendForApproval = b.send_for_approval === true || b.send_for_approval === 'true';
-    const status = sendForApproval ? 'sent' : (b.status || 'draft');
+    const autoApprove = isManagerOrAdmin(req.employee);
+    const sendForApproval = !autoApprove && (b.send_for_approval === true || b.send_for_approval === 'true');
+    const status = autoApprove ? 'accepted' : (sendForApproval ? 'sent' : 'draft');
 
     conn = await getConnection();
     const quotationNumber = await nextDocumentNumber(conn, 'quotation', issueDate);
@@ -170,7 +242,11 @@ router.post('/', verifyToken, async (req, res) => {
     conn.release();
     return res.json({
       success: true,
-      message: sendForApproval ? 'Quotation sent for manager approval.' : 'Quotation created.',
+      message: autoApprove
+        ? 'Quotation created and approved.'
+        : sendForApproval
+          ? 'Quotation sent for manager approval.'
+          : 'Quotation created.',
       data: { id: quotationId, quotation_number: quotationNumber },
     });
   } catch (err) {
@@ -182,7 +258,7 @@ router.post('/', verifyToken, async (req, res) => {
   }
 });
 
-// PUT /quotations/:id/send - sales: send for manager approval (status = sent)
+// PUT /quotations/:id/send - employee only: send for manager approval (status = sent)
 router.put('/:id/send', verifyToken, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -190,6 +266,7 @@ router.put('/:id/send', verifyToken, async (req, res) => {
     const rows = await query('SELECT id, employee_id, status FROM quotations WHERE id = ? AND company_id = ?', [id, req.employee.company_id]);
     const q = Array.isArray(rows) ? rows[0] : null;
     if (!q) return res.status(404).json({ success: false, message: 'Quotation not found' });
+    if (isManagerOrAdmin(req.employee)) return res.status(403).json({ success: false, message: 'Only employees can send quotations for approval' });
     if (q.employee_id !== req.employee.id) return res.status(403).json({ success: false, message: 'Only the creator can send for approval' });
     if (q.status !== 'draft') return res.status(400).json({ success: false, message: 'Only draft quotations can be sent for approval' });
     await query('UPDATE quotations SET status = ? WHERE id = ? AND company_id = ?', ['sent', id, req.employee.company_id]);

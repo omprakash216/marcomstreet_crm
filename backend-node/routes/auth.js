@@ -3,7 +3,13 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { query } = require('../config/database');
-const { verifyToken, JWT_SECRET } = require('../middleware/auth');
+const { verifyToken, verifyTokenNoTouch, JWT_SECRET } = require('../middleware/auth');
+const { buildCompanyAdminEmployeeCode } = require('../utils/companyCode');
+const {
+  requestPasswordResetOtp: requestEmailPasswordResetOtp,
+  verifyPasswordResetOtp: verifyEmailPasswordResetOtp,
+  resetPasswordWithVerifiedOtp: resetEmailPasswordWithToken,
+} = require('../controllers/auth/passwordResetController');
 const {
   phoneKeyFromInput,
   findActiveEmployeeByPhone,
@@ -22,8 +28,18 @@ const {
   normalizeOtpExpiry,
 } = require('../config/smsConfig');
 const emailPasswordResetRoutes = require('./auth/passwordResetRoutes');
+const { ensureEmployeeCodeSchema } = require('../utils/employeeCodeSchema');
 
 const router = express.Router();
+
+router.use(async (_req, _res, next) => {
+  try {
+    await ensureEmployeeCodeSchema();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Isolated email OTP password reset module (no impact on existing auth routes)
 router.use('/forgot-password/email', emailPasswordResetRoutes);
@@ -174,11 +190,22 @@ async function getCompanyModules(companyId) {
   if (!companyId) return [];
   try {
     const rows = await query(
-      'SELECT m.code FROM company_modules cm JOIN modules m ON cm.module_id = m.id WHERE cm.company_id = ? AND m.status = ?',
+      'SELECT m.code FROM company_modules cm JOIN modules m ON cm.module_id = m.id WHERE cm.company_id = ? AND m.status = ? AND COALESCE(cm.is_enabled, 1) = 1',
       [companyId, 'enabled']
     );
     return Array.isArray(rows) ? rows.map(r => r.code).filter(Boolean) : [];
   } catch (err) {
+    if (err && err.code === 'ER_BAD_FIELD_ERROR' && /is_enabled/i.test(err.message || '')) {
+      try {
+        const rows = await query(
+          'SELECT m.code FROM company_modules cm JOIN modules m ON cm.module_id = m.id WHERE cm.company_id = ? AND m.status = ?',
+          [companyId, 'enabled']
+        );
+        return Array.isArray(rows) ? rows.map(r => r.code).filter(Boolean) : [];
+      } catch (_) {
+        return [];
+      }
+    }
     return [];
   }
 }
@@ -283,6 +310,65 @@ async function getEmployeeAccessModules(employeeId, companyId, role) {
   }
 }
 
+async function getEmployeePoshProfile(employeeId, companyId) {
+  if (!employeeId || !companyId) return null;
+  try {
+    const rows = await query(
+      `SELECT role
+       FROM posh_icc_members
+       WHERE employee_id = ? AND company_id = ? AND status = 'active'
+       ORDER BY id DESC LIMIT 1`,
+      [employeeId, companyId]
+    );
+    const member = Array.isArray(rows) ? rows[0] : null;
+    if (!member) return null;
+    return {
+      posh_role: 'icc',
+      posh_icc_role: member.role || 'ICC Member',
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function resolveSuperAdminPanel(employee) {
+  const storedPanel = normalizePortalInput(employee?.superadmin_panel);
+  if (storedPanel) return storedPanel;
+  return inferSuperAdminPanel(employee);
+}
+
+async function buildEmployeeSessionData(employee, { superadminPanel = null } = {}) {
+  const accessProfile = await getEmployeeAccessModules(employee.id, employee.company_id, employee.role);
+  const poshProfile = await getEmployeePoshProfile(employee.id, employee.company_id);
+  const normalizedRole = String(employee.role || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_');
+
+  return {
+    id: employee.id,
+    employee_code: employee.employee_code || '',
+    name: employee.name,
+    email: employee.email,
+    phone: employee.phone || '',
+    role: employee.role || 'employee',
+    department: employee.department || '',
+    designation: employee.designation || '',
+    status: employee.status || 'active',
+    company_id: employee.company_id || null,
+    created_at: employee.created_at || '',
+    updated_at: employee.updated_at || '',
+    access_modules: accessProfile.modules || [],
+    module_restricted: !!accessProfile.moduleRestricted,
+    posh_role: poshProfile?.posh_role || null,
+    posh_icc_role: poshProfile?.posh_icc_role || null,
+    superadmin_panel:
+      normalizedRole === 'superadmin' || normalizedRole === 'super_admin'
+        ? (superadminPanel || resolveSuperAdminPanel(employee))
+        : null,
+  };
+}
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password, portal } = req.body || {};
@@ -322,7 +408,9 @@ router.post('/login', async (req, res) => {
             }
           } else {
             // Create a new admin employee for this company
-            const employeeCode = 'COM' + company.id + '-' + Math.floor(Math.random() * 10000);
+            const employeeCode = await buildCompanyAdminEmployeeCode(company.company_code, company.id, {
+              companyName: company.company_name,
+            });
             await query(
               'INSERT INTO employees (employee_code, name, email, password, role, status, company_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
               [employeeCode, company.company_name, company.email, company.password, 'admin', 'active', company.id]
@@ -377,7 +465,7 @@ router.post('/login', async (req, res) => {
     }
 
     if (normalizedRole === 'superadmin' || normalizedRole === 'super_admin') {
-      superadminPanel = inferSuperAdminPanel(employee);
+      superadminPanel = resolveSuperAdminPanel(employee);
       if (requestedPortal && requestedPortal !== superadminPanel) {
         return res.status(403).json({
           success: false,
@@ -392,44 +480,24 @@ router.post('/login', async (req, res) => {
       }
     }
 
-    const accessProfile = await getEmployeeAccessModules(employee.id, employee.company_id, employee.role);
-    const employeeData = {
-      id: employee.id,
-      employee_code: employee.employee_code || '',
-      name: employee.name,
-      email: employee.email,
-      phone: employee.phone || '',
-      role: employee.role || 'employee',
-      department: employee.department || '',
-      designation: employee.designation || '',
-      status: employee.status || 'active',
-      company_id: employee.company_id || null,
-      created_at: employee.created_at || '',
-      updated_at: employee.updated_at || '',
-      access_modules: accessProfile.modules || [],
-      module_restricted: !!accessProfile.moduleRestricted,
-      superadmin_panel: superadminPanel || null,
-    };
+    const employeeData = await buildEmployeeSessionData(employee, { superadminPanel });
 
-    const token = jwt.sign(
-      {
-        id: employee.id,
-        email: employee.email,
-        role: employee.role,
-        company_id: employee.company_id || null,
-        tokenVersion: Number(employee.tokenVersion || 0),
-        exp: Math.floor(Date.now() / 1000) + 7 * 86400,
-      },
-      JWT_SECRET
-    );
+    req.session.employee = employee;
+    req.session.createdAt = Date.now();
+    req.session.lastActive = Date.now();
 
-    return res.json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        employee: employeeData,
-        token,
-      },
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.status(500).json({ success: false, message: 'Session initialization failed' });
+      }
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        data: {
+          employee: employeeData,
+        },
+      });
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -437,6 +505,60 @@ router.post('/login', async (req, res) => {
       success: false,
       message: err.message || 'Server error',
     });
+  }
+});
+
+router.get('/me', verifyToken, async (req, res) => {
+  try {
+    const employeeData = await buildEmployeeSessionData(req.employee);
+    return res.json({
+      success: true,
+      data: {
+        employee: employeeData,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/verify', verifyToken, async (req, res) => {
+  try {
+    const employeeData = await buildEmployeeSessionData(req.employee);
+    return res.json({
+      success: true,
+      data: {
+        employee: employeeData,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/logout', (req, res) => {
+  if (req.session) {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ success: false, message: 'Could not log out' });
+      }
+      res.clearCookie('sid');
+      return res.json({ success: true, message: 'Logged out successfully' });
+    });
+  } else {
+    res.clearCookie('sid');
+    return res.json({ success: true, message: 'Logged out successfully' });
+  }
+});
+
+router.post('/refresh-activity', verifyTokenNoTouch, (req, res) => {
+  try {
+    if (req.session && typeof req.session.touch === 'function') {
+      req.session.touch();
+    }
+    return res.json({ success: true, message: 'Activity refreshed' });
+  } catch (err) {
+    return res.json({ success: true, message: 'Activity refreshed' });
   }
 });
 
@@ -574,30 +696,7 @@ async function requestPasswordResetOtp(req, res) {
   }
 }
 
-router.post('/forgot-password/request-otp', requestPasswordResetOtp);
-router.post('/forgot-password/send-otp', requestPasswordResetOtp);
-
-router.get('/forgot-password/sms-status', async (req, res) => {
-  try {
-    await ensureGlobalSettingsTable();
-    await ensureSmsSettingsTable();
-    await refreshSmsConfig();
-    const status = getPublicSmsStatus();
-    return res.json({
-      success: true,
-      data: {
-        ...status,
-        message: status.smsConfigured
-          ? `SMS ready (${status.provider || 'configured'}).`
-          : 'SMS not configured. Super Admin → System Settings → SMS OTP section.',
-      },
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-router.post('/forgot-password/verify-otp', async (req, res) => {
+async function verifyPhonePasswordResetOtp(req, res) {
   try {
     await ensurePasswordResetTables();
     const { phone, otp } = req.body || {};
@@ -682,7 +781,62 @@ router.post('/forgot-password/verify-otp', async (req, res) => {
     console.error('verify-otp error:', err);
     return res.status(500).json({ success: false, message: 'Verification failed. Try again.' });
   }
+}
+
+async function handleForgotPasswordSendOtp(req, res) {
+  if (req.body?.email) {
+    return requestEmailPasswordResetOtp(req, res);
+  }
+  return requestPasswordResetOtp(req, res);
+}
+
+async function handleForgotPasswordVerifyOtp(req, res) {
+  if (req.body?.email) {
+    return verifyEmailPasswordResetOtp(req, res);
+  }
+  return verifyPhonePasswordResetOtp(req, res);
+}
+
+async function handleForgotPasswordReset(req, res) {
+  if (req.body?.email) {
+    return resetEmailPasswordWithToken(req, res);
+  }
+  return resetForgotPassword(req, res);
+}
+
+router.post('/forgot-password/request-otp', handleForgotPasswordSendOtp);
+router.post('/forgot-password/send-otp', handleForgotPasswordSendOtp);
+
+router.get('/forgot-password/sms-status', async (req, res) => {
+  try {
+    await ensureGlobalSettingsTable();
+    await ensureSmsSettingsTable();
+    await refreshSmsConfig();
+    const status = getPublicSmsStatus();
+    return res.json({
+      success: true,
+      data: {
+        ...status,
+        message: status.smsConfigured
+          ? `SMS ready (${status.provider || 'configured'}).`
+          : 'SMS not configured. Super Admin → System Settings → SMS OTP section.',
+      },
+    });
+  } catch (err) {
+    console.error('sms-status error:', err);
+    const fallback = getPublicSmsStatus();
+    return res.json({
+      success: true,
+      data: {
+        ...fallback,
+        message: 'SMS status temporarily unavailable. Local fallback data shown instead.',
+        error: err.message || 'Unknown error',
+      },
+    });
+  }
 });
+
+router.post('/forgot-password/verify-otp', handleForgotPasswordVerifyOtp);
 
 async function resetForgotPassword(req, res) {
   try {
@@ -766,8 +920,8 @@ async function resetForgotPassword(req, res) {
   }
 }
 
-router.post('/forgot-password/reset', resetForgotPassword);
-router.post('/forgot-password/reset-password', resetForgotPassword);
+router.post('/forgot-password/reset', handleForgotPasswordReset);
+router.post('/forgot-password/reset-password', handleForgotPasswordReset);
 
 router.post('/logout', verifyToken, (req, res) => {
   return res.json({ success: true, message: 'Logged out' });

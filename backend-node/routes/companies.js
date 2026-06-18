@@ -2,7 +2,7 @@ const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
-const { normalizeCodePart } = require('../utils/employeeCode');
+const { buildCompanyAdminEmployeeCode, deriveCompanyCodeFromName, normalizeCompanyCode } = require('../utils/companyCode');
 const { ensureEmployeeCodeSchema } = require('../utils/employeeCodeSchema');
 
 const router = express.Router();
@@ -15,12 +15,6 @@ router.use(async (_req, _res, next) => {
     next(err);
   }
 });
-
-function deriveCompanyCode(input, fallback = 'COMP') {
-  const raw = String(input || '').trim();
-  const initials = raw.split(/\s+/).map((part) => part.charAt(0)).join('');
-  return normalizeCodePart(initials || raw).slice(0, 6) || fallback;
-}
 
 function isSuperAdmin(employee) {
   const role = String(employee?.role || '')
@@ -60,7 +54,7 @@ router.post('/login', async (req, res) => {
       const hashedPassword = await bcrypt.hash(password || 'password123', 10).catch(() => password || 'password123');
       await conn.execute(
         `INSERT INTO companies (company_code, company_name, email, phone, password, address, city, state, country, status) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        [normalizeCodePart(b.company_code) || deriveCompanyCode(company_name), company_name || '', email || '', phone || '', hashedPassword, b.address || '', b.city || '', b.state || '', b.country || '', 'active']
+        [normalizeCompanyCode(b.company_code, company_name) || deriveCompanyCodeFromName(company_name), company_name || '', email || '', phone || '', hashedPassword, b.address || '', b.city || '', b.state || '', b.country || '', 'active']
       );
       conn.release();
       rows = await query('SELECT id, company_code, company_name, email, phone, address, city, state, country, status, password FROM companies WHERE email = ? LIMIT 1', [email]);
@@ -69,7 +63,9 @@ router.post('/login', async (req, res) => {
       if (company) {
         // Automatically create an admin employee for this company
         try {
-          const employeeCode = 'COM' + company.id + '-' + Math.floor(Math.random() * 10000);
+          const employeeCode = await buildCompanyAdminEmployeeCode(company.company_code, company.id, {
+            companyName: company.company_name,
+          });
           await query(
             'INSERT INTO employees (employee_code, name, email, password, role, status, company_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
             [employeeCode, company.company_name, company.email, company.password, 'admin', 'active', company.id]
@@ -177,7 +173,7 @@ router.put('/update', verifyToken, requireSuperAdmin, async (req, res) => {
     if (!b.id) return res.status(400).json({ success: false, message: 'Company ID is required' });
     await query(
       `UPDATE companies SET company_code=?, company_name=?, email=?, phone=?, address=?, city=?, state=?, country=?, zip_code=?, website=?, tax_id=?, registration_number=?, status=?, updated_at=NOW() WHERE id=?`,
-      [normalizeCodePart(b.company_code) || deriveCompanyCode(b.company_name), b.company_name, b.email, b.phone, b.address, b.city, b.state, b.country, b.zip_code, b.website, b.tax_id, b.registration_number, b.status || 'active', b.id]
+      [normalizeCompanyCode(b.company_code, b.company_name) || deriveCompanyCodeFromName(b.company_name), b.company_name, b.email, b.phone, b.address, b.city, b.state, b.country, b.zip_code, b.website, b.tax_id, b.registration_number, b.status || 'active', b.id]
     );
     return res.json({ success: true, message: 'Company updated successfully' });
   } catch (err) {
@@ -192,7 +188,7 @@ router.post('/', verifyToken, requireSuperAdmin, async (req, res) => {
     const hashedPassword = await bcrypt.hash(b.password || 'password123', 10).catch(() => b.password || 'password123');
     const [r] = await conn.execute(
       `INSERT INTO companies (company_code, company_name, email, phone, password, address, city, state, country, status) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [normalizeCodePart(b.company_code) || deriveCompanyCode(b.company_name), b.company_name || '', b.email || '', b.phone || '', hashedPassword, b.address || '', b.city || '', b.state || '', b.country || '', b.status || 'active']
+      [normalizeCompanyCode(b.company_code, b.company_name) || deriveCompanyCodeFromName(b.company_name), b.company_name || '', b.email || '', b.phone || '', hashedPassword, b.address || '', b.city || '', b.state || '', b.country || '', b.status || 'active']
     );
     conn.release();
     return res.json({ success: true, message: 'Company created', data: { id: r.insertId } });

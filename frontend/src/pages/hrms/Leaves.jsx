@@ -8,6 +8,7 @@ export default function Leaves() {
   const [leaveBalances, setLeaveBalances] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const PAGE_SIZE = 10;
   const [leavePage, setLeavePage] = useState(0);
   const [leaveTypePage, setLeaveTypePage] = useState(0);
@@ -22,10 +23,22 @@ export default function Leaves() {
     end_date: '',
     reason: ''
   });
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [viewLeave, setViewLeave] = useState(null);
+  const [editLeave, setEditLeave] = useState({
+    id: '',
+    type: '',
+    start_date: '',
+    end_date: '',
+    reason: '',
+    status: 'pending',
+    admin_reason: ''
+  });
   const [editingType, setEditingType] = useState(null);
-  const [typeForm, setTypeForm] = useState({ name: '', code: '', default_balance: 0 });
+  const [typeForm, setTypeForm] = useState({ name: '', code: '', default_balance: 0, description: '' });
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [currentLeaveId, setCurrentLeaveId] = useState(null);
+  const [decisionStatus, setDecisionStatus] = useState('rejected');
   const [adminReason, setAdminReason] = useState('');
   const employee = getEmployee();
   const role = String(employee?.role || '').toLowerCase().trim();
@@ -41,6 +54,74 @@ export default function Leaves() {
     role === 'hr_manager' ||
     role === 'hr manager';
 
+  const fallbackLeaveTypes = [
+    { name: 'Casual Leave', code: 'CL', default_balance: 12, description: 'Personal kaam, emergency ya short break ke liye.' },
+    { name: 'Sick Leave', code: 'SL', default_balance: 12, description: 'Bimari ya health issue ke liye.' },
+    { name: 'Earned Leave / Privilege Leave', code: 'EL', default_balance: 24, description: 'Kaam karne ke badle accumulate hone wali leave.' },
+    { name: 'Paid Leave', code: 'PL', default_balance: 0, description: 'Leave ke dauran salary milti hai.' },
+    { name: 'Unpaid Leave', code: 'LWP', default_balance: 0, description: 'Salary ke bina leave.' },
+    { name: 'Maternity Leave', code: 'ML', default_balance: 182, description: 'Mahila employees ke liye 26 weeks tak ki leave.' },
+    { name: 'Paternity Leave', code: 'PTL', default_balance: 7, description: 'Male employees ke child birth ke time leave.' },
+    { name: 'Bereavement Leave', code: 'BL', default_balance: 3, description: 'Family member ke nidhan par leave.' },
+    { name: 'Marriage Leave', code: 'MRL', default_balance: 5, description: 'Marriage ke liye leave.' },
+    { name: 'Compensatory Off', code: 'COMP', default_balance: 0, description: 'Holiday ya weekend duty ke badle leave.' },
+    { name: 'Public Holidays', code: 'PH', default_balance: 0, description: 'National aur festival holidays.' },
+    { name: 'Optional Holiday', code: 'RH', default_balance: 2, description: 'Employee ke choice se festival holiday.' }
+  ];
+
+  const normalizeLeaveTypeKey = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/\bleave\b/g, '')
+      .replace(/[\s_-]+/g, '')
+      .trim();
+
+  const normalizeLeaveStatus = (value) => String(value || '').toLowerCase().trim();
+
+  const toNumber = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  };
+
+  const resolveLeaveTypeMeta = (value) => {
+    const key = normalizeLeaveTypeKey(value);
+    const allTypes = leaveTypes.length > 0 ? leaveTypes : fallbackLeaveTypes;
+    const directMatch = allTypes.find((t) => {
+      const nameKey = normalizeLeaveTypeKey(t?.name);
+      const codeKey = normalizeLeaveTypeKey(t?.code);
+      return key && (nameKey === key || codeKey === key);
+    });
+    if (directMatch) return directMatch;
+    const optionMatch = leaveTypeOptions.find((option) => option.value === key);
+    if (optionMatch) {
+      return {
+        name: optionMatch.label,
+        code: optionMatch.code,
+        description: optionMatch.description,
+        default_balance: optionMatch.default_balance,
+      };
+    }
+    return null;
+  };
+
+  const formatLeaveTypeLabel = (value) => {
+    const meta = resolveLeaveTypeMeta(value);
+    if (meta?.name) {
+      return meta.code ? `${meta.name} (${meta.code})` : meta.name;
+    }
+    if (!value) return 'Leave';
+    const text = String(value).replace(/[_-]+/g, ' ').trim();
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  };
+
+  const isOwnLeaveRequest = (leave) => Number(leave?.employee_id) === Number(employee?.id);
+  const canViewLeaveRequest = (leave) => isAdminOrManager || isOwnLeaveRequest(leave);
+  const canSelfEditLeaveRequest = (leave) =>
+    isOwnLeaveRequest(leave) && normalizeLeaveStatus(leave?.status) !== 'approved';
+  const canEditLeaveRequest = (leave) => isAdminOrManager || canSelfEditLeaveRequest(leave);
+  const canReapplyLeaveRequest = (leave) =>
+    !isAdminOrManager && isOwnLeaveRequest(leave) && ['rejected', 'cancelled'].includes(normalizeLeaveStatus(leave?.status));
+
   const IconCheck = ({ className = 'w-4 h-4' }) => (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -51,6 +132,40 @@ export default function Leaves() {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
+
+  const statusLabels = {
+    pending: 'Pending',
+    approved: 'Approved',
+    rejected: 'Rejected',
+    cancelled: 'Cancelled'
+  };
+
+  const getDecisionConfig = (status) => {
+    if (status === 'cancelled') {
+      return {
+        title: 'Cancel Leave',
+        eyebrow: 'Cancellation Reason Required',
+        label: 'Reason for Cancellation',
+        placeholder: 'Please state why this leave request is being cancelled...',
+        button: 'Confirm Cancellation',
+        headerClass: 'bg-slate-700',
+        labelClass: 'text-slate-700',
+        focusClass: 'focus:ring-slate-500',
+        buttonClass: 'bg-slate-700 hover:bg-slate-800 shadow-slate-500/20'
+      };
+    }
+    return {
+      title: 'Reject Application',
+      eyebrow: 'Mandatory Feedback Required',
+      label: 'Reason for Rejection',
+      placeholder: 'Please state the reason for rejecting this leave request...',
+      button: 'Confirm Rejection',
+      headerClass: 'bg-red-600',
+      labelClass: 'text-red-600',
+      focusClass: 'focus:ring-red-500',
+      buttonClass: 'bg-red-600 hover:bg-red-700 shadow-red-500/20'
+    };
+  };
 
   const fmtDate = (v) => {
     if (!v) return '-';
@@ -110,9 +225,16 @@ export default function Leaves() {
   };
 
   const fetchLeaveBalances = async () => {
+    const employeeId = Number(employee?.id) || 0;
+    if (!employeeId) {
+      setLeaveBalances([]);
+      return;
+    }
     try {
-      const resp = await api.get(`/hrms/leave-balances?employee_id=${employee?.id || ''}`);
-      if (resp.data?.success) setLeaveBalances(resp.data.data || []);
+      const resp = await api.get(`/hrms/leave-balances?employee_id=${employeeId}`);
+      if (resp.data?.success) {
+        setLeaveBalances(resp.data.data || []);
+      }
     } catch (_) {
       setLeaveBalances([]);
     }
@@ -143,7 +265,7 @@ export default function Leaves() {
 
   const resetTypeForm = () => {
     setEditingType(null);
-    setTypeForm({ name: '', code: '', default_balance: 0 });
+    setTypeForm({ name: '', code: '', default_balance: 0, description: '' });
   };
 
   const handleSaveLeaveType = async (e) => {
@@ -157,6 +279,7 @@ export default function Leaves() {
       }
       resetTypeForm();
       fetchLeaveTypes();
+      fetchLeaveBalances();
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to save leave type');
     }
@@ -168,6 +291,7 @@ export default function Leaves() {
       name: t.name || '',
       code: t.code || '',
       default_balance: t.default_balance || 0,
+      description: t.description || '',
     });
   };
 
@@ -177,12 +301,42 @@ export default function Leaves() {
     try {
       await api.delete(`/hrms/leave-types/${t.id}`);
       fetchLeaveTypes();
+      fetchLeaveBalances();
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to delete leave type');
     }
   };
 
+  const openDecisionModal = (leave, status) => {
+    setCurrentLeaveId(leave.id);
+    setDecisionStatus(status);
+    setAdminReason('');
+    setShowReasonModal(true);
+  };
+
+  const handleViewLeave = (leave) => {
+    setViewLeave(leave);
+    setShowViewModal(true);
+  };
+
+  const handleEditLeave = (leave) => {
+    setEditLeave({
+      id: leave.id,
+      type: normalizeLeaveTypeKey(leave.type) || String(leave.type || ''),
+      start_date: fmtDate(leave.start_date),
+      end_date: fmtDate(leave.end_date),
+      reason: leave.reason || '',
+      status: leave.status || 'pending',
+      admin_reason: leave.admin_reason || ''
+    });
+    setShowEditModal(true);
+  };
+
   const handleStatusUpdate = async (id, status, reason = null) => {
+    if (['rejected', 'cancelled'].includes(status) && !String(reason || '').trim()) {
+      alert(status === 'cancelled' ? 'Cancellation reason is required' : 'Rejection reason is required');
+      return;
+    }
     try {
       const response = await api.put('/hrms/leaves', {
         id,
@@ -191,18 +345,78 @@ export default function Leaves() {
       });
       if (response.data.success) {
         fetchLeaves();
+        fetchLeaveBalances();
         setShowReasonModal(false);
         setAdminReason('');
       }
     } catch (error) {
-      alert('Failed to update status');
+      alert(error.response?.data?.message || 'Failed to update status');
     }
+  };
+
+  const handleSaveLeaveEdit = async (e) => {
+    e.preventDefault();
+    const isSelfUpdate = !isAdminOrManager;
+    const nextStatus = isSelfUpdate ? 'pending' : (editLeave.status || 'pending');
+    const needsAdminReason = !isSelfUpdate && ['rejected', 'cancelled'].includes(nextStatus);
+    if (isSelfUpdate && !String(editLeave.reason || '').trim()) {
+      alert('Reason is required');
+      return;
+    }
+    if (needsAdminReason && !String(editLeave.admin_reason || '').trim()) {
+      alert(nextStatus === 'cancelled' ? 'Cancellation reason is required' : 'Rejection reason is required');
+      return;
+    }
+    try {
+      const response = await api.put('/hrms/leaves', {
+        ...editLeave,
+        status: nextStatus,
+        admin_reason: needsAdminReason ? editLeave.admin_reason : ''
+      });
+      if (response.data.success) {
+        setShowEditModal(false);
+        setViewLeave(null);
+        fetchLeaves();
+        fetchLeaveBalances();
+      }
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to update leave request');
+    }
+  };
+
+  const matchesLeaveTypeFilter = (leaveType) => {
+    if (!filter.type) return true;
+    const selectedKey = normalizeLeaveTypeKey(filter.type);
+    const rawKey = normalizeLeaveTypeKey(leaveType);
+    if (rawKey && rawKey === selectedKey) return true;
+    const allTypes = leaveTypes.length > 0 ? leaveTypes : fallbackLeaveTypes;
+    const selectedType = allTypes.find((t) => {
+      const nameKey = normalizeLeaveTypeKey(t?.name);
+      const codeKey = normalizeLeaveTypeKey(t?.code);
+      return nameKey === selectedKey || codeKey === selectedKey;
+    });
+    if (!selectedType) return false;
+    const selectedKeys = new Set([
+      normalizeLeaveTypeKey(selectedType.name),
+      normalizeLeaveTypeKey(selectedType.code),
+    ].filter(Boolean));
+    const leaveTypeRow = allTypes.find((t) => {
+      const nameKey = normalizeLeaveTypeKey(t?.name);
+      const codeKey = normalizeLeaveTypeKey(t?.code);
+      return nameKey === rawKey || codeKey === rawKey;
+    });
+    if (!leaveTypeRow) return false;
+    const leaveKeys = [
+      normalizeLeaveTypeKey(leaveTypeRow.name),
+      normalizeLeaveTypeKey(leaveTypeRow.code),
+    ].filter(Boolean);
+    return leaveKeys.some((key) => selectedKeys.has(key));
   };
 
   const filteredLeaves = leaves.filter(leave => {
     return (filter.search === '' || leave.employee_name?.toLowerCase().includes(filter.search.toLowerCase())) &&
       (filter.status === '' || leave.status === filter.status) &&
-      (filter.type === '' || leave.type === filter.type);
+      matchesLeaveTypeFilter(leave.type);
   });
 
   useEffect(() => {
@@ -235,6 +449,19 @@ export default function Leaves() {
   const leaveEndIndex = Math.min(leaveStartIndex + PAGE_SIZE, leaveTotalRows);
   const paginatedLeaves = sortedLeaves.slice(leaveStartIndex, leaveEndIndex);
 
+  const mergedLeaveTypes = (() => {
+    const source = [...(leaveTypes || []), ...fallbackLeaveTypes];
+    const map = new Map();
+    for (const t of source) {
+      const nameKey = normalizeLeaveTypeKey(t?.name);
+      const codeKey = normalizeLeaveTypeKey(t?.code);
+      const key = nameKey || codeKey;
+      if (!key || map.has(key)) continue;
+      map.set(key, t);
+    }
+    return Array.from(map.values());
+  })();
+
   const sortedLeaveTypes = [...leaveTypes].sort((a, b) => (Number(b?.id) || 0) - (Number(a?.id) || 0));
   const leaveTypeTotalRows = sortedLeaveTypes.length;
   const leaveTypeTotalPages = Math.max(1, Math.ceil(leaveTypeTotalRows / PAGE_SIZE));
@@ -242,6 +469,53 @@ export default function Leaves() {
   const leaveTypeStartIndex = leaveTypeSafePage * PAGE_SIZE;
   const leaveTypeEndIndex = Math.min(leaveTypeStartIndex + PAGE_SIZE, leaveTypeTotalRows);
   const paginatedLeaveTypes = sortedLeaveTypes.slice(leaveTypeStartIndex, leaveTypeEndIndex);
+  const leaveTypeOptions = mergedLeaveTypes.map((t) => {
+    const value = normalizeLeaveTypeKey(t.name || t.code);
+    return {
+      value,
+      label: t.code ? `${t.name} (${t.code})` : (t.name || 'Leave'),
+      code: t.code || '',
+      description: t.description || '',
+      default_balance: toNumber(t.default_balance),
+    };
+  });
+  const leaveTypeLookup = leaveTypeOptions.reduce((acc, option) => {
+    if (option.value) acc[option.value] = option;
+    return acc;
+  }, {});
+  const leaveBalanceLookup = leaveBalances.reduce((acc, row) => {
+    const keys = [
+      normalizeLeaveTypeKey(row?.leave_type),
+      normalizeLeaveTypeKey(row?.leave_type_code),
+      normalizeLeaveTypeKey(row?.leave_type_id),
+    ].filter(Boolean);
+    for (const key of keys) acc[key] = row;
+    return acc;
+  }, {});
+  const leaveTypeSelectOptions = leaveTypeOptions.map((option) => {
+    const balanceRow = leaveBalanceLookup[option.value] || leaveBalanceLookup[normalizeLeaveTypeKey(option.code)];
+    const totalBalance = toNumber(balanceRow?.total_balance ?? option.default_balance);
+    const usedBalance = toNumber(balanceRow?.used_balance ?? Math.max(totalBalance - toNumber(balanceRow?.remaining_balance ?? totalBalance), 0));
+    return {
+      ...option,
+      displayLabel: `${option.label}${totalBalance}/${usedBalance}`,
+    };
+  });
+  const editTypeExists = leaveTypeOptions.some((option) => option.value === normalizeLeaveTypeKey(editLeave.type));
+  const statusOptions = [
+    { value: 'pending', label: 'Pending' },
+    { value: 'approved', label: 'Approved' },
+    { value: 'rejected', label: 'Rejected' },
+    { value: 'cancelled', label: 'Cancelled' }
+  ];
+  const activeDecision = getDecisionConfig(decisionStatus);
+  const editModalStatus = normalizeLeaveStatus(editLeave.status);
+  const editModalIsSelfReapply = !isAdminOrManager && ['rejected', 'cancelled'].includes(editModalStatus);
+  const editModalTitle = editModalIsSelfReapply ? 'Reapply Leave Request' : 'Edit Leave Request';
+  const editModalSubtitle = editModalIsSelfReapply
+    ? 'Update your request and resubmit it for approval'
+    : 'Update dates, status and notes';
+  const editModalActionLabel = editModalIsSelfReapply ? 'Reapply Leave' : 'Save Changes';
 
   return (
     <div>
@@ -280,20 +554,6 @@ export default function Leaves() {
         </div>
       </div>
 
-      {leaveBalances.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-6">
-          <h3 className="text-sm font-semibold text-slate-700 mb-3">Leave Balance</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {leaveBalances.map((b) => (
-              <div key={b.id} className="border border-slate-100 rounded-lg p-3 bg-slate-50/60">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase">{b.leave_type || 'Leave'}</p>
-                <p className="text-lg font-bold text-slate-900">{b.balance}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Standardized Filters Section */}
       <div className="bg-white rounded-lg shadow-md border border-gray-200 p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -315,20 +575,11 @@ export default function Leaves() {
               className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All Types</option>
-              {leaveTypes.length > 0 ? (
-                leaveTypes.map((t) => (
-                  <option key={t.id} value={(t.name || '').toLowerCase()}>
-                    {t.name}
-                  </option>
-                ))
-              ) : (
-                <>
-                  <option value="casual">Casual Leave</option>
-                  <option value="sick">Sick Leave</option>
-                  <option value="annual">Annual Leave</option>
-                  <option value="other">Other</option>
-                </>
-              )}
+              {leaveTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -342,6 +593,7 @@ export default function Leaves() {
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
               <option value="rejected">Rejected</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
           <div className="flex items-end">
@@ -412,7 +664,7 @@ export default function Leaves() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 capitalize font-medium">{leave.type} Leave</div>
+                    <div className="text-sm text-gray-900 font-medium">{formatLeaveTypeLabel(leave.type)}</div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm text-gray-700 max-w-[250px]">
@@ -436,8 +688,9 @@ export default function Leaves() {
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                       ${leave.status === 'approved' ? 'bg-green-100 text-green-800' :
                         leave.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                          leave.status === 'cancelled' ? 'bg-slate-100 text-slate-800' :
                           'bg-yellow-100 text-yellow-800'}`}>
-                      {leave.status?.charAt(0).toUpperCase() + leave.status?.slice(1)}
+                      {statusLabels[leave.status] || (leave.status?.charAt(0).toUpperCase() + leave.status?.slice(1))}
                     </span>
                     {leave.approved_by_name && (
                       <div className="text-[10px] text-gray-500 mt-1 font-medium">
@@ -451,31 +704,75 @@ export default function Leaves() {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 z-10 bg-white border-l border-gray-100">
-                    {isAdminOrManager && leave.status === 'pending' ? (
-                      <div className="flex items-center justify-end space-x-2">
+                    <div className="flex items-center justify-end space-x-2">
+                      {canViewLeaveRequest(leave) && (
                         <button
-                          onClick={() => handleStatusUpdate(leave.id, 'approved')}
-                          className="inline-flex items-center justify-center text-green-700 hover:text-green-900 bg-green-50 w-10 h-10 rounded-lg hover:bg-green-100 transition-all shadow-sm border border-green-100"
-                          title="Approve"
-                          aria-label="Approve"
+                          onClick={() => handleViewLeave(leave)}
+                          className="inline-flex items-center justify-center text-slate-700 hover:text-slate-900 bg-slate-50 w-10 h-10 rounded-lg hover:bg-slate-100 transition-all shadow-sm border border-slate-200"
+                          title="View leave request"
+                          aria-label="View leave request"
                         >
-                          <IconCheck className="w-4 h-4" />
+                          <i className="fas fa-eye text-sm"></i>
                         </button>
+                      )}
+                      {isAdminOrManager ? (
+                        <>
+                          <button
+                            onClick={() => handleEditLeave(leave)}
+                            className="inline-flex items-center justify-center text-blue-700 hover:text-blue-900 bg-blue-50 w-10 h-10 rounded-lg hover:bg-blue-100 transition-all shadow-sm border border-blue-100"
+                            title="Edit leave request"
+                            aria-label="Edit leave request"
+                          >
+                            <i className="fas fa-pen text-sm"></i>
+                          </button>
+                          {leave.status !== 'approved' && (
+                            <button
+                              onClick={() => handleStatusUpdate(leave.id, 'approved')}
+                              className="inline-flex items-center justify-center text-green-700 hover:text-green-900 bg-green-50 w-10 h-10 rounded-lg hover:bg-green-100 transition-all shadow-sm border border-green-100"
+                              title="Approve"
+                              aria-label="Approve"
+                            >
+                              <IconCheck className="w-4 h-4" />
+                            </button>
+                          )}
+                          {leave.status !== 'rejected' && (
+                            <button
+                              onClick={() => openDecisionModal(leave, 'rejected')}
+                              className="inline-flex items-center justify-center text-red-700 hover:text-red-900 bg-red-50 w-10 h-10 rounded-lg hover:bg-red-100 transition-all shadow-sm border border-red-100"
+                              title="Reject"
+                              aria-label="Reject"
+                            >
+                              <IconX className="w-4 h-4" />
+                            </button>
+                          )}
+                          {leave.status !== 'cancelled' && (
+                            <button
+                              onClick={() => openDecisionModal(leave, 'cancelled')}
+                              className="inline-flex items-center justify-center text-slate-700 hover:text-slate-900 bg-slate-50 w-10 h-10 rounded-lg hover:bg-slate-100 transition-all shadow-sm border border-slate-200"
+                              title="Cancel leave"
+                              aria-label="Cancel leave"
+                            >
+                              <i className="fas fa-ban text-sm"></i>
+                            </button>
+                          )}
+                        </>
+                      ) : canSelfEditLeaveRequest(leave) ? (
                         <button
-                          onClick={() => {
-                            setCurrentLeaveId(leave.id);
-                            setShowReasonModal(true);
-                          }}
-                          className="inline-flex items-center justify-center text-red-700 hover:text-red-900 bg-red-50 w-10 h-10 rounded-lg hover:bg-red-100 transition-all shadow-sm border border-red-100"
-                          title="Reject"
-                          aria-label="Reject"
+                          onClick={() => handleEditLeave(leave)}
+                          className={`inline-flex items-center justify-center w-10 h-10 rounded-lg transition-all shadow-sm border ${
+                            canReapplyLeaveRequest(leave)
+                              ? 'text-orange-700 hover:text-orange-900 bg-orange-50 hover:bg-orange-100 border-orange-100'
+                              : 'text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border-blue-100'
+                          }`}
+                          title={canReapplyLeaveRequest(leave) ? 'Reapply leave request' : 'Edit leave request'}
+                          aria-label={canReapplyLeaveRequest(leave) ? 'Reapply leave request' : 'Edit leave request'}
                         >
-                          <IconX className="w-4 h-4" />
+                          <i className={`fas ${canReapplyLeaveRequest(leave) ? 'fa-sync-alt' : 'fa-pen'} text-sm`}></i>
                         </button>
-                      </div>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -519,7 +816,7 @@ export default function Leaves() {
       {
         showApplyModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-            <div className="bg-white rounded-[1.5rem] w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200">
+            <div className="bg-white rounded-[1.5rem] w-full max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200">
               {/* Modal Header */}
               <div className="bg-[#244bd8] p-5 text-white flex items-center justify-between">
                 <div className="flex items-center space-x-4">
@@ -537,28 +834,19 @@ export default function Leaves() {
               </div>
 
               <form onSubmit={handleApplyLeave} className="p-6 space-y-6">
-                <div className="grid grid-cols-1 gap-4">
-                  <div>
+              <div className="grid grid-cols-1 gap-4">
+                <div>
                     <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1.5 ml-1">Leave Type</label>
                     <select
                       value={newLeave.type}
                       onChange={(e) => setNewLeave({ ...newLeave, type: e.target.value })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                     >
-                      {leaveTypes.length > 0 ? (
-                        leaveTypes.map((t) => (
-                          <option key={t.id} value={(t.name || '').toLowerCase()}>
-                            {t.name}
-                          </option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="casual">Casual Leave</option>
-                          <option value="sick">Sick Leave</option>
-                          <option value="annual">Annual Leave</option>
-                          <option value="other">Other</option>
-                        </>
-                      )}
+                      {leaveTypeSelectOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.displayLabel}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -622,19 +910,282 @@ export default function Leaves() {
         )
       }
 
+      {
+        showViewModal && viewLeave && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-[1.5rem] w-full max-w-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200">
+              <div className="bg-slate-900 p-5 text-white flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="w-11 h-11 bg-white/15 rounded-xl flex items-center justify-center">
+                    <i className="fas fa-eye text-xl"></i>
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold leading-tight">Leave Request Details</h2>
+                    <p className="text-[11px] opacity-75 uppercase tracking-widest font-black">View applied leave information</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowViewModal(false)}
+                  className="text-white hover:text-gray-200 transition-colors"
+                  aria-label="Close view modal"
+                >
+                  <i className="fas fa-times text-xl"></i>
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                <div className="flex flex-wrap items-center gap-3 justify-between">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-1">Employee</div>
+                    <div className="text-xl font-bold text-slate-900">{viewLeave.employee_name || 'Employee'}</div>
+                    <div className="text-sm text-slate-500">{viewLeave.designation || viewLeave.employee_role || 'Staff Member'}</div>
+                  </div>
+                  <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                    normalizeLeaveStatus(viewLeave.status) === 'approved'
+                      ? 'bg-green-100 text-green-800'
+                      : normalizeLeaveStatus(viewLeave.status) === 'rejected'
+                        ? 'bg-red-100 text-red-800'
+                        : normalizeLeaveStatus(viewLeave.status) === 'cancelled'
+                          ? 'bg-slate-100 text-slate-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                  }`}>
+                    {statusLabels[viewLeave.status] || (viewLeave.status?.charAt(0).toUpperCase() + viewLeave.status?.slice(1))}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-600 mb-1">Leave Type</div>
+                    <div className="text-base font-semibold text-slate-900">{formatLeaveTypeLabel(viewLeave.type)}</div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-600 mb-1">Date Range</div>
+                    <div className="text-base font-semibold text-slate-900">
+                      {fmtDate(viewLeave.start_date)} <span className="text-slate-400">to</span> {fmtDate(viewLeave.end_date)}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-600 mb-1">Applied On</div>
+                    <div className="text-base font-semibold text-slate-900">
+                      {viewLeave.created_at ? new Date(viewLeave.created_at).toLocaleString() : '-'}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-600 mb-1">Approved By</div>
+                    <div className="text-base font-semibold text-slate-900">{viewLeave.approved_by_name || '-'}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500 mb-2">Employee Reason</div>
+                    <div className="text-sm leading-6 text-slate-700 whitespace-pre-wrap">
+                      {viewLeave.reason || 'No reason provided'}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500 mb-2">Admin Note</div>
+                    <div className="text-sm leading-6 text-slate-700 whitespace-pre-wrap">
+                      {viewLeave.admin_reason || 'No admin note available'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap justify-end gap-3 pt-2 border-t border-slate-100">
+                  {canEditLeaveRequest(viewLeave) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowViewModal(false);
+                        handleEditLeave(viewLeave);
+                      }}
+                      className={`px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-sm border ${
+                        canReapplyLeaveRequest(viewLeave)
+                          ? 'bg-orange-50 text-orange-700 border-orange-100 hover:bg-orange-100'
+                          : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100'
+                      }`}
+                    >
+                      {canReapplyLeaveRequest(viewLeave) ? 'Reapply' : 'Edit'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowViewModal(false)}
+                    className="px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all bg-slate-100 hover:bg-slate-200 text-slate-700"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {
+        showEditModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-[1.5rem] w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200">
+              <div className="bg-blue-700 p-5 text-white flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+                    <i className="fas fa-pen text-lg"></i>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold">{editModalTitle}</h2>
+                    <p className="text-[10px] opacity-80 uppercase tracking-widest font-black">{editModalSubtitle}</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowEditModal(false)} className="text-white hover:text-gray-200 transition-colors">
+                  <i className="fas fa-times text-lg"></i>
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveLeaveEdit} className="p-6 space-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-blue-700 uppercase tracking-widest mb-1.5 ml-1">Leave Type</label>
+                    <select
+                      value={editLeave.type}
+                      onChange={(e) => setEditLeave({ ...editLeave, type: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      required
+                    >
+                      {editLeave.type && !editTypeExists && (
+                        <option value={normalizeLeaveTypeKey(editLeave.type)}>{formatLeaveTypeLabel(editLeave.type)}</option>
+                      )}
+                      {leaveTypeSelectOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.displayLabel}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {isAdminOrManager ? (
+                    <div>
+                      <label className="block text-[10px] font-black text-blue-700 uppercase tracking-widest mb-1.5 ml-1">Status</label>
+                      <select
+                        value={editLeave.status}
+                        onChange={(e) => {
+                          const nextStatus = e.target.value;
+                          setEditLeave({
+                            ...editLeave,
+                            status: nextStatus,
+                            admin_reason: ['rejected', 'cancelled'].includes(nextStatus) ? editLeave.admin_reason : ''
+                          });
+                        }}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                      >
+                        {statusOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="text-[10px] font-black text-blue-700 uppercase tracking-widest mb-1.5">Current Status</div>
+                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${
+                        editModalStatus === 'approved'
+                          ? 'bg-green-100 text-green-800'
+                          : editModalStatus === 'rejected'
+                            ? 'bg-red-100 text-red-800'
+                            : editModalStatus === 'cancelled'
+                              ? 'bg-slate-100 text-slate-800'
+                              : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {statusLabels[editLeave.status] || (editLeave.status?.charAt(0).toUpperCase() + editLeave.status?.slice(1))}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-[10px] font-black text-blue-700 uppercase tracking-widest mb-1.5 ml-1">Start Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={editLeave.start_date}
+                      onChange={(e) => setEditLeave({ ...editLeave, start_date: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-blue-700 uppercase tracking-widest mb-1.5 ml-1">End Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={editLeave.end_date}
+                      onChange={(e) => setEditLeave({ ...editLeave, end_date: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-blue-700 uppercase tracking-widest mb-1.5 ml-1">Employee Reason</label>
+                  <textarea
+                    rows="3"
+                    required={!isAdminOrManager}
+                    value={editLeave.reason}
+                    onChange={(e) => setEditLeave({ ...editLeave, reason: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    placeholder={editModalIsSelfReapply ? 'Update the reason and reapply for approval' : 'Add or update the leave reason'}
+                  ></textarea>
+                </div>
+
+                {!isAdminOrManager && editModalIsSelfReapply && editLeave.admin_reason && (
+                  <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <div className="text-[10px] font-black uppercase tracking-widest mb-1">Previous rejection note</div>
+                    <div className="leading-6 whitespace-pre-wrap">{editLeave.admin_reason}</div>
+                  </div>
+                )}
+
+                {isAdminOrManager && ['rejected', 'cancelled'].includes(editLeave.status) && (
+                  <div>
+                    <label className="block text-[10px] font-black text-red-600 uppercase tracking-widest mb-1.5 ml-1">
+                      {editLeave.status === 'cancelled' ? 'Cancellation Reason' : 'Rejection Reason'}
+                    </label>
+                    <textarea
+                      rows="3"
+                      required
+                      value={editLeave.admin_reason}
+                      onChange={(e) => setEditLeave({ ...editLeave, admin_reason: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-all"
+                      placeholder={editLeave.status === 'cancelled' ? 'Why is this leave being cancelled?' : 'Why is this leave being rejected?'}
+                    ></textarea>
+                  </div>
+                )}
+
+                <div className="pt-5 border-t border-slate-100 flex justify-end space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
+                    className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-8 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-500/20 transition-all"
+                  >
+                    {editModalActionLabel}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )
+      }
+
       {/* Professional Rejection Reason Modal */}
       {
         showReasonModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
             <div className="bg-white rounded-[1.5rem] w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200">
-              <div className="bg-red-600 p-5 text-white flex items-center justify-between">
+              <div className={`${activeDecision.headerClass} p-5 text-white flex items-center justify-between`}>
                 <div className="flex items-center space-x-4">
                   <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                    <i className="fas fa-comment-slash text-xl"></i>
+                    <i className={`${decisionStatus === 'cancelled' ? 'fas fa-ban' : 'fas fa-comment-slash'} text-xl`}></i>
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold">Reject Application</h2>
-                    <p className="text-[10px] opacity-80 uppercase tracking-widest font-black">Mandatory Feedback Required</p>
+                    <h2 className="text-lg font-bold">{activeDecision.title}</h2>
+                    <p className="text-[10px] opacity-80 uppercase tracking-widest font-black">{activeDecision.eyebrow}</p>
                   </div>
                 </div>
                 <button onClick={() => setShowReasonModal(false)} className="text-white hover:text-gray-200 transition-colors">
@@ -643,14 +1194,14 @@ export default function Leaves() {
               </div>
 
               <div className="p-6">
-                <label className="block text-[10px] font-black text-red-600 uppercase tracking-widest mb-1.5 ml-1">Reason for Rejection</label>
+                <label className={`block text-[10px] font-black ${activeDecision.labelClass} uppercase tracking-widest mb-1.5 ml-1`}>{activeDecision.label}</label>
                 <textarea
                   rows="4"
                   required
                   value={adminReason}
                   onChange={(e) => setAdminReason(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500 transition-all mb-6"
-                  placeholder="Please state the reason for rejecting this leave request..."
+                  className={`w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 ${activeDecision.focusClass} transition-all mb-6`}
+                  placeholder={activeDecision.placeholder}
                 ></textarea>
 
                 <div className="flex justify-end space-x-3">
@@ -662,11 +1213,11 @@ export default function Leaves() {
                     Cancel
                   </button>
                   <button
-                    onClick={() => handleStatusUpdate(currentLeaveId, 'rejected', adminReason)}
+                    onClick={() => handleStatusUpdate(currentLeaveId, decisionStatus, adminReason)}
                     disabled={!adminReason.trim()}
-                    className="px-8 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-red-500/20 transition-all disabled:opacity-50"
+                    className={`px-8 py-2.5 ${activeDecision.buttonClass} text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg transition-all disabled:opacity-50`}
                   >
-                    Confirm Rejection
+                    {activeDecision.button}
                   </button>
                 </div>
               </div>
@@ -708,6 +1259,16 @@ export default function Leaves() {
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Description</label>
+                <textarea
+                  rows="4"
+                  value={typeForm.description}
+                  onChange={(e) => setTypeForm({ ...typeForm, description: e.target.value })}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                  placeholder="Leave policy aur usage note likhein"
+                />
+              </div>
               <div className="flex gap-2">
                 <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
                   {editingType ? 'Update' : 'Add'}
@@ -732,6 +1293,7 @@ export default function Leaves() {
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Type</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Code</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Default</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Description</th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Actions</th>
                       </tr>
                     </thead>
@@ -742,6 +1304,11 @@ export default function Leaves() {
                           <td className="px-4 py-3 font-medium text-slate-900">{t.name}</td>
                           <td className="px-4 py-3 text-slate-600">{t.code || '-'}</td>
                           <td className="px-4 py-3 text-slate-600">{t.default_balance || 0}</td>
+                          <td className="px-4 py-3 text-slate-600 max-w-[280px]">
+                            <div className="truncate" title={t.description || ''}>
+                              {t.description || '-'}
+                            </div>
+                          </td>
                           <td className="px-4 py-3 text-right space-x-2">
                             <button onClick={() => handleEditLeaveType(t)} className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100">
                               Edit

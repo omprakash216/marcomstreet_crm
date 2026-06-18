@@ -14,6 +14,7 @@ const masterNavSections = [
       { to: "/superadmin/subscriptions", label: "Subscription Plans", icon: "fa-layer-group" },
       { to: "/superadmin/billing/requests", label: "Plan Requests", icon: "fa-file-signature" },
       { to: "/superadmin/modules", label: "Module Manager", icon: "fa-cubes" },
+      { to: "/superadmin/posh", label: "POSH Compliance", icon: "fa-shield-alt" },
       { to: "/superadmin/users", label: "Global Users", icon: "fa-users-cog" },
       { to: "/superadmin/roles", label: "Roles & Access", icon: "fa-user-shield" },
       { to: "/superadmin/super-admins", label: "Super Admins", icon: "fa-user-shield" },
@@ -121,7 +122,8 @@ const navToneClasses = {
 };
 
 export default function SuperAdminLayout() {
-  const [employee] = useState(() => getEmployee());
+  const [employee, setEmployee] = useState(() => getEmployee());
+  const [authReady, setAuthReady] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const navigate = useNavigate();
@@ -145,10 +147,58 @@ export default function SuperAdminLayout() {
       };
 
   useEffect(() => {
-    if (!employee || !isSuperAdminRole(employee.role)) {
-      navigate("/", { replace: true });
-    }
-  }, [employee, navigate]);
+    let cancelled = false;
+
+    const bootstrapSession = async () => {
+      setAuthReady(false);
+
+      const emp = getEmployee();
+      if (!emp) {
+        clearAuth();
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      if (!isSuperAdminRole(emp.role)) {
+        navigate("/", { replace: true });
+        return;
+      }
+
+      try {
+        const response = await api.get("/auth/verify");
+        const verifiedEmployee = response.data?.data?.employee;
+        if (!verifiedEmployee) {
+          throw new Error("Invalid session payload");
+        }
+
+        if (!isSuperAdminRole(verifiedEmployee.role)) {
+          navigate("/", { replace: true });
+          return;
+        }
+
+        if (cancelled) return;
+        setEmployee(verifiedEmployee);
+        localStorage.setItem("employee", JSON.stringify(verifiedEmployee));
+        setAuthReady(true);
+      } catch (error) {
+        if (cancelled) return;
+        if (error.response?.status === 401) {
+          clearAuth();
+          navigate("/login", { replace: true });
+          return;
+        }
+
+        setEmployee(emp);
+        setAuthReady(true);
+      }
+    };
+
+    bootstrapSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   useEffect(() => {
     setShowMobileSidebar(false);
@@ -176,7 +226,7 @@ export default function SuperAdminLayout() {
     navigate("/login", { replace: true });
   };
 
-  if (!employee || !isSuperAdminRole(employee.role)) return null;
+  if (!authReady || !employee || !isSuperAdminRole(employee.role)) return null;
 
   return (
     <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50">

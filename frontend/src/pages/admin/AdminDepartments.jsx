@@ -3,13 +3,39 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { getEmployee, normalizeRole } from '../../utils/auth';
 
+function normalizeDepartmentCode(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 20);
+}
+
+function suggestDepartmentCode(name) {
+  const rawName = String(name || '').trim();
+  if (!rawName) return '';
+
+  const bracketMatch = rawName.match(/\(([^)]+)\)/);
+  if (bracketMatch) {
+    const bracketCode = normalizeDepartmentCode(bracketMatch[1]);
+    if (bracketCode) return bracketCode;
+  }
+
+  const words = rawName.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if (words.length > 1) {
+    const initials = normalizeDepartmentCode(words.map((word) => word[0]).join(''));
+    if (initials) return initials.slice(0, 8);
+  }
+
+  return normalizeDepartmentCode(rawName).slice(0, 8);
+}
+
 export default function AdminDepartments() {
   const [departments, setDepartments] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
-  const [newDept, setNewDept] = useState({ name: '', description: '' });
+  const [newDept, setNewDept] = useState({ name: '', department_code: '', description: '' });
   const [editingDept, setEditingDept] = useState(null);
   const [viewDept, setViewDept] = useState(null);
   const [filterText, setFilterText] = useState('');
@@ -17,6 +43,7 @@ export default function AdminDepartments() {
   const [sortBy, setSortBy] = useState('name_asc'); // name_asc | name_desc | employees_desc | employees_asc | newest | oldest
   const [companyFilter, setCompanyFilter] = useState(''); // company_id for superadmin only
   const [page, setPage] = useState(1);
+  const [codeTouched, setCodeTouched] = useState(false);
   const pageSize = 10;
   const navigate = useNavigate();
   const employee = getEmployee();
@@ -64,14 +91,27 @@ export default function AdminDepartments() {
   const handleAddDept = async (e) => {
     e.preventDefault();
     try {
-      const payload = { ...newDept };
+      const departmentCode = normalizeDepartmentCode(newDept.department_code || suggestDepartmentCode(newDept.name));
+      if (!departmentCode) {
+        alert('Department code is required');
+        return;
+      }
+
+      const payload = {
+        ...newDept,
+        name: newDept.name.trim(),
+        department_code: departmentCode,
+        description: String(newDept.description || '').trim(),
+      };
+
       const response = editingDept
         ? await api.put(`/departments/${editingDept.id}`, payload)
         : await api.post('/departments', payload);
       if (response.data.success) {
         alert(editingDept ? 'Department updated successfully!' : 'Department added successfully!');
         setShowAddModal(false);
-        setNewDept({ name: '', description: '' });
+        setNewDept({ name: '', department_code: '', description: '' });
+        setCodeTouched(false);
         setEditingDept(null);
         fetchDepartments();
       }
@@ -170,7 +210,8 @@ export default function AdminDepartments() {
               type="button"
               onClick={() => {
                 setEditingDept(null);
-                setNewDept({ name: '', description: '' });
+                setNewDept({ name: '', department_code: '', description: '' });
+                setCodeTouched(false);
                 setShowAddModal(true);
               }}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
@@ -286,7 +327,9 @@ export default function AdminDepartments() {
                       </div>
                       <div>
                         <p className="text-sm font-semibold text-gray-900">{dept.name}</p>
-                        <p className="text-xs text-gray-500">ID: {dept.id}</p>
+                        <p className="text-xs text-gray-500">
+                          ID: {dept.id} · Code: {dept.department_code || '-'}
+                        </p>
                       </div>
                     </div>
                   </td>
@@ -314,7 +357,12 @@ export default function AdminDepartments() {
                       title="Edit"
                       onClick={() => {
                         setEditingDept(dept);
-                        setNewDept({ name: dept.name || '', description: dept.description || '' });
+                        setNewDept({
+                          name: dept.name || '',
+                          department_code: dept.department_code || suggestDepartmentCode(dept.name || ''),
+                          description: dept.description || '',
+                        });
+                        setCodeTouched(Boolean(dept.department_code));
                         setShowAddModal(true);
                       }}
                     >
@@ -375,10 +423,37 @@ export default function AdminDepartments() {
                   type="text"
                   required
                   value={newDept.name}
-                  onChange={(e) => setNewDept({...newDept, name: e.target.value})}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setNewDept((current) => {
+                      const next = { ...current, name };
+                      if (!codeTouched) {
+                        next.department_code = suggestDepartmentCode(name);
+                      }
+                      return next;
+                    });
+                  }}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                   placeholder="e.g. Creative Design"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Department Code</label>
+                <input
+                  type="text"
+                  required
+                  value={newDept.department_code}
+                  onChange={(e) => {
+                    const code = normalizeDepartmentCode(e.target.value);
+                    setCodeTouched(true);
+                    setNewDept((current) => ({ ...current, department_code: code }));
+                  }}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 uppercase font-mono"
+                  placeholder="e.g. HR"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Used for employee code generation. You can keep the auto-suggested value or change it.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Description</label>
@@ -393,7 +468,12 @@ export default function AdminDepartments() {
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingDept(null);
+                    setNewDept({ name: '', department_code: '', description: '' });
+                    setCodeTouched(false);
+                  }}
                   className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
                 >
                   Cancel
@@ -423,6 +503,10 @@ export default function AdminDepartments() {
               <div className="flex justify-between">
                 <span className="font-semibold text-gray-600">Name:</span>
                 <span>{viewDept.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-semibold text-gray-600">Code:</span>
+                <span className="font-mono font-semibold">{viewDept.department_code || '-'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="font-semibold text-gray-600">ID:</span>

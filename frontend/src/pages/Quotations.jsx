@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { getEmployee } from '../utils/auth';
-import { generateQuotationPdf } from '../utils/quotationPdf';
+import { downloadPdfUrl, openPdfUrlInNewTab, printPdfFromApi, sanitizePdfFileName } from '../utils/pdfActions';
 
 function isManagerOrAdmin(employee) {
   const role = (employee?.role || '').toLowerCase();
@@ -22,6 +22,36 @@ function createDefaultQuotationForm() {
     notes: '',
     terms_conditions: '',
     send_for_approval: false,
+  };
+}
+
+function createDefaultCompanySettings() {
+  return {
+    company_name: '',
+    email: '',
+    phone: '',
+    address: '',
+    gst_number: '',
+    pan_number: '',
+    quotation_template: 'standard',
+    quotation_header_text: '',
+    quotation_footer_text: 'Thank you for your business!',
+    bank_name: '',
+    account_holder_name: '',
+    account_number: '',
+    ifsc_code: '',
+    branch_name: '',
+    nature: 'Current Account',
+    logo_path: '',
+  };
+}
+
+function normalizeCompanySettings(settings = {}) {
+  return {
+    ...createDefaultCompanySettings(),
+    ...settings,
+    quotation_footer_text: settings?.quotation_footer_text ?? 'Thank you for your business!',
+    nature: settings?.nature || 'Current Account',
   };
 }
 
@@ -75,13 +105,32 @@ function splitTaxEvenly(totalTaxAmount, taxPercentage) {
   };
 }
 
+function formatQuotationDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 export default function Quotations() {
   const employee = getEmployee();
+  const canEditCompanySettings = ['admin', 'superadmin', 'super_admin'].includes(String(employee?.role || '').toLowerCase());
   const canApprove = isManagerOrAdmin(employee);
+  const canRequestApproval = !canApprove;
   const [quotations, setQuotations] = useState([]);
   const [pendingQuotations, setPendingQuotations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [showQuotationViewModal, setShowQuotationViewModal] = useState(false);
+  const [viewQuotation, setViewQuotation] = useState(null);
+  const [viewQuotationLoading, setViewQuotationLoading] = useState(false);
+  const [viewQuotationError, setViewQuotationError] = useState('');
+  const [companySettings, setCompanySettings] = useState(createDefaultCompanySettings());
+  const [companySettingsSnapshot, setCompanySettingsSnapshot] = useState(createDefaultCompanySettings());
+  const [companySettingsLoading, setCompanySettingsLoading] = useState(true);
+  const [companySettingsSaving, setCompanySettingsSaving] = useState(false);
+  const [companySettingsError, setCompanySettingsError] = useState('');
+  const [quotationSaving, setQuotationSaving] = useState(false);
   const [leads, setLeads] = useState([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
   const [leadsLoadError, setLeadsLoadError] = useState('');
@@ -91,24 +140,16 @@ export default function Quotations() {
     status: '',
   });
   const [formData, setFormData] = useState(createDefaultQuotationForm);
-  const [quotationSettings, setQuotationSettings] = useState({});
-
-  const uploadsBase = useMemo(() => {
-    const base = api.defaults.baseURL || '';
-    return base.replace(/\/api\/?$/, '');
-  }, []);
-
-  const quotationPdfSettings = useMemo(() => ({
-    ...quotationSettings,
-    logo_url: quotationSettings.logo_path ? `${uploadsBase}/${quotationSettings.logo_path}` : '',
-  }), [quotationSettings, uploadsBase]);
 
   useEffect(() => {
     fetchQuotations();
     fetchLeads();
-    fetchQuotationSettings();
     if (canApprove) fetchPendingQuotations();
   }, [canApprove]);
+
+  useEffect(() => {
+    fetchQuotationSettings();
+  }, []);
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -133,19 +174,6 @@ export default function Quotations() {
     } catch (e) {
       if (e.response?.status !== 401 && e.code !== 'ERR_NETWORK') console.error('Pending quotations:', e);
       setPendingQuotations([]);
-    }
-  };
-
-  const fetchQuotationSettings = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      const response = await api.get('/quotations/template-settings');
-      if (response.data?.success) {
-        setQuotationSettings(response.data.data || {});
-      }
-    } catch (error) {
-      setQuotationSettings({});
     }
   };
 
@@ -238,6 +266,91 @@ export default function Quotations() {
     }
   };
 
+  const fetchQuotationSettings = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setCompanySettingsLoading(false);
+      return;
+    }
+
+    setCompanySettingsLoading(true);
+    setCompanySettingsError('');
+    try {
+      const response = await api.get('/quotations/template-settings');
+      const nextSettings = normalizeCompanySettings(response?.data?.data || {});
+      setCompanySettings(nextSettings);
+      setCompanySettingsSnapshot(nextSettings);
+    } catch (error) {
+      if (error.response?.status !== 401 && error.code !== 'ERR_NETWORK') {
+        console.error('Error fetching quotation settings:', error);
+      }
+      const fallbackSettings = createDefaultCompanySettings();
+      setCompanySettings(fallbackSettings);
+      setCompanySettingsSnapshot(fallbackSettings);
+      setCompanySettingsError(error.response?.data?.message || 'Unable to load company bank details.');
+    } finally {
+      setCompanySettingsLoading(false);
+    }
+  };
+
+  const handleCompanySettingChange = (field, value) => {
+    setCompanySettings((current) => ({ ...current, [field]: value }));
+  };
+
+  const buildCompanySettingsPayload = (settings) => ({
+    company_name: settings.company_name || '',
+    email: settings.email || '',
+    phone: settings.phone || '',
+    address: settings.address || '',
+    gst_number: settings.gst_number || '',
+    pan_number: settings.pan_number || '',
+    quotation_template: settings.quotation_template || 'standard',
+    quotation_header_text: settings.quotation_header_text || '',
+    quotation_footer_text: settings.quotation_footer_text || 'Thank you for your business!',
+    bank_name: settings.bank_name || '',
+    account_holder_name: settings.account_holder_name || '',
+    account_number: settings.account_number || '',
+    ifsc_code: settings.ifsc_code || '',
+    branch_name: settings.branch_name || '',
+    nature: settings.nature || 'Current Account',
+    logo_path: settings.logo_path || '',
+  });
+
+  const hasCompanySettingsChanges = () => {
+    if (!canEditCompanySettings) return false;
+    const bankFields = ['bank_name', 'account_holder_name', 'account_number', 'ifsc_code', 'branch_name', 'nature'];
+    return bankFields.some((field) => String(companySettings?.[field] ?? '') !== String(companySettingsSnapshot?.[field] ?? ''));
+  };
+
+  const saveCompanySettings = async ({ silent = false } = {}) => {
+    if (!canEditCompanySettings) {
+      if (!silent) alert('Only admin can edit bank details from this screen.');
+      return false;
+    }
+    if (!hasCompanySettingsChanges()) return true;
+
+    setCompanySettingsSaving(true);
+    try {
+      const payload = buildCompanySettingsPayload(companySettings);
+      const response = await api.put('/admin/company-settings', payload);
+      if (response?.data?.success) {
+        const nextSettings = normalizeCompanySettings({ ...companySettings, ...(response.data.data || {}) });
+        setCompanySettings(nextSettings);
+        setCompanySettingsSnapshot(nextSettings);
+        setCompanySettingsError('');
+        return true;
+      }
+      throw new Error(response?.data?.message || 'Failed to save company settings');
+    } catch (error) {
+      if (!silent) {
+        alert(error.response?.data?.message || error.message || 'Failed to save bank details');
+      }
+      return false;
+    } finally {
+      setCompanySettingsSaving(false);
+    }
+  };
+
   const handleFilterChange = (field, value) => {
     setFilters({ ...filters, [field]: value });
   };
@@ -322,10 +435,14 @@ export default function Quotations() {
       return;
     }
 
+    setQuotationSaving(true);
     try {
+      const settingsSaved = await saveCompanySettings({ silent: false });
+      if (!settingsSaved) return;
+
       const payload = {
         ...formData,
-        send_for_approval: !!formData.send_for_approval,
+        send_for_approval: canRequestApproval && !!formData.send_for_approval,
         issue_date: formData.issue_date || new Date().toISOString().slice(0, 10),
       };
       await api.post('/quotations', payload);
@@ -335,10 +452,13 @@ export default function Quotations() {
       if (canApprove) fetchPendingQuotations();
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to create quotation');
+    } finally {
+      setQuotationSaving(false);
     }
   };
 
   const handleSendForApproval = async (id) => {
+    if (!canRequestApproval) return;
     try {
       await api.put(`/quotations/${id}/send`);
       fetchQuotations();
@@ -385,239 +505,52 @@ export default function Quotations() {
     }
   };
 
-  const downloadQuotationPDF = async (quotation) => {
-    // Fetch full quotation (includes items array)
-    let q = quotation;
-    try {
-      const res = await api.get(`/quotations/${quotation.id}`);
-      q = res.data?.data || res.data || quotation;
-    } catch (_) {}
+  const openQuotationDetails = async (quotation) => {
+    if (!quotation?.id) return;
+    setViewQuotation(quotation);
+    setViewQuotationError('');
+    setViewQuotationLoading(true);
+    setShowQuotationViewModal(true);
 
     try {
-      await generateQuotationPdf(q, quotationPdfSettings);
+      const response = await api.get(`/quotations/${quotation.id}`);
+      setViewQuotation(response?.data?.data || quotation);
     } catch (error) {
-      console.error('Quotation PDF error:', error);
-      alert('Quotation PDF generate nahi ho paya');
+      if (error.response?.status !== 401 && error.code !== 'ERR_NETWORK') {
+        console.error('Error loading quotation details:', error);
+      }
+      setViewQuotationError(error.response?.data?.message || 'Failed to load quotation details.');
+    } finally {
+      setViewQuotationLoading(false);
     }
-    return;
+  };
 
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pageW = 210;   // A4 width in mm
-    const pageH = 297;   // A4 height in mm
-    const ml = 14;       // left margin
-    const mr = 14;       // right margin
-    const cW = pageW - ml - mr; // 182mm content width
-    const INR = (n) => `Rs. ${Math.round(n || 0).toLocaleString('en-IN')}`;
-    const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A';
+  const closeQuotationDetails = () => {
+    setShowQuotationViewModal(false);
+    setViewQuotation(null);
+    setViewQuotationError('');
+    setViewQuotationLoading(false);
+  };
 
-    // ─── HEADER BAND ───────────────────────────────────────────────────
-    doc.setFillColor(30, 64, 175);            // deep blue
-    doc.rect(0, 0, pageW, 46, 'F');
-    // thin accent stripe
-    doc.setFillColor(59, 130, 246);
-    doc.rect(0, 46, pageW, 2, 'F');
-
-    // Logo (vg.png — square, fits nicely)
-    try { doc.addImage(vgLogo, 'PNG', ml, 7, 30, 30); } catch (_) {}
-
-    // Company text
-    const tx = ml + 35;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(17);
-    doc.setTextColor(255, 255, 255);
-    doc.text('MARCOM STREET', tx, 18);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(186, 214, 255);
-    doc.text('Marketing & Creative Solutions', tx, 25);
-    doc.text('www.marcomstreet.com  |  info@marcomstreet.com', tx, 31);
-
-    // QUOTATION label – right side, safely inside margin
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(26);
-    doc.setTextColor(255, 255, 255);
-    doc.text('QUOTATION', pageW - mr, 20, { align: 'right' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(186, 214, 255);
-    doc.text(q.quotation_number || '', pageW - mr, 28, { align: 'right' });
-
-    // ─── INFO BLOCK ────────────────────────────────────────────────────
-    const infoY = 56;
-
-    // LEFT: Billed To (occupies left ~40% = 73mm)
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(130, 130, 130);
-    doc.text('BILLED TO', ml, infoY);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(20, 20, 20);
-    doc.text(q.company_name || 'N/A', ml, infoY + 7);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(80, 80, 80);
-    doc.text(q.contact_person || '', ml, infoY + 13);
-
-    // RIGHT: 3 sub-columns that fit exactly in the right 60% of the page
-    // Available right zone: from x=87 to x=196 (109mm wide)
-    // Sub-col widths: ISSUE DATE 42mm | VALID UNTIL 42mm | STATUS 25mm
-    const rc1 = 87;   // issue date
-    const rc2 = 129;  // valid until
-    const rc3 = 171;  // status (badge width 22mm → ends at 193 < 196 ✓)
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(130, 130, 130);
-    doc.text('ISSUE DATE',  rc1, infoY);
-    doc.text('VALID UNTIL', rc2, infoY);
-    doc.text('STATUS',      rc3, infoY);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(20, 20, 20);
-    doc.text(fmtDate(q.issue_date),  rc1, infoY + 7);
-    doc.text(fmtDate(q.valid_until), rc2, infoY + 7);
-
-    // Status badge
-    const statusClr = { draft:[107,114,128], sent:[37,99,235], accepted:[22,163,74], rejected:[220,38,38], expired:[202,138,4] };
-    const sc = statusClr[q.status] || [107, 114, 128];
-    doc.setFillColor(...sc);
-    doc.roundedRect(rc3, infoY + 1, 22, 8, 2, 2, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
-    doc.setTextColor(255, 255, 255);
-    doc.text((q.status || '').toUpperCase(), rc3 + 11, infoY + 6.5, { align: 'center' });
-
-    // Divider
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.4);
-    doc.line(ml, infoY + 20, pageW - mr, infoY + 20);
-
-    // ─── ITEMS TABLE ───────────────────────────────────────────────────
-    const items = Array.isArray(q.items) ? q.items : [];
-    const tableBody = items.map((item, i) => [
-      i + 1,
-      item.item_name || '',
-      item.description || '',
-      item.quantity || 1,
-      INR(item.unit_price || 0),
-      INR((item.quantity || 1) * (item.unit_price || 0)),
-    ]);
-
-    // Column widths must sum to cW = 182
-    autoTable(doc, {
-      startY: infoY + 24,
-      margin: { left: ml, right: mr },
-      head: [['#', 'Item / Service', 'Description', 'Qty', 'Unit Price', 'Total']],
-      body: tableBody.length > 0 ? tableBody : [['', 'No items', '', '', '', '']],
-      headStyles: {
-        fillColor: [30, 64, 175],
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-        fontSize: 8,
-        halign: 'center',
-        cellPadding: { top: 4, bottom: 4, left: 3, right: 3 },
-      },
-      bodyStyles: { fontSize: 8.5, textColor: [30, 30, 30], cellPadding: 3 },
-      alternateRowStyles: { fillColor: [245, 248, 255] },
-      columnStyles: {
-        0: { halign: 'center', cellWidth: 8 },
-        1: { fontStyle: 'bold', cellWidth: 42 },
-        2: { cellWidth: 62, textColor: [90, 90, 90] },
-        3: { halign: 'center', cellWidth: 12 },
-        4: { halign: 'right', cellWidth: 28 },
-        5: { halign: 'right', fontStyle: 'bold', cellWidth: 30 },
-      },
-    });
-
-    // ─── TOTALS BLOCK ──────────────────────────────────────────────────
-    const tY = doc.lastAutoTable.finalY + 8;
-    // Box occupies the right 82mm → x from (pageW-mr-82)=114 to x=196
-    const boxX = pageW - mr - 82;
-    const boxW = 82;
-    const rH = 7.5;
-
-    const subtotal  = Math.round(q.subtotal || 0);
-    const discount  = Math.round(q.discount_amount || 0);
-    const tax       = Math.round(q.tax_amount || 0);
-    const grandTotal= Math.round(q.total_amount || 0);
-    const discPct   = q.discount_percentage || 0;
-    const taxPct    = q.tax_percentage || 0;
-
-    const taxSplit = splitTaxEvenly(tax, taxPct);
-    const numRows = 5;
-
-    // Subtle bg behind the totals rows
-    doc.setFillColor(248, 249, 253);
-    doc.roundedRect(boxX, tY - 3, boxW, rH * numRows + 2, 2, 2, 'F');
-
-    const drawRow = (label, value, y, bold = false, highlight = false) => {
-      if (highlight) {
-        doc.setFillColor(30, 64, 175);
-        doc.roundedRect(boxX, y - 4.5, boxW, rH + 1, 2, 2, 'F');
-        doc.setTextColor(255, 255, 255);
-      } else {
-        doc.setTextColor(bold ? 25 : 100, bold ? 25 : 100, bold ? 25 : 100);
+  const openQuotationPdf = async (quotation, action = 'view') => {
+    if (!quotation?.id) return;
+    try {
+      const safeNumber = sanitizePdfFileName(quotation.quotation_number || `QT-${quotation.id}`, 'quotation');
+      const mode = action === true ? 'download' : action === false ? 'view' : action;
+      if (mode === 'download') {
+        downloadPdfUrl(`/quotations/${quotation.id}/pdf`, {
+          fileName: `quotation_${safeNumber}.pdf`,
+        });
+        return;
       }
-      doc.setFont('helvetica', bold ? 'bold' : 'normal');
-      doc.setFontSize(highlight ? 9.5 : 8.5);
-      doc.text(label, boxX + 3, y);
-      doc.text(value, boxX + boxW - 3, y, { align: 'right' });
-    };
-
-    drawRow('Subtotal',              INR(subtotal),             tY);
-    drawRow(`Discount (${discPct}%)`,`- ${INR(discount)}`,      tY + rH);
-    drawRow(`CGST (${formatPercent(taxSplit.cgstPercentage)}%)`, `+ ${INR(taxSplit.cgstAmount)}`, tY + rH * 2);
-    drawRow(`SGST (${formatPercent(taxSplit.sgstPercentage)}%)`, `+ ${INR(taxSplit.sgstAmount)}`, tY + rH * 3);
-    drawRow(`Tax (${formatPercent(taxPct)}%)`, `+ ${INR(tax)}`, tY + rH * 4);
-    doc.setDrawColor(200, 205, 220);
-    doc.setLineWidth(0.35);
-    doc.line(boxX, tY + rH * numRows - 1, boxX + boxW, tY + rH * numRows - 1);
-    drawRow('GRAND TOTAL',           INR(grandTotal),           tY + rH * numRows + 4, true, true);
-
-    // ─── NOTES & TERMS ─────────────────────────────────────────────────
-    const ntY = tY + rH * (numRows + 1) + 14;
-    if (q.notes || q.terms_conditions) {
-      doc.setDrawColor(220, 225, 235);
-      doc.setLineWidth(0.4);
-      doc.line(ml, ntY - 3, pageW - mr, ntY - 3);
-      const halfCW = cW / 2 - 4;
-      if (q.notes) {
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.5);
-        doc.setTextColor(60, 60, 60);
-        doc.text('NOTES', ml, ntY + 2);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(90, 90, 90);
-        doc.text(doc.splitTextToSize(q.notes, halfCW), ml, ntY + 8);
+      if (mode === 'print') {
+        await printPdfFromApi(`/quotations/${quotation.id}/pdf`);
+        return;
       }
-      if (q.terms_conditions) {
-        const termsX = ml + cW / 2 + 4;
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.5);
-        doc.setTextColor(60, 60, 60);
-        doc.text('TERMS & CONDITIONS', termsX, ntY + 2);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(90, 90, 90);
-        doc.text(doc.splitTextToSize(q.terms_conditions, halfCW), termsX, ntY + 8);
-      }
+      openPdfUrlInNewTab(`/quotations/${quotation.id}/pdf`);
+    } catch (err) {
+      alert(err.message || 'Failed to open quotation PDF');
     }
-
-    // ─── FOOTER BAND ───────────────────────────────────────────────────
-    doc.setFillColor(30, 64, 175);
-    doc.rect(0, pageH - 14, pageW, 14, 'F');
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(186, 214, 255);
-    doc.text(
-      'Thank you for your business!  This quotation is computer-generated and valid until the date shown above.',
-      pageW / 2, pageH - 5.5, { align: 'center' }
-    );
-
-    doc.save(`Quotation-${q.quotation_number || q.id}.pdf`);
   };
 
   const indexOfLastItem = currentPage * itemsPerPage;
@@ -822,17 +755,23 @@ export default function Quotations() {
                       {indexOfFirstItem + index + 1}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-bold text-gray-900">{quotation.quotation_number}</div>
+                      <button
+                        type="button"
+                        onClick={() => openQuotationDetails(quotation)}
+                        className="text-sm font-black text-blue-700 hover:text-blue-900 hover:underline"
+                      >
+                        {quotation.quotation_number || `QT-${quotation.id}`}
+                      </button>
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm font-bold text-gray-900">{quotation.company_name}</div>
                       <div className="text-xs text-gray-500">{quotation.contact_person}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(quotation.issue_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {formatQuotationDate(quotation.issue_date)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {quotation.valid_until ? new Date(quotation.valid_until).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
+                      {formatQuotationDate(quotation.valid_until)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="text-sm font-bold text-gray-900">₹{Math.round(quotation.total_amount || 0).toLocaleString('en-IN')}</div>
@@ -844,38 +783,64 @@ export default function Quotations() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                      <div className="flex items-center justify-center flex-wrap gap-2">
-                        {quotation.status === 'draft' && (
+                      <div className="flex items-center justify-center flex-nowrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openQuotationDetails(quotation)}
+                          className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors shrink-0"
+                          title="View Quotation"
+                          aria-label="View Quotation"
+                        >
+                          <i className="fas fa-eye"></i>
+                        </button>
+                        {canRequestApproval && quotation.status === 'draft' && Number(quotation.employee_id) === Number(employee?.id) && (
                           <button
+                            type="button"
                             onClick={() => handleSendForApproval(quotation.id)}
-                            className="px-2 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700"
+                            className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-900 transition-colors shrink-0"
                             title="Send for manager approval"
+                            aria-label="Send for manager approval"
                           >
-                            Send for approval
+                            <i className="fas fa-paper-plane"></i>
                           </button>
                         )}
                         <button
-                          onClick={() => downloadQuotationPDF(quotation)}
-                          className="text-blue-600 hover:text-blue-900 transition-colors"
-                          title="Download PDF"
-                        >
-                          <i className="fas fa-file-pdf"></i>
-                        </button>
-                        <button
+                          type="button"
                           onClick={() => {
                             setFormData(normalizeQuotationForForm(quotation));
                             fetchLeads();
                             setShowModal(true);
                           }}
-                          className="text-indigo-600 hover:text-indigo-900 transition-colors"
+                          className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-900 transition-colors shrink-0"
                           title="Edit Quotation"
+                          aria-label="Edit Quotation"
                         >
                           <i className="fas fa-edit"></i>
                         </button>
                         <button
+                          type="button"
+                          onClick={() => openQuotationPdf(quotation, 'print')}
+                          className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-900 transition-colors shrink-0"
+                          title="Print PDF"
+                          aria-label="Print PDF"
+                        >
+                          <i className="fas fa-print"></i>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openQuotationPdf(quotation, 'download')}
+                          className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-900 transition-colors shrink-0"
+                          title="Download PDF"
+                          aria-label="Download PDF"
+                        >
+                          <i className="fas fa-download"></i>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleDelete(quotation.id)}
-                          className="text-red-600 hover:text-red-900 transition-colors"
+                          className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-900 transition-colors shrink-0"
                           title="Delete Quotation"
+                          aria-label="Delete Quotation"
                         >
                           <i className="fas fa-trash-alt"></i>
                         </button>
@@ -939,6 +904,201 @@ export default function Quotations() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Quotation Details Modal */}
+      {showQuotationViewModal && (
+        <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-[1.5rem] w-full max-w-5xl overflow-hidden shadow-2xl border border-gray-200 flex flex-col max-h-[90vh]">
+            <div className="bg-[#244bd8] p-4 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center shadow-inner">
+                  <i className="fas fa-file-invoice text-xl"></i>
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold leading-tight">Quotation Details</h2>
+                  <p className="text-[10px] opacity-80 uppercase tracking-widest font-black">
+                    {viewQuotation?.quotation_number || `QT-${viewQuotation?.id || ''}`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeQuotationDetails}
+                className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"
+              >
+                <i className="fas fa-times text-xl"></i>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {viewQuotationLoading ? (
+                <div className="py-16 text-center">
+                  <div className="inline-block h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600 mb-4"></div>
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-500">Loading quotation details...</p>
+                </div>
+              ) : (
+                <>
+                  {viewQuotationError ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                      {viewQuotationError}
+                    </div>
+                  ) : null}
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 md:col-span-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Company</p>
+                      <p className="text-lg font-black text-gray-900">{viewQuotation?.company_name || 'No company'}</p>
+                      {viewQuotation?.contact_person ? (
+                        <p className="text-sm text-gray-500 mt-1">Contact: {viewQuotation.contact_person}</p>
+                      ) : null}
+                    </div>
+                    <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Issue / Valid</p>
+                      <p className="text-sm font-bold text-gray-900">{formatQuotationDate(viewQuotation?.issue_date)}</p>
+                      <p className="text-sm text-gray-500">Valid: {formatQuotationDate(viewQuotation?.valid_until)}</p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Created By</p>
+                      <p className="text-sm font-bold text-gray-900">{viewQuotation?.employee_name || 'Unknown'}</p>
+                      <p className="text-xs text-gray-500 mt-1">{viewQuotation?.employee_role || 'employee'}</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-2">Total Amount</p>
+                      <p className="text-2xl font-black text-emerald-700">Rs. {Math.round(viewQuotation?.total_amount || 0).toLocaleString('en-IN')}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div className="rounded-xl bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500 font-bold">Subtotal</p>
+                      <p className="font-black text-gray-900">Rs. {Math.round(viewQuotation?.subtotal || 0).toLocaleString('en-IN')}</p>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500 font-bold">Discount</p>
+                      <p className="font-black text-gray-900">Rs. {Math.round(viewQuotation?.discount_amount || 0).toLocaleString('en-IN')}</p>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500 font-bold">Tax</p>
+                      <p className="font-black text-gray-900">{formatPercent(viewQuotation?.tax_percentage || 0)}%</p>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500 font-bold">Tax Amount</p>
+                      <p className="font-black text-gray-900">Rs. {Math.round(viewQuotation?.tax_amount || 0).toLocaleString('en-IN')}</p>
+                    </div>
+                    <div className="rounded-xl bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500 font-bold">Status</p>
+                      <span className={`inline-flex mt-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${getStatusColor(viewQuotation?.status)}`}>
+                        {viewQuotation?.status || 'draft'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                      <h3 className="text-sm font-black text-gray-900">Items</h3>
+                      <span className="text-xs font-bold text-gray-500">
+                        {Array.isArray(viewQuotation?.items) ? viewQuotation.items.length : 0} item(s)
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-white">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-black text-gray-500 uppercase tracking-widest">Item Name</th>
+                            <th className="px-4 py-3 text-left text-xs font-black text-gray-500 uppercase tracking-widest">Description</th>
+                            <th className="px-4 py-3 text-right text-xs font-black text-gray-500 uppercase tracking-widest">Qty</th>
+                            <th className="px-4 py-3 text-right text-xs font-black text-gray-500 uppercase tracking-widest">Rate</th>
+                            <th className="px-4 py-3 text-right text-xs font-black text-gray-500 uppercase tracking-widest">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {Array.isArray(viewQuotation?.items) && viewQuotation.items.length > 0 ? (
+                            viewQuotation.items.map((item, idx) => (
+                              <tr key={`${item.item_name || 'item'}-${idx}`}>
+                                <td className="px-4 py-3">
+                                  <div className="font-bold text-gray-900">{item.item_name || '-'}</div>
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-700">{item.description || '-'}</td>
+                                <td className="px-4 py-3 text-right text-sm text-gray-700">{Number(item.quantity || 0).toLocaleString('en-IN')}</td>
+                                <td className="px-4 py-3 text-right text-sm text-gray-700">Rs. {Math.round(item.unit_price || 0).toLocaleString('en-IN')}</td>
+                                <td className="px-4 py-3 text-right text-sm font-black text-gray-900">Rs. {Math.round(item.total_price || (Number(item.quantity || 0) * Number(item.unit_price || 0))).toLocaleString('en-IN')}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan="5" className="px-4 py-6 text-center text-sm text-gray-500">No items found for this quotation.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {(viewQuotation?.notes || viewQuotation?.terms_conditions) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {viewQuotation?.notes ? (
+                        <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
+                          <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Notes</p>
+                          <p className="text-sm text-gray-700 whitespace-pre-line">{viewQuotation.notes}</p>
+                        </div>
+                      ) : null}
+                      {viewQuotation?.terms_conditions ? (
+                        <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
+                          <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-2">Terms &amp; Conditions</p>
+                          <p className="text-sm text-gray-700 whitespace-pre-line">{viewQuotation.terms_conditions}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!viewQuotation) return;
+                    setShowQuotationViewModal(false);
+                    setFormData(normalizeQuotationForForm(viewQuotation));
+                    fetchLeads();
+                    setShowModal(true);
+                  }}
+                  disabled={viewQuotationLoading}
+                  className="px-4 py-2 rounded-lg bg-blue-50 text-blue-700 font-bold hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <i className="fas fa-edit mr-2"></i>
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => viewQuotation && openQuotationPdf(viewQuotation, 'print')}
+                  disabled={!viewQuotation || viewQuotationLoading}
+                  className="px-4 py-2 rounded-lg bg-green-50 text-green-700 font-bold hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <i className="fas fa-print mr-2"></i>
+                  Print
+                </button>
+                <button
+                  type="button"
+                  onClick={() => viewQuotation && openQuotationPdf(viewQuotation, 'download')}
+                  disabled={!viewQuotation || viewQuotationLoading}
+                  className="px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 font-bold hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <i className="fas fa-download mr-2"></i>
+                  Download PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={closeQuotationDetails}
+                  className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-bold hover:bg-gray-200"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1217,19 +1377,159 @@ export default function Quotations() {
                 </div>
               </div>
 
-              {/* Send for approval option */}
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="send_for_approval"
-                  checked={!!formData.send_for_approval}
-                  onChange={(e) => setFormData({ ...formData, send_for_approval: e.target.checked })}
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="send_for_approval" className="text-sm font-medium text-slate-700">
-                  Save and send for manager approval
-                </label>
+              {/* Bank Details */}
+              <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                      <i className="fas fa-university text-blue-500 w-4 text-center"></i>
+                      <span>Bank Details</span>
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      {canEditCompanySettings
+                        ? 'Admin yahan se bank details update kar sakte hain. Yeh PDF aur invoice print me use hongi.'
+                        : 'Bank details read-only hain. Sirf admin is screen se update kar sakta hai.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {companySettingsSaving && (
+                      <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">Saving...</span>
+                    )}
+                    {canEditCompanySettings && (
+                      <button
+                        type="button"
+                        onClick={() => saveCompanySettings({ silent: false })}
+                        disabled={!hasCompanySettingsChanges() || companySettingsSaving}
+                        className="inline-flex items-center px-4 py-2 rounded-xl border border-blue-200 bg-white text-blue-700 text-[10px] font-black uppercase tracking-widest hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <i className="fas fa-save mr-2"></i>
+                        {hasCompanySettingsChanges() ? 'Save Bank Details' : 'Saved'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {companySettingsError ? (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800">
+                    {companySettingsError}
+                  </div>
+                ) : null}
+
+                {companySettingsLoading ? (
+                  <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-white/80 p-4 text-center text-xs font-bold uppercase tracking-widest text-slate-400">
+                    Loading bank details...
+                  </div>
+                ) : canEditCompanySettings ? (
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Account Holder Name</label>
+                      <input
+                        type="text"
+                        value={companySettings.account_holder_name || ''}
+                        onChange={(e) => handleCompanySettingChange('account_holder_name', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="Vanya Group"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Bank Name</label>
+                      <input
+                        type="text"
+                        value={companySettings.bank_name || ''}
+                        onChange={(e) => handleCompanySettingChange('bank_name', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="Canara Bank"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Account Number</label>
+                      <input
+                        type="text"
+                        value={companySettings.account_number || ''}
+                        onChange={(e) => handleCompanySettingChange('account_number', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="120039354715"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">IFSC Code</label>
+                      <input
+                        type="text"
+                        value={companySettings.ifsc_code || ''}
+                        onChange={(e) => handleCompanySettingChange('ifsc_code', e.target.value.toUpperCase())}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="CNRB0018686"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Branch Name</label>
+                      <input
+                        type="text"
+                        value={companySettings.branch_name || ''}
+                        onChange={(e) => handleCompanySettingChange('branch_name', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                        placeholder="NOIDA SECTOR 48"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Nature</label>
+                      <select
+                        value={companySettings.nature || 'Current Account'}
+                        onChange={(e) => handleCompanySettingChange('nature', e.target.value)}
+                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
+                      >
+                        <option value="Current Account">Current Account</option>
+                        <option value="Savings Account">Savings Account</option>
+                        <option value="OD Account">OD Account</option>
+                        <option value="CC Account">CC Account</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-[13px]">
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Account Holder Name</p>
+                      <p className="font-semibold text-slate-900">{companySettings.account_holder_name || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Bank Name</p>
+                      <p className="font-semibold text-slate-900">{companySettings.bank_name || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Account Number</p>
+                      <p className="font-semibold text-slate-900">{companySettings.account_number || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">IFSC Code</p>
+                      <p className="font-semibold text-slate-900">{companySettings.ifsc_code || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Branch Name</p>
+                      <p className="font-semibold text-slate-900">{companySettings.branch_name || '-'}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-slate-200 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Nature</p>
+                      <p className="font-semibold text-slate-900">{companySettings.nature || '-'}</p>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* Send for approval option */}
+              {canRequestApproval && (
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="send_for_approval"
+                    checked={!!formData.send_for_approval}
+                    onChange={(e) => setFormData({ ...formData, send_for_approval: e.target.checked })}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="send_for_approval" className="text-sm font-medium text-slate-700">
+                    Save and send for manager approval
+                  </label>
+                </div>
+              )}
               {/* Action Buttons */}
               <div className="flex justify-end space-x-3 mt-4 pt-4 border-t border-slate-50">
                 <button
@@ -1241,10 +1541,19 @@ export default function Quotations() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-[#244bd8] hover:bg-blue-700 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center space-x-2 shadow-lg shadow-blue-500/20 transition-all active:scale-95"
+                  disabled={quotationSaving || companySettingsSaving}
+                  className="px-6 py-2.5 bg-[#244bd8] hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center space-x-2 shadow-lg shadow-blue-500/20 transition-all active:scale-95"
                 >
-                  <i className="fas fa-paper-plane mr-2 text-[10px]"></i>
-                  <span>{formData.send_for_approval ? 'Save & send for approval' : 'Save as draft'}</span>
+                  <i className={`fas ${quotationSaving ? 'fa-spinner fa-spin' : 'fa-paper-plane'} mr-2 text-[10px]`}></i>
+                  <span>
+                    {quotationSaving
+                      ? 'Saving...'
+                      : canApprove
+                      ? 'Save & approve'
+                      : formData.send_for_approval
+                        ? 'Save & send for approval'
+                        : 'Save as draft'}
+                  </span>
                 </button>
               </div>
             </form>

@@ -69,7 +69,7 @@ export default function Chat() {
     // Keep polling stable (single interval) to prevent duplicate request loops.
     const interval = setInterval(() => {
       if (document.hidden) return;
-      fetchUsers();
+      fetchUsers(true);
       if (selectedUserRef.current?.id) {
         fetchMessages(selectedUserRef.current.id);
       }
@@ -147,6 +147,7 @@ export default function Chat() {
       if (response.data.success) {
         setNewMessage('');
         fetchMessages(selectedUser.id, true);
+        fetchUsers(true);
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -167,6 +168,7 @@ export default function Chat() {
       const response = await api.post('/chat', formData);
       if (response.data.success) {
         fetchMessages(selectedUser.id, true);
+        fetchUsers(true);
       }
     } catch (error) {
       console.error('Error uploading file:', error);
@@ -196,6 +198,18 @@ export default function Chat() {
     );
   });
 
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    const aTime = Number(new Date(a?.last_message_time || 0)) || 0;
+    const bTime = Number(new Date(b?.last_message_time || 0)) || 0;
+    if (aTime !== bTime) return bTime - aTime;
+
+    const aUnread = Number(a?.unread_count || 0);
+    const bUnread = Number(b?.unread_count || 0);
+    if (aUnread !== bUnread) return bUnread - aUnread;
+
+    return String(a?.name || '').localeCompare(String(b?.name || ''));
+  });
+
   const getFileIcon = (type) => {
     if (type?.startsWith('image/')) return 'fa-file-image';
     if (type?.startsWith('video/')) return 'fa-file-video';
@@ -207,9 +221,9 @@ export default function Chat() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-10.5rem)] lg:h-[calc(100vh-12.5rem)] bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+    <div className="flex h-[calc(100dvh-9rem)] min-h-0 bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
       {/* Sidebar: User List */}
-      <div className={`w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col bg-slate-50/30 ${showUsers ? 'flex' : 'hidden'} lg:flex`}>
+      <div className={`w-full lg:w-80 min-h-0 border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col bg-slate-50/30 ${showUsers ? 'flex' : 'hidden'} lg:flex`}>
         <div className="p-5 border-b border-slate-200 bg-white">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-black text-slate-800 tracking-tight uppercase">Team Directory</h2>
@@ -238,8 +252,8 @@ export default function Chat() {
               <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Loading directory</p>
             </div>
-          ) : filteredUsers.length > 0 ? (
-            filteredUsers.map((user) => (
+          ) : sortedUsers.length > 0 ? (
+            sortedUsers.map((user) => (
               <button
                 key={user.id}
                 onClick={() => selectUser(user)}
@@ -262,9 +276,11 @@ export default function Chat() {
                       {user.last_message_time ? new Date(user.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                     </span>
                   </div>
-                  <p className={`text-[10px] font-bold uppercase tracking-tight truncate ${selectedUser?.id === user.id ? 'text-blue-100/80' : 'text-slate-400'}`}>
-                    {(user.role || 'employee')} <span className="mx-1">•</span> <span className={selectedUser?.id === user.id ? 'text-white' : 'text-blue-600'}>{user.department || 'General'}</span>
-                  </p>
+                  <div className={`flex min-w-0 items-center gap-2 text-[10px] font-bold uppercase tracking-tight ${selectedUser?.id === user.id ? 'text-blue-100/80' : 'text-slate-400'}`}>
+                    <span className="truncate">{user.role || 'employee'}</span>
+                    <span className={`h-3 w-px flex-shrink-0 ${selectedUser?.id === user.id ? 'bg-blue-100/70' : 'bg-slate-300'}`} aria-hidden="true"></span>
+                    <span className={`truncate ${selectedUser?.id === user.id ? 'text-white' : 'text-blue-600'}`}>{user.department || 'General'}</span>
+                  </div>
                   {user.unread_count > 0 && (
                     <div className="absolute top-1/2 right-2 -translate-y-1/2 w-5 h-5 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg border-2 border-white">
                       {user.unread_count}
@@ -282,7 +298,7 @@ export default function Chat() {
       </div>
 
       {/* Main Chat Area */}
-      <div className={`flex-1 flex flex-col bg-slate-50 ${showUsers ? 'hidden' : 'flex'} lg:flex`}>
+      <div className={`flex-1 min-h-0 flex flex-col bg-slate-50 ${showUsers ? 'hidden' : 'flex'} lg:flex`}>
         {selectedUser ? (
           <>
             {/* Professional Chat Header */}
@@ -301,9 +317,10 @@ export default function Chat() {
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-800 leading-none mb-1">{selectedUser?.name || 'Unknown User'}</h3>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{selectedUser?.role || 'employee'}</span>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">• {selectedUser?.department || 'General'}</span>
+                    <span className="h-3 w-px bg-slate-300" aria-hidden="true"></span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{selectedUser?.department || 'General'}</span>
                   </div>
                 </div>
               </div>
@@ -315,7 +332,7 @@ export default function Chat() {
             </div>
 
             {/* Messages Area */}
-            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8 custom-scrollbar bg-white/50 pattern-grid-slate">
+            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8 custom-scrollbar bg-white/50 pattern-grid-slate">
               {messages.map((msg, index) => {
                 const isMine = msg.from_employee_id === currentUser.id;
                 return (

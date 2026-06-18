@@ -1,15 +1,22 @@
 const mysqlFormat = require('mysql2').format;
 const { query } = require('../config/database');
 const { ensureEmployeeCodeSchema } = require('./employeeCodeSchema');
+const { compactEmployeeCompanyCode } = require('./companyCode');
 
-const SERIAL_LENGTH = 4;
+const SERIAL_LENGTH = 5;
 const MAX_SERIAL = Number('9'.repeat(SERIAL_LENGTH));
+const MAX_PREFIX_PART_LENGTH = 4;
 
 function normalizeCodePart(value) {
   return String(value || '')
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '')
     .trim();
+}
+
+function compactCodePart(value, maxLength = MAX_PREFIX_PART_LENGTH) {
+  const normalized = normalizeCodePart(value);
+  return normalized.slice(0, maxLength);
 }
 
 function employeeCodeError(message, statusCode = 400) {
@@ -102,9 +109,9 @@ async function fetchCodeParts(companyId, departmentId, designationId, options = 
   );
   if (!designation) throw employeeCodeError('Designation not found', 404);
 
-  const companyCode = normalizeCodePart(company.company_code);
-  const departmentCode = normalizeCodePart(department.department_code);
-  const designationCode = normalizeCodePart(designation.designation_code);
+  const companyCode = compactEmployeeCompanyCode(company.company_code, company.company_name);
+  const departmentCode = compactCodePart(department.department_code);
+  const designationCode = compactCodePart(designation.designation_code);
 
   if (!companyCode) throw employeeCodeError('company_code is required for selected company');
   if (!departmentCode) throw employeeCodeError('department_code is required for selected department');
@@ -121,20 +128,18 @@ async function fetchCodeParts(companyId, departmentId, designationId, options = 
 }
 
 async function buildEmployeeCodePrefix(companyId, departmentId, designationId, joiningDate, options = {}) {
-  const year = parseJoiningYear(joiningDate);
   const parts = await fetchCodeParts(companyId, departmentId, designationId, options);
 
   return {
     ...parts,
-    year,
-    prefix: `${parts.companyCode}${parts.departmentCode}${parts.designationCode}${year}`,
+    prefix: `${parts.companyCode}${parts.departmentCode}${parts.designationCode}`,
   };
 }
 
 async function generateEmployeeCode(companyId, departmentId, designationId, joiningDate, options = {}) {
   const connection = options.connection || null;
   const excludeEmployeeId = options.excludeEmployeeId ? Number(options.excludeEmployeeId) : null;
-  const { prefix, year, company, department, designation } = await buildEmployeeCodePrefix(
+  const { prefix } = await buildEmployeeCodePrefix(
     companyId,
     departmentId,
     designationId,

@@ -499,6 +499,8 @@ OTP_PREFIX=VG
 DEFAULT_PHONE_COUNTRY_CODE=91
 ```
 
+`BASE_URL` ko live domain ke root par set karein. Public QR onboarding link aur shareable URLs isi se generate honge, isliye isme path suffix na rakhein.
+
 Generate strong JWT secret:
 
 ```bash
@@ -524,7 +526,8 @@ Email password reset use karna hai to SMTP mandatory hai. Recommended workflow:
 
 1. Brevo/custom SMTP account create karein.
 2. SMTP values `.env` me set karein.
-3. App live hone ke baad forgot-password email OTP test karein.
+3. `ALLOW_EMAIL_PREVIEW=false` rakhein.
+4. App live hone ke baad forgot-password email OTP test karein.
 
 SMS OTP use karna hai to:
 
@@ -652,6 +655,7 @@ Test data se har role ka basic test karein:
 | CRM | Lead create/edit/status, meeting, follow-up, quotation, invoice |
 | Tasks | Assignment and work-file upload |
 | HRMS | Attendance, leave, documents, salary PDF |
+| HRMS onboarding | QR generate, public joining form submit, submission review |
 | Chat | Text and attachment upload |
 | Branding | Company logo upload |
 | Reports | CSV/PDF/download response |

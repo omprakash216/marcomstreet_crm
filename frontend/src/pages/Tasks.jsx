@@ -2,6 +2,13 @@ import { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { getEmployee } from '../utils/auth';
 
+function getTaskWorkFileHref(filePath) {
+  const cleanPath = String(filePath || '').trim().replace(/\\/g, '/');
+  if (!cleanPath) return '';
+  if (/^https?:\/\//i.test(cleanPath)) return cleanPath;
+  return encodeURI(`/${cleanPath.replace(/^\/+/, '')}`);
+}
+
 export default function Tasks() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -388,7 +395,7 @@ export default function Tasks() {
                         </button>
                       ) : task.work_file_path ? (
                         <a
-                          href={`${import.meta.env.DEV ? 'http://localhost/MARCOM-NEW-CRM' : '/MARCOM-NEW-CRM'}/${task.work_file_path}`}
+                          href={getTaskWorkFileHref(task.work_file_path)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center space-x-2 px-3 py-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-600 hover:text-white transition-all border border-green-100 font-black text-[10px] uppercase tracking-widest shadow-sm"

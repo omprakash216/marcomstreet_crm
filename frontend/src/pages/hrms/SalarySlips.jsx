@@ -1,5 +1,6 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../../utils/api';
+import { useRef } from 'react';
 import { getEmployee } from '../../utils/auth';
 
 export default function SalarySlips() {
@@ -14,6 +15,9 @@ export default function SalarySlips() {
   const [editSlipId, setEditSlipId] = useState(null);
   const [editSlip, setEditSlip] = useState(null);
   const [allEmployees, setAllEmployees] = useState([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const attendancePreviewCacheRef = useRef(new Map());
+  const attendancePreviewRequestRef = useRef({ key: '', seq: 0 });
   const [filter, setFilter] = useState({
     month: '',
     year: ''
@@ -34,6 +38,16 @@ export default function SalarySlips() {
     tax_deduction: '',
     professional_tax: '',
     other_deductions: '',
+    working_days: '',
+    present_days: '',
+    half_days: '',
+    leave_days: '',
+    paid_leave_days: '',
+    unpaid_leave_days: '',
+    paid_days: '',
+    absent_days: '',
+    attendance_deduction: '',
+    attendance_source: 'manual',
     payment_mode: 'Bank Transfer',
     status: 'generated'
   });
@@ -50,6 +64,7 @@ export default function SalarySlips() {
     role === 'hr' ||
     role === 'hr_manager' ||
     role === 'hr manager';
+  const selectedEmployeeForSlip = allEmployees.find((emp) => String(emp.id) === String(newSlip.employee_id));
 
   const IconEye = ({ className = 'w-4 h-4' }) => (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -78,47 +93,26 @@ export default function SalarySlips() {
   // Node only: same origin, /serve-pdf from Node
   const BASE_URL = '';
 
-  const downloadSlipPdf = async (slip) => {
-    if (!slip) return;
-    const slipId = slip?.id ?? slip?.salary_slip_id ?? slip?.slip_id;
-    if (slipId === undefined || slipId === null || String(slipId).trim() === '') {
-      alert('Salary slip ID missing. Please refresh and try again.');
+  const downloadSlipPdf = (slip) => {
+    if (!slip || !slip.file_path) {
+      alert('Salary slip file path is missing.');
       return;
     }
-
-    // Always use authenticated regenerate endpoint (no stale file-path fallback).
-    const apiUrl = `/hrms/salary/${encodeURIComponent(String(slipId))}/pdf?download=1&regen=1&force=1&ts=${Date.now()}`;
+    const cleanPath = String(slip.file_path).trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    const url = `/serve-pdf?file=${encodeURIComponent(cleanPath)}&download=1&ts=${Date.now()}`;
+    
     const month = String(slip?.month || '').replace(/[^0-9-]/g, '') || 'month';
     const code = String(slip?.employee_code || 'EMP').replace(/[^a-zA-Z0-9_-]/g, '') || 'EMP';
-    const safeName = `salary-slip_${code}_${month}_${Date.now()}.pdf`;
+    const safeName = `salary-slip_${code}_${month}.pdf`;
 
-    try {
-      const resp = await api.get(apiUrl, { responseType: 'blob' });
-      const blob = resp.data;
-
-      const blobUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = safeName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000);
-    } catch (e) {
-      console.error(e);
-      const status = e?.response?.status;
-      const msg = e?.response?.data?.message || e?.message || 'Failed to download PDF';
-      // If backend returns 404/401/403, opening a new tab just shows an error page.
-      if (status === 401 || status === 403) {
-        alert('Session expired or unauthorized. Please login again.');
-        return;
-      }
-      if (status === 404) {
-        alert('PDF not found. Please regenerate the salary slip and try again.');
-        return;
-      }
-      alert(msg);
-    }
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = safeName;
+    link.rel = 'noopener';
+    link.target = '_self';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   useEffect(() => {
@@ -129,19 +123,53 @@ export default function SalarySlips() {
     if (isAdminOrManager) fetchEmployees();
   }, [isAdminOrManager]);
 
+  useEffect(() => {
+    if (!newSlip.employee_id || !selectedEmployeeForSlip) return;
+    const employeeSalaryStructure = buildEmployeeSalaryStructure(selectedEmployeeForSlip);
+    setNewSlip((prev) => ({
+      ...prev,
+      ...employeeSalaryStructure,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newSlip.employee_id, selectedEmployeeForSlip?.id]);
+
+  const getMonthRange = (monthValue) => {
+    if (!monthValue || !/^\d{4}-\d{2}$/.test(String(monthValue))) {
+      return { startDate: '', endDate: '' };
+    }
+    const [year, month] = String(monthValue).split('-');
+    const startDate = `${year}-${month}-01`;
+    const endDate = new Date(Number(year), Number(month), 0).toISOString().slice(0, 10);
+    return { startDate, endDate };
+  };
+
   // Auto-set pay period when month changes
   useEffect(() => {
     if (newSlip.month) {
-      const [year, month] = newSlip.month.split('-');
-      const startDate = `${year}-${month}-01`;
-      const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
-      setNewSlip(prev => ({
-        ...prev,
-        pay_period_start: startDate,
-        pay_period_end: endDate
-      }));
+      const { startDate, endDate } = getMonthRange(newSlip.month);
+      setNewSlip(prev => {
+        if (prev.pay_period_start === startDate && prev.pay_period_end === endDate) return prev;
+        return {
+          ...prev,
+          pay_period_start: startDate,
+          pay_period_end: endDate,
+        };
+      });
     }
   }, [newSlip.month]);
+
+  useEffect(() => {
+    if (!showGenerateModal || !newSlip.employee_id || !newSlip.month) return;
+    const { startDate, endDate } = getMonthRange(newSlip.month);
+    const payPeriodStart = newSlip.pay_period_start || startDate;
+    const payPeriodEnd = newSlip.pay_period_end || endDate;
+    if (!payPeriodStart || !payPeriodEnd) return;
+    const timer = window.setTimeout(() => {
+      fetchAttendancePreview({ pay_period_start: payPeriodStart, pay_period_end: payPeriodEnd });
+    }, 120);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGenerateModal, newSlip.employee_id, newSlip.month, newSlip.pay_period_start, newSlip.pay_period_end]);
 
   const fetchEmployees = async () => {
     try {
@@ -179,6 +207,85 @@ export default function SalarySlips() {
     }
   };
 
+  const toPayrollNumber = (value) => {
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const round2 = (value) => Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+
+  const normalizeAmount = (value) => {
+    const n = Number.parseFloat(value);
+    if (!Number.isFinite(n)) return 0;
+    return round2(Math.abs(n));
+  };
+
+  const moneyInputValue = (value) => {
+    const normalized = normalizeAmount(value);
+    return normalized === 0 ? '0' : String(normalized);
+  };
+
+  const buildEmployeeSalaryStructure = (employee = {}) => ({
+    basic_salary: moneyInputValue(employee.basic_salary),
+    hra: moneyInputValue(employee.hra),
+    conveyance_allowance: moneyInputValue(employee.conveyance),
+    medical_allowance: moneyInputValue(employee.medical_allowance),
+    special_allowance: moneyInputValue(employee.special_allowance),
+    other_allowances: moneyInputValue(employee.other_allowances),
+    pf_deduction: moneyInputValue(employee.pf_contribution),
+    esi_deduction: '0',
+    tax_deduction: '0',
+    professional_tax: '0',
+    other_deductions: '0',
+  });
+
+  const normalizeSlipMoneyFields = (slip = {}) => ({
+    ...slip,
+    basic_salary: moneyInputValue(slip.basic_salary),
+    hra: moneyInputValue(slip.hra),
+    conveyance_allowance: moneyInputValue(slip.conveyance_allowance),
+    medical_allowance: moneyInputValue(slip.medical_allowance),
+    special_allowance: moneyInputValue(slip.special_allowance),
+    other_allowances: moneyInputValue(slip.other_allowances),
+    pf_deduction: moneyInputValue(slip.pf_deduction),
+    esi_deduction: moneyInputValue(slip.esi_deduction),
+    tax_deduction: moneyInputValue(slip.tax_deduction),
+    professional_tax: moneyInputValue(slip.professional_tax),
+    other_deductions: moneyInputValue(slip.other_deductions),
+  });
+
+  const toNumberInput = (value) => {
+    const n = Number.parseFloat(value);
+    if (!Number.isFinite(n)) return '';
+    return String(round2(n));
+  };
+
+  const calculateAttendanceSummary = (slipLike, grossSalary, manualDeductions) => {
+    const workingDays = Math.max(0, toPayrollNumber(slipLike?.working_days));
+    const presentDays = Math.max(0, toPayrollNumber(slipLike?.present_days));
+    const halfDays = Math.max(0, toPayrollNumber(slipLike?.half_days));
+    const paidLeaveDays = Math.max(0, toPayrollNumber(slipLike?.paid_leave_days));
+    const unpaidLeaveDays = Math.max(0, toPayrollNumber(slipLike?.unpaid_leave_days));
+    const leaveDays = Math.min(workingDays, paidLeaveDays + unpaidLeaveDays);
+    const paidDays = Math.min(workingDays, Math.max(0, presentDays - halfDays * 0.5 + paidLeaveDays));
+    const absentDays = Math.max(0, workingDays - paidDays);
+    const rawAttendanceDeduction = workingDays > 0 ? (grossSalary / workingDays) * absentDays : 0;
+    const maxAttendanceDeduction = Math.max(0, grossSalary - manualDeductions);
+    const attendanceDeduction = Math.min(rawAttendanceDeduction, maxAttendanceDeduction);
+    return {
+      working_days: round2(workingDays),
+      present_days: round2(Math.min(workingDays, presentDays)),
+      half_days: round2(Math.min(workingDays, halfDays)),
+      leave_days: round2(Math.min(workingDays, leaveDays)),
+      paid_leave_days: round2(Math.min(workingDays, paidLeaveDays)),
+      unpaid_leave_days: round2(Math.min(workingDays, unpaidLeaveDays)),
+      paid_days: round2(paidDays),
+      absent_days: round2(absentDays),
+      attendance_deduction: round2(attendanceDeduction),
+      attendance_source: 'manual',
+    };
+  };
+
   const calculateTotalsFrom = (slipLike) => {
     const earnings = [
       'basic_salary', 'hra', 'conveyance_allowance',
@@ -190,14 +297,23 @@ export default function SalarySlips() {
     ];
 
     const grossSalary = earnings.reduce((sum, field) =>
-      sum + (parseFloat(slipLike?.[field]) || 0), 0
+      sum + normalizeAmount(slipLike?.[field]), 0
     );
-    const totalDeductions = deductions.reduce((sum, field) =>
-      sum + (parseFloat(slipLike?.[field]) || 0), 0
+    const manualDeductions = deductions.reduce((sum, field) =>
+      sum + normalizeAmount(slipLike?.[field]), 0
     );
-    const netSalary = grossSalary - totalDeductions;
+    const attendanceSummary = calculateAttendanceSummary(slipLike, grossSalary, manualDeductions);
+    const totalDeductions = Math.min(grossSalary, manualDeductions + attendanceSummary.attendance_deduction);
+    const netSalary = Math.max(0, grossSalary - totalDeductions);
 
-    return { grossSalary, totalDeductions, netSalary };
+    return {
+      grossSalary: round2(grossSalary),
+      manualDeductions: round2(manualDeductions),
+      attendanceDeduction: attendanceSummary.attendance_deduction,
+      totalDeductions: round2(totalDeductions),
+      netSalary: round2(netSalary),
+      attendanceSummary,
+    };
   };
 
   const calculateTotals = () => calculateTotalsFrom(newSlip);
@@ -226,15 +342,95 @@ export default function SalarySlips() {
   };
 
   const fmtMoney = (v) => {
-    const n = Number.parseFloat(v);
-    if (!Number.isFinite(n)) return '0';
-    return n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    return normalizeAmount(v).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  };
+
+  const applyAttendancePreview = (data) => {
+    const attendance = data.attendance || {};
+    setNewSlip((prev) => ({
+      ...prev,
+      pay_period_start: data.pay_period_start || prev.pay_period_start,
+      pay_period_end: data.pay_period_end || prev.pay_period_end,
+      working_days: toNumberInput(attendance.working_days),
+      present_days: toNumberInput(attendance.present_days),
+      half_days: toNumberInput(attendance.half_days),
+      leave_days: toNumberInput(attendance.leave_days),
+      paid_leave_days: toNumberInput(attendance.paid_leave_days),
+      unpaid_leave_days: toNumberInput(attendance.unpaid_leave_days),
+      paid_days: toNumberInput(attendance.paid_days),
+      absent_days: toNumberInput(attendance.absent_days),
+      attendance_deduction: toNumberInput(attendance.attendance_deduction),
+      attendance_source: 'manual',
+    }));
+  };
+
+  const fetchAttendancePreview = async (overrides = {}, options = {}) => {
+    const requestSlip = { ...newSlip, ...overrides };
+    if (!requestSlip.employee_id || !requestSlip.month) return;
+    const { startDate, endDate } = getMonthRange(requestSlip.month);
+    const payPeriodStart = requestSlip.pay_period_start || startDate;
+    const payPeriodEnd = requestSlip.pay_period_end || endDate;
+    if (!payPeriodStart || !payPeriodEnd) return;
+
+    const { grossSalary, manualDeductions } = calculateTotalsFrom(requestSlip);
+    const previewKey = [
+      requestSlip.employee_id,
+      requestSlip.month,
+      payPeriodStart,
+      payPeriodEnd,
+      grossSalary,
+      manualDeductions,
+    ].join('|');
+
+    const cached = attendancePreviewCacheRef.current.get(previewKey);
+    if (cached && !options.force) {
+      applyAttendancePreview(cached);
+      setAttendanceLoading(false);
+      return;
+    }
+
+    if (attendancePreviewRequestRef.current.key === previewKey) return;
+    const seq = attendancePreviewRequestRef.current.seq + 1;
+    attendancePreviewRequestRef.current = { key: previewKey, seq };
+
+    try {
+      setAttendanceLoading(true);
+      const response = await api.get('/hrms/salary/attendance-preview', {
+        params: {
+          employee_id: requestSlip.employee_id,
+          month: requestSlip.month,
+          pay_period_start: payPeriodStart,
+          pay_period_end: payPeriodEnd,
+          gross_salary: grossSalary,
+          manual_deductions: manualDeductions,
+        },
+      });
+      const data = response.data?.data || {};
+      if (attendancePreviewRequestRef.current.seq !== seq) return;
+      attendancePreviewCacheRef.current.set(previewKey, data);
+      applyAttendancePreview(data);
+    } catch (error) {
+      console.error('Error fetching attendance preview:', error);
+    } finally {
+      if (attendancePreviewRequestRef.current.seq === seq) {
+        attendancePreviewRequestRef.current = { key: '', seq };
+        setAttendanceLoading(false);
+      }
+    }
+  };
+
+  const updateAttendanceField = (field, value) => {
+    setNewSlip((prev) => ({
+      ...prev,
+      [field]: value,
+      attendance_source: 'manual',
+    }));
   };
 
   const handleGenerateSlip = async (e) => {
     e.preventDefault();
 
-    const { grossSalary, totalDeductions, netSalary } = calculateTotals();
+    const { grossSalary, totalDeductions, netSalary, attendanceSummary } = calculateTotals();
 
     if (grossSalary <= 0) {
       alert('Please enter valid salary components');
@@ -242,10 +438,12 @@ export default function SalarySlips() {
     }
 
     const payload = {
-      ...newSlip,
+      ...normalizeSlipMoneyFields(newSlip),
+      ...attendanceSummary,
       gross_salary: grossSalary,
       total_deductions: totalDeductions,
-      net_salary: netSalary
+      net_salary: netSalary,
+      attendance_source: 'manual',
     };
 
     try {
@@ -280,6 +478,16 @@ export default function SalarySlips() {
       tax_deduction: '',
       professional_tax: '',
       other_deductions: '',
+      working_days: '',
+      present_days: '',
+      half_days: '',
+      leave_days: '',
+      paid_leave_days: '',
+      unpaid_leave_days: '',
+      paid_days: '',
+      absent_days: '',
+      attendance_deduction: '',
+      attendance_source: 'manual',
       payment_mode: 'Bank Transfer',
       status: 'generated'
     });
@@ -308,7 +516,14 @@ export default function SalarySlips() {
   const startIndex = (safePage - 1) * pageSize;
   const pageRows = filteredSlips.slice(startIndex, startIndex + pageSize);
 
-  const { grossSalary, totalDeductions, netSalary } = calculateTotals();
+  const {
+    grossSalary,
+    manualDeductions,
+    attendanceDeduction,
+    totalDeductions,
+    netSalary,
+    attendanceSummary,
+  } = calculateTotals();
 
   const openEdit = (slip) => {
     if (!slip) return;
@@ -317,17 +532,17 @@ export default function SalarySlips() {
       month: slip.month || new Date().toISOString().slice(0, 7),
       pay_period_start: toDateInput(slip.pay_period_start),
       pay_period_end: toDateInput(slip.pay_period_end),
-      basic_salary: slip.basic_salary ?? '',
-      hra: slip.hra ?? '',
-      conveyance_allowance: slip.conveyance_allowance ?? '',
-      medical_allowance: slip.medical_allowance ?? '',
-      special_allowance: slip.special_allowance ?? '',
-      other_allowances: slip.other_allowances ?? '',
-      pf_deduction: slip.pf_deduction ?? '',
-      esi_deduction: slip.esi_deduction ?? '',
-      tax_deduction: slip.tax_deduction ?? '',
-      professional_tax: slip.professional_tax ?? '',
-      other_deductions: slip.other_deductions ?? '',
+      basic_salary: moneyInputValue(slip.basic_salary),
+      hra: moneyInputValue(slip.hra),
+      conveyance_allowance: moneyInputValue(slip.conveyance_allowance),
+      medical_allowance: moneyInputValue(slip.medical_allowance),
+      special_allowance: moneyInputValue(slip.special_allowance),
+      other_allowances: moneyInputValue(slip.other_allowances),
+      pf_deduction: moneyInputValue(slip.pf_deduction),
+      esi_deduction: moneyInputValue(slip.esi_deduction),
+      tax_deduction: moneyInputValue(slip.tax_deduction),
+      professional_tax: moneyInputValue(slip.professional_tax),
+      other_deductions: moneyInputValue(slip.other_deductions),
       payment_mode: slip.payment_mode || 'Bank Transfer',
       status: slip.status || 'generated',
     });
@@ -343,7 +558,7 @@ export default function SalarySlips() {
       return;
     }
     try {
-      const payload = { ...editSlip, gross_salary: g, total_deductions: td, net_salary: ns };
+      const payload = { ...normalizeSlipMoneyFields(editSlip), gross_salary: g, total_deductions: td, net_salary: ns };
       const resp = await api.put(`/hrms/salary/${encodeURIComponent(String(editSlipId))}`, payload, {
         headers: { 'Content-Type': 'application/json' }
       });
@@ -456,7 +671,7 @@ export default function SalarySlips() {
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
           <div className="overflow-x-auto">
-            <table className="min-w-[1100px] w-full divide-y divide-gray-200">
+            <table className="min-w-[1380px] w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">SL No</th>
@@ -468,6 +683,9 @@ export default function SalarySlips() {
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Gross</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Deductions</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Net</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Paid Days</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Absent</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Att. Deduction</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Created</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap sticky right-0 z-10 bg-gray-50 border-l border-gray-200">Actions</th>
@@ -487,6 +705,9 @@ export default function SalarySlips() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900">Rs. {fmtMoney(slip.gross_salary || slip.amount)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-red-600">Rs. {fmtMoney(slip.total_deductions || 0)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-blue-700">Rs. {fmtMoney(slip.net_salary || slip.amount)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">{fmtMoney(slip.paid_days || 0)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-red-600">{fmtMoney(slip.absent_days || 0)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-red-600">Rs. {fmtMoney(slip.attendance_deduction || 0)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${slip.status === 'paid' ? 'bg-green-100 text-green-800' : slip.status === 'generated' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'}`}>
                         {String(slip.status || 'generated')}
@@ -714,13 +935,13 @@ export default function SalarySlips() {
                 return (
                   <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex flex-col md:flex-row justify-around items-center gap-4 text-center">
                     <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Gross Earnings</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Gross Monthly</div>
                       <div className="text-xl font-bold text-slate-700">Rs. {fmtMoney(t.grossSalary)}</div>
                     </div>
                     <div className="w-px h-8 bg-blue-200 hidden md:block"></div>
                     <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Total Deductions</div>
-                      <div className="text-xl font-bold text-red-600">Rs. {fmtMoney(t.totalDeductions)}</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Manual Deductions</div>
+                      <div className="text-xl font-bold text-red-600">Rs. {fmtMoney(t.manualDeductions)}</div>
                     </div>
                     <div className="w-px h-8 bg-blue-200 hidden md:block"></div>
                     <div>
@@ -753,10 +974,10 @@ export default function SalarySlips() {
       )}
       {/* Generate Slip Modal */}
       {showGenerateModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8 overflow-hidden animate-in fade-in zoom-in duration-300">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center z-50 p-4 sm:p-6 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-300 max-h-[calc(100vh-3rem)] flex flex-col">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-blue-700 to-indigo-800 px-6 py-4 flex justify-between items-center text-white">
+            <div className="bg-gradient-to-r from-blue-700 to-indigo-800 px-6 py-4 flex justify-between items-center text-white shrink-0">
               <div>
                 <h2 className="text-xl font-bold tracking-tight">Generate Salary Slip</h2>
                 <p className="text-blue-100 text-xs mt-0.5">Create professional payslips for employees</p>
@@ -769,9 +990,9 @@ export default function SalarySlips() {
               </button>
             </div>
 
-            <form onSubmit={handleGenerateSlip} className="p-6">
+            <form onSubmit={handleGenerateSlip} className="p-5 sm:p-6 overflow-y-auto">
               {/* Employee & Period Selection */}
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-100 mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Employee Selection</label>
                   <select
@@ -814,15 +1035,62 @@ export default function SalarySlips() {
                 </div>
               </div>
 
+              {selectedEmployeeForSlip && (
+                <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  <div className="font-semibold">
+                    Master salary applied for {selectedEmployeeForSlip.name || selectedEmployeeForSlip.employee_name}.
+                  </div>
+                  <div className="mt-1 text-xs leading-relaxed">
+                    Attendance days below are filled from attendance records and can be adjusted before generating.
+                  </div>
+                </div>
+              )}
+
+              {selectedEmployeeForSlip && (
+                <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">Salary Structure</p>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        Auto-loaded from {selectedEmployeeForSlip.employee_code || 'employee master'}
+                      </h3>
+                    </div>
+                    <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full">
+                      Editable
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {[
+                      ['Basic', newSlip.basic_salary],
+                      ['HRA', newSlip.hra],
+                      ['Conveyance', newSlip.conveyance_allowance],
+                      ['Medical', newSlip.medical_allowance],
+                      ['Special', newSlip.special_allowance],
+                      ['Other', newSlip.other_allowances],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+                        <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">{label}</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">Rs. {fmtMoney(value || 0)}</p>
+                      </div>
+                    ))}
+                    <div className="col-span-2 md:col-span-3 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-700">Gross Earnings</span>
+                      <span className="text-base font-bold text-blue-700">Rs. {fmtMoney(grossSalary)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Salary Components Table */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden mb-4">
                 {/* Earnings Column */}
-                <div className="bg-white p-4">
-                  <h3 className="text-sm font-bold text-green-700 mb-4 flex items-center">
+                <div className="bg-white p-3">
+                  <h3 className="text-sm font-bold text-green-700 mb-3 flex items-center">
                     <span className="w-1.5 h-4 bg-green-500 rounded-full mr-2"></span>
                     EARNINGS
                   </h3>
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     <div className="flex flex-col">
                       <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">Basic Salary *</label>
                       <input
@@ -832,7 +1100,7 @@ export default function SalarySlips() {
                         placeholder="0.00"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-2">
                       <div className="flex flex-col">
                         <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">HRA</label>
                         <input
@@ -852,7 +1120,7 @@ export default function SalarySlips() {
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-2">
                       <div className="flex flex-col">
                         <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">Medical</label>
                         <input
@@ -862,6 +1130,17 @@ export default function SalarySlips() {
                           placeholder="0"
                         />
                       </div>
+                      <div className="flex flex-col">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">Special</label>
+                        <input
+                          type="number" step="0.01" value={newSlip.special_allowance}
+                          onChange={(e) => setNewSlip({ ...newSlip, special_allowance: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-sm focus:border-green-500 outline-none transition-colors"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
                       <div className="flex flex-col">
                         <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">Others</label>
                         <input
@@ -876,13 +1155,13 @@ export default function SalarySlips() {
                 </div>
 
                 {/* Deductions Column */}
-                <div className="bg-white p-4">
-                  <h3 className="text-sm font-bold text-red-700 mb-4 flex items-center">
+                <div className="bg-white p-3">
+                  <h3 className="text-sm font-bold text-red-700 mb-3 flex items-center">
                     <span className="w-1.5 h-4 bg-red-500 rounded-full mr-2"></span>
                     DEDUCTIONS
                   </h3>
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
                       <div className="flex flex-col">
                         <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">PF Deduction</label>
                         <input
@@ -902,7 +1181,7 @@ export default function SalarySlips() {
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-2">
                       <div className="flex flex-col">
                         <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">TDS (Tax)</label>
                         <input
@@ -935,18 +1214,96 @@ export default function SalarySlips() {
                 </div>
               </div>
 
+              {/* Attendance & Payable Days */}
+              <div className="bg-white border border-slate-200 rounded-lg p-3 mb-4">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                  <h3 className="text-sm font-bold text-blue-800 flex items-center">
+                    <span className="w-1.5 h-4 bg-blue-500 rounded-full mr-2"></span>
+                    ATTENDANCE & PAYABLE DAYS
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => fetchAttendancePreview({}, { force: true })}
+                    disabled={!newSlip.employee_id || attendanceLoading}
+                    className="self-start md:self-auto px-3 py-1.5 rounded-lg border border-blue-200 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {attendanceLoading ? 'Loading...' : 'Auto Fill'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {[
+                    ['working_days', 'Working Days'],
+                    ['present_days', 'Present Days'],
+                    ['half_days', 'Half Days'],
+                    ['paid_leave_days', 'Paid Leave'],
+                    ['unpaid_leave_days', 'Unpaid Leave'],
+                  ].map(([field, label]) => (
+                    <div key={field} className="flex flex-col">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">{label}</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={newSlip[field]}
+                        onChange={(e) => updateAttendanceField(field, e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-sm focus:border-blue-500 outline-none transition-colors"
+                        placeholder="0"
+                      />
+                    </div>
+                  ))}
+                  <div className="flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Leave</label>
+                    <input
+                      type="number"
+                      readOnly
+                      value={attendanceSummary.leave_days}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-sm font-semibold text-slate-900 outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">Paid Days</label>
+                    <input
+                      type="number"
+                      readOnly
+                      value={attendanceSummary.paid_days}
+                      className="w-full bg-blue-50 border border-blue-100 rounded-md px-2 py-1.5 text-sm font-semibold text-blue-900 outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">Absent Days</label>
+                    <input
+                      type="number"
+                      readOnly
+                      value={attendanceSummary.absent_days}
+                      className="w-full bg-red-50 border border-red-100 rounded-md px-2 py-1.5 text-sm font-semibold text-red-900 outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col md:col-span-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1">Attendance Deduction</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`Rs. ${fmtMoney(attendanceDeduction)}`}
+                      className="w-full bg-red-50 border border-red-100 rounded-md px-2 py-1.5 text-sm font-bold text-red-700 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Summary Bar */}
-              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex flex-col md:flex-row justify-around items-center gap-4 text-center">
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-center">
                 <div>
-                  <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Gross Earnings</div>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Gross Monthly</div>
                   <div className="text-xl font-bold text-slate-700">Rs. {fmtMoney(grossSalary)}</div>
                 </div>
-                <div className="w-px h-8 bg-blue-200 hidden md:block"></div>
+                <div>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Manual Deductions</div>
+                  <div className="text-xl font-bold text-red-600">Rs. {fmtMoney(manualDeductions)}</div>
+                </div>
                 <div>
                   <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Total Deductions</div>
-                  <div className="text-xl font-bold text-red-600">Rs. {fmtMoney(totalDeductions)}</div>
+                  <div className="text-xl font-bold text-red-700">Rs. {fmtMoney(totalDeductions)}</div>
                 </div>
-                <div className="w-px h-8 bg-blue-200 hidden md:block"></div>
                 <div>
                   <div className="text-[10px] font-bold text-slate-400 uppercase mb-0.5">Net Payable</div>
                   <div className="text-2xl font-bold text-blue-700">Rs. {fmtMoney(netSalary)}</div>
@@ -954,7 +1311,7 @@ export default function SalarySlips() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-end gap-3 mt-8">
+              <div className="flex justify-end gap-3 mt-5">
                 <button
                   type="button"
                   onClick={() => { setShowGenerateModal(false); resetForm(); }}
@@ -1021,6 +1378,24 @@ export default function SalarySlips() {
                   <p className="font-semibold text-gray-900">{selectedSlip.payment_mode || 'Bank Transfer'}</p>
                 </div>
               </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              {[
+                ['Working', selectedSlip.working_days],
+                ['Present', selectedSlip.present_days],
+                ['Half', selectedSlip.half_days],
+                ['Leave', selectedSlip.leave_days],
+                ['Paid Leave', selectedSlip.paid_leave_days],
+                ['Unpaid Leave', selectedSlip.unpaid_leave_days],
+                ['Paid', selectedSlip.paid_days],
+                ['Absent', selectedSlip.absent_days],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg bg-slate-50 border border-slate-100 p-3 text-center">
+                  <p className="text-[10px] uppercase font-bold text-slate-400">{label}</p>
+                  <p className="mt-1 text-lg font-bold text-slate-800">{fmtMoney(value || 0)}</p>
+                </div>
+              ))}
             </div>
 
             {/* Earnings & Deductions */}
@@ -1092,6 +1467,10 @@ export default function SalarySlips() {
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Other</span>
                     <span className="font-medium">Rs. {fmtMoney(selectedSlip.other_deductions || 0)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Attendance Deduction</span>
+                    <span className="font-medium">Rs. {fmtMoney(selectedSlip.attendance_deduction || 0)}</span>
                   </div>
                   <div className="flex justify-between text-sm font-bold border-t pt-2 mt-2">
                     <span className="text-red-600">Total Deductions</span>

@@ -6,6 +6,12 @@ export default function Followups() {
   const [followups, setFollowups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [followupModalMode, setFollowupModalMode] = useState('create');
+  const [selectedFollowup, setSelectedFollowup] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalRows, setTotalRows] = useState(0);
+  const [hasNextPage, setHasNextPage] = useState(false);
   const [filter, setFilter] = useState({
     search: '',
     status: '',
@@ -17,7 +23,16 @@ export default function Followups() {
 
   useEffect(() => {
     fetchFollowups();
-  }, [filter]);
+  }, [filter, page, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = totalRows ? Math.min(startIndex + followups.length, totalRows) : 0;
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
 
   const fetchFollowups = async () => {
     // Check if user is logged in
@@ -29,6 +44,7 @@ export default function Followups() {
     }
 
     try {
+      setLoading(true);
       const params = new URLSearchParams();
       if (filter.search) params.append('search', filter.search);
       if (filter.status) params.append('status', filter.status);
@@ -36,26 +52,35 @@ export default function Followups() {
       if (filter.date_filter) params.append('date_filter', filter.date_filter);
       if (filter.date_from) params.append('date_from', filter.date_from);
       if (filter.date_to) params.append('date_to', filter.date_to);
-      params.append('unlimited', 'true'); // Fetch all for role-based view
+      params.append('page', String(page));
+      params.append('limit', String(pageSize));
 
       const response = await api.get(`/followups?${params.toString()}`);
-      setFollowups(Array.isArray(response.data.data) ? response.data.data : []);
+      const rows = Array.isArray(response.data.data) ? response.data.data : [];
+      const responseTotal = Number(response.data.total);
+      setFollowups(rows);
+      setHasNextPage(Boolean(response.data.has_next));
+      setTotalRows(Number.isFinite(responseTotal) ? responseTotal : startIndex + rows.length + (response.data.has_next ? 1 : 0));
     } catch (error) {
       // Only log unexpected errors
       if (error.response?.status !== 401 && error.code !== 'ERR_NETWORK') {
         console.error('Error fetching follow-ups:', error);
       }
       setFollowups([]);
+      setTotalRows(0);
+      setHasNextPage(false);
     } finally {
       setLoading(false);
     }
   };
 
   const handleFilterChange = (field, value) => {
+    setPage(1);
     setFilter({ ...filter, [field]: value });
   };
 
   const clearFilters = () => {
+    setPage(1);
     setFilter({
       search: '',
       status: '',
@@ -64,6 +89,18 @@ export default function Followups() {
       date_from: '',
       date_to: '',
     });
+  };
+
+  const openFollowupModal = (mode, followup = null) => {
+    setFollowupModalMode(mode);
+    setSelectedFollowup(followup);
+    setShowModal(true);
+  };
+
+  const closeFollowupModal = () => {
+    setShowModal(false);
+    setSelectedFollowup(null);
+    setFollowupModalMode('create');
   };
 
   const handleComplete = async (followupId) => {
@@ -103,6 +140,21 @@ export default function Followups() {
     return icons[type] || '📝';
   };
 
+  const getTypeIconClass = (type) => {
+    const icons = {
+      call: 'fa-phone-volume',
+      email: 'fa-envelope',
+      whatsapp: 'fa-comments',
+      meeting: 'fa-calendar-check',
+      review: 'fa-palette',
+      feedback: 'fa-rotate',
+      handover: 'fa-flag-checkered',
+      update: 'fa-bullhorn',
+      other: 'fa-clipboard-list',
+    };
+    return icons[type] || 'fa-clipboard-list';
+  };
+
   return (
     <div>
       {/* Professional Header Section */}
@@ -135,7 +187,7 @@ export default function Followups() {
 
             {/* Right Side - Action Button */}
             <button
-              onClick={() => setShowModal(true)}
+              onClick={() => openFollowupModal('create')}
               className="flex items-center space-x-2 px-6 py-3 bg-white text-slate-700 rounded-xl shadow-lg font-semibold transition-all duration-200 transform hover:-translate-y-0.5 hover:shadow-xl hover:bg-slate-50"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -305,12 +357,12 @@ export default function Followups() {
                 followups.map((followup, index) => (
                   <tr key={followup.id} className="hover:bg-slate-50 transition-colors group">
                     <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-slate-400">
-                      #{index + 1}
+                      #{startIndex + index + 1}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center space-x-3">
                         <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 text-sm">
-                          {getTypeIcon(followup.followup_type)}
+                          <i className={`fas ${getTypeIconClass(followup.followup_type)}`}></i>
                         </div>
                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">{followup.followup_type}</span>
                       </div>
@@ -321,7 +373,7 @@ export default function Followups() {
                     <td className="px-6 py-4">
                       <div className="text-xs font-bold text-slate-700">{followup.contact_person}</div>
                       <div className="text-[10px] text-slate-400 font-medium flex items-center mt-0.5">
-                        <i className="fas fa-phone-alt mr-1.5 opacity-50"></i>
+                        <i className="fas fa-phone-volume mr-1.5 w-4 text-center opacity-50"></i>
                         {followup.phone}
                       </div>
                     </td>
@@ -349,7 +401,21 @@ export default function Followups() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                      <div className="flex items-center justify-end space-x-2">
+                      <div className="flex items-center justify-end gap-2 min-w-max">
+                        <button
+                          onClick={() => openFollowupModal('view', followup)}
+                          className="p-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-600 hover:text-white transition-all shadow-sm border border-slate-100"
+                          title="View Follow-up"
+                        >
+                          <i className="fas fa-eye"></i>
+                        </button>
+                        <button
+                          onClick={() => openFollowupModal('edit', followup)}
+                          className="p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-600 hover:text-white transition-all shadow-sm border border-amber-100"
+                          title="Edit Follow-up"
+                        >
+                          <i className="fas fa-edit"></i>
+                        </button>
                         {followup.status === 'pending' && (
                           <button
                             onClick={() => handleComplete(followup.id)}
@@ -365,7 +431,7 @@ export default function Followups() {
                             className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all shadow-sm border border-blue-100"
                             title="Contact Client"
                           >
-                            <i className="fas fa-phone-alt"></i>
+                            <i className="fas fa-phone-volume"></i>
                           </button>
                         )}
                       </div>
@@ -376,13 +442,63 @@ export default function Followups() {
             </tbody>
           </table>
         </div>
+        {!loading && totalRows > 0 && (
+          <div className="flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-2 text-sm text-slate-500 sm:flex-row sm:items-center">
+              <span>
+                Showing <span className="font-semibold text-slate-700">{startIndex + 1}</span>-<span className="font-semibold text-slate-700">{endIndex}</span> of{' '}
+                <span className="font-semibold text-slate-700">{totalRows}</span>
+              </span>
+              <label className="inline-flex items-center gap-2 font-semibold text-slate-600">
+                Rows
+                <select
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPage(1);
+                    setPageSize(Number(event.target.value));
+                  }}
+                  className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm font-bold text-slate-700 outline-none focus:border-blue-500"
+                >
+                  {[10, 25, 50].map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={safePage <= 1}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <i className="fas fa-chevron-left text-[10px]"></i>
+                Previous
+              </button>
+              <div className="min-w-[92px] text-center text-sm text-slate-500">
+                Page <span className="font-semibold text-slate-700">{safePage}</span> / <span className="font-semibold text-slate-700">{totalPages}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={!hasNextPage && safePage >= totalPages}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+                <i className="fas fa-chevron-right text-[10px]"></i>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {showModal && (
         <FollowupModal
-          onClose={() => setShowModal(false)}
+          mode={followupModalMode}
+          followup={selectedFollowup}
+          onClose={closeFollowupModal}
           onSuccess={() => {
-            setShowModal(false);
+            closeFollowupModal();
             fetchFollowups();
           }}
         />

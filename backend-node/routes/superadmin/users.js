@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../../config/database');
 const { verifyToken, verifySuperAdmin } = require('../../middleware/auth');
 const bcrypt = require('bcryptjs');
+const { buildCompanyScopedEmployeeCode, normalizeCompanyCode } = require('../../utils/companyCode');
 
 const router = express.Router();
 
@@ -119,10 +120,24 @@ router.post('/', verifyToken, verifySuperAdmin, async (req, res) => {
         }
 
         const hash = await bcrypt.hash(password, 10);
+        let employeeCode = null;
+        try {
+            if (company_id) {
+                const companyRows = await query('SELECT company_code, company_name FROM companies WHERE id = ? LIMIT 1', [company_id]);
+                const company = companyRows && companyRows[0];
+                const companyCode = normalizeCompanyCode(company?.company_code, company?.company_name);
+                employeeCode = await buildCompanyScopedEmployeeCode(companyCode, company_id, 'EMP', {
+                    companyName: company?.company_name,
+                });
+            }
+        } catch (e) { }
+        if (!employeeCode) {
+            employeeCode = `USR${String(company_id || '0')}EMP00001`;
+        }
         
         const result = await query(
             `INSERT INTO employees (employee_code, name, email, password, role, company_id, status) VALUES (?, ?, ?, ?, ?, ?, 'active')`,
-            ['EMP' + Date.now(), name, email, hash, role || 'employee', company_id || null]
+            [employeeCode, name, email, hash, role || 'employee', company_id || null]
         );
 
         if (Array.isArray(access_modules)) {

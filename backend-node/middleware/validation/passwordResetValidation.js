@@ -1,129 +1,178 @@
+const rateLimit = require('express-rate-limit');
+const validator = require('validator');
 const { sanitizeOtp } = require('../../utils/otp/otpUtils');
 
-const rateStore = new Map();
-
 function getClientIp(req) {
-  const headerIp = req.headers['x-forwarded-for'];
-  if (headerIp) return String(headerIp).split(',')[0].trim();
-  return req.ip || req.connection?.remoteAddress || 'unknown';
+  const headerIp = String(req.headers['x-forwarded-for'] || '')
+    .split(',')[0]
+    .trim();
+  if (headerIp) return headerIp;
+  return String(req.ip || req.connection?.remoteAddress || 'unknown').trim();
 }
 
 function sanitizeEmail(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function sanitizePhone(value) {
+  return String(value || '').trim();
+}
+
 function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  return validator.isEmail(String(email || '').trim());
 }
 
 function isStrongPassword(password) {
-  const value = String(password || '');
-  if (value.length < 8) return false;
-  if (!/[a-z]/.test(value)) return false;
-  if (!/[A-Z]/.test(value)) return false;
-  if (!/\d/.test(value)) return false;
-  if (!/[^A-Za-z0-9]/.test(value)) return false;
-  return true;
+  return validator.isStrongPassword(String(password || ''), {
+    minLength: 8,
+    minLowercase: 1,
+    minUppercase: 1,
+    minNumbers: 1,
+    minSymbols: 1,
+  });
 }
 
-function cleanupExpiredRateEntries(now) {
-  for (const [key, entry] of rateStore.entries()) {
-    if (!entry || entry.expiresAt <= now) {
-      rateStore.delete(key);
-    }
-  }
-}
-
-function buildRateLimiter({ keyPrefix, windowMs, maxRequests }) {
-  return (req, res, next) => {
-    const now = Date.now();
-    cleanupExpiredRateEntries(now);
-
-    const email = sanitizeEmail(req.body?.email);
-    const ip = getClientIp(req);
-    const key = `${keyPrefix}:${ip}:${email || 'no-email'}`;
-    const existing = rateStore.get(key);
-
-    if (!existing || existing.expiresAt <= now) {
-      rateStore.set(key, { count: 1, expiresAt: now + windowMs });
-      return next();
-    }
-
-    if (existing.count >= maxRequests) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((existing.expiresAt - now) / 1000));
-      res.setHeader('Retry-After', String(retryAfterSeconds));
-      return res.status(429).json({
-        success: false,
-        message: 'Too many requests. Please try again later.',
-      });
-    }
-
-    existing.count += 1;
-    rateStore.set(key, existing);
-    return next();
-  };
+function createRateLimit({ windowMs, max, message }) {
+  return rateLimit({
+    windowMs,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false,
+    keyGenerator: (req) => getClientIp(req),
+    message: {
+      success: false,
+      message,
+    },
+    handler: (req, res, _next, options) => {
+      res.status(options.statusCode).json(options.message);
+    },
+  });
 }
 
 function validateForgotPasswordRequest(req, res, next) {
   const email = sanitizeEmail(req.body?.email);
-  if (!isValidEmail(email)) {
-    return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
+  const phone = sanitizePhone(req.body?.phone);
+
+  if (email) {
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
+    }
+    req.body.email = email;
+    return next();
   }
-  req.body.email = email;
-  return next();
+
+  if (phone) {
+    req.body.phone = phone;
+    return next();
+  }
+
+  return res.status(400).json({ success: false, message: 'Email or phone number is required.' });
 }
 
 function validateVerifyOtpRequest(req, res, next) {
   const email = sanitizeEmail(req.body?.email);
+  const phone = sanitizePhone(req.body?.phone);
   const otp = sanitizeOtp(req.body?.otp);
-  if (!isValidEmail(email) || otp.length !== 6) {
-    return res.status(400).json({ success: false, message: 'Enter valid email and 6-digit OTP.' });
+
+  if (email) {
+    if (!isValidEmail(email) || otp.length !== 6) {
+      return res.status(400).json({ success: false, message: 'Enter a valid email and 6-digit OTP.' });
+    }
+    req.body.email = email;
+    req.body.otp = otp;
+    return next();
   }
-  req.body.email = email;
-  req.body.otp = otp;
-  return next();
+
+  if (phone) {
+    if (otp.length !== 6) {
+      return res.status(400).json({ success: false, message: 'Enter a valid phone number and 6-digit OTP.' });
+    }
+    req.body.phone = phone;
+    req.body.otp = otp;
+    return next();
+  }
+
+  return res.status(400).json({ success: false, message: 'Email or phone number is required.' });
 }
 
 function validateResetPasswordRequest(req, res, next) {
   const email = sanitizeEmail(req.body?.email);
+  const phone = sanitizePhone(req.body?.phone);
+  const resetToken = String(req.body?.resetToken || '').trim();
   const newPassword = String(req.body?.newPassword || '');
-  if (!isValidEmail(email)) {
-    return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
+  const confirmPassword = String(req.body?.confirmPassword || '');
+
+  if (email) {
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
+    }
+    if (!resetToken) {
+      return res.status(400).json({ success: false, message: 'Reset token is required.' });
+    }
+    if (!confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Confirm password is required.' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Passwords do not match.' });
+    }
+    if (!isStrongPassword(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.',
+      });
+    }
+    req.body.email = email;
+    req.body.resetToken = resetToken;
+    req.body.newPassword = newPassword;
+    req.body.confirmPassword = confirmPassword;
+    return next();
   }
-  if (!isStrongPassword(newPassword)) {
-    return res.status(400).json({
-      success: false,
-      message:
-        'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.',
-    });
+
+  if (phone) {
+    if (!resetToken) {
+      return res.status(400).json({ success: false, message: 'Reset token is required.' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' });
+    }
+    req.body.phone = phone;
+    req.body.resetToken = resetToken;
+    req.body.newPassword = newPassword;
+    return next();
   }
-  req.body.email = email;
-  req.body.newPassword = newPassword;
-  return next();
+
+  if (resetToken) {
+    if (newPassword.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' });
+    }
+    req.body.resetToken = resetToken;
+    req.body.newPassword = newPassword;
+    return next();
+  }
+
+  return res.status(400).json({ success: false, message: 'Email, phone number, or reset token is required.' });
 }
 
-const forgotPasswordRateLimit = buildRateLimiter({
-  keyPrefix: 'forgot-password-email-request',
-  windowMs: 15 * 60 * 1000,
-  maxRequests: 5,
+const forgotPasswordRateLimit = createRateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: 'Too many OTP requests. Please try again later.',
 });
 
-const resendOtpRateLimit = buildRateLimiter({
-  keyPrefix: 'forgot-password-email-resend',
-  windowMs: 15 * 60 * 1000,
-  maxRequests: 6,
+const resendOtpRateLimit = forgotPasswordRateLimit;
+
+const verifyOtpRateLimit = createRateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: 'Too many OTP verification attempts. Please try again later.',
 });
 
-const verifyOtpRateLimit = buildRateLimiter({
-  keyPrefix: 'forgot-password-email-verify',
-  windowMs: 15 * 60 * 1000,
-  maxRequests: 20,
-});
-
-const resetPasswordRateLimit = buildRateLimiter({
-  keyPrefix: 'forgot-password-email-reset',
-  windowMs: 15 * 60 * 1000,
-  maxRequests: 10,
+const resetPasswordRateLimit = createRateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 15,
+  message: 'Too many password reset attempts. Please try again later.',
 });
 
 module.exports = {

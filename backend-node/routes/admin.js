@@ -20,9 +20,9 @@ const {
   getDesignationById,
   isEmployeeCodeDuplicateError,
   isEmployeeCodeValidationError,
-  normalizeCodePart,
   runSql,
 } = require('../utils/employeeCode');
+const { buildCompanyAdminEmployeeCode, buildCompanyScopedEmployeeCode, normalizeCompanyCode } = require('../utils/companyCode');
 const { ensureEmployeeCodeSchema } = require('../utils/employeeCodeSchema');
 
 
@@ -94,10 +94,17 @@ function requireAdminOrHR(req, res, next) {
 
   if (role !== 'admin' && role !== 'manager' && role !== 'human_resources' && role !== 'superadmin' && role !== 'super_admin') return res.status(403).json({ success: false, message: 'Unauthorized' });
 
-  next();
-
-}
-
+  next();
+
+}
+
+
+function normalizeSalaryAmount(value) {
+  const n = Number.parseFloat(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(Math.abs(n) * 100) / 100;
+}
+
 
 
 async function ensureApiAuditLogTable() {
@@ -355,9 +362,10 @@ function defaultModulesForRole(role) {
 
 
 
-const COMPANY_UPLOADS = path.join(__dirname, '../../uploads/company_logos');
+const COMPANY_UPLOADS = path.join(__dirname, '../../uploads/company_logos');
+const COMPANY_BRANDING_UPLOADS = path.join(__dirname, '../../uploads/company_branding');
 
-const companyStorage = multer.diskStorage({
+const companyStorage = multer.diskStorage({
 
   destination: (req, file, cb) => {
 
@@ -375,9 +383,22 @@ const companyStorage = multer.diskStorage({
 
   },
 
-});
-
-const uploadCompanyLogo = multer({ storage: companyStorage });
+});
+
+const uploadCompanyLogo = multer({ storage: companyStorage });
+
+const companyBrandingStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(COMPANY_BRANDING_UPLOADS)) fs.mkdirSync(COMPANY_BRANDING_UPLOADS, { recursive: true });
+    cb(null, COMPANY_BRANDING_UPLOADS);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.png';
+    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+  },
+});
+
+const uploadCompanyBranding = multer({ storage: companyBrandingStorage });
 
 
 
@@ -449,6 +470,14 @@ async function ensureCompanySettingsSchema() {
       quotation_header_text VARCHAR(255) NULL,
       quotation_footer_text VARCHAR(255) NULL,
       logo_path VARCHAR(255) NULL,
+      bank_name VARCHAR(255) NULL,
+      account_holder_name VARCHAR(255) NULL,
+      account_number VARCHAR(120) NULL,
+      ifsc_code VARCHAR(50) NULL,
+      branch_name VARCHAR(255) NULL,
+      nature VARCHAR(80) NULL DEFAULT 'Current Account',
+      signature_path VARCHAR(255) NULL,
+      stamp_path VARCHAR(255) NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -459,6 +488,14 @@ async function ensureCompanySettingsSchema() {
   await query("ALTER TABLE company_settings ADD COLUMN quotation_template VARCHAR(60) NULL DEFAULT 'standard'").catch(() => {});
   await query('ALTER TABLE company_settings ADD COLUMN quotation_header_text VARCHAR(255) NULL').catch(() => {});
   await query('ALTER TABLE company_settings ADD COLUMN quotation_footer_text VARCHAR(255) NULL').catch(() => {});
+  await query('ALTER TABLE company_settings ADD COLUMN bank_name VARCHAR(255) NULL').catch(() => {});
+  await query('ALTER TABLE company_settings ADD COLUMN account_holder_name VARCHAR(255) NULL').catch(() => {});
+  await query('ALTER TABLE company_settings ADD COLUMN account_number VARCHAR(120) NULL').catch(() => {});
+  await query('ALTER TABLE company_settings ADD COLUMN ifsc_code VARCHAR(50) NULL').catch(() => {});
+  await query('ALTER TABLE company_settings ADD COLUMN branch_name VARCHAR(255) NULL').catch(() => {});
+  await query("ALTER TABLE company_settings ADD COLUMN nature VARCHAR(80) NULL DEFAULT 'Current Account'").catch(() => {});
+  await query('ALTER TABLE company_settings ADD COLUMN signature_path VARCHAR(255) NULL').catch(() => {});
+  await query('ALTER TABLE company_settings ADD COLUMN stamp_path VARCHAR(255) NULL').catch(() => {});
 }
 
 function getNormalizedRole(employee) {
@@ -491,6 +528,15 @@ function normalizeCompanySettings(row = {}) {
     quotation_template: row.quotation_template || 'standard',
     quotation_header_text: row.quotation_header_text || '',
     quotation_footer_text: row.quotation_footer_text || 'Thank you for your business!',
+    bank_name: row.bank_name || '',
+    account_holder_name: row.account_holder_name || row.account_name || '',
+    account_name: row.account_holder_name || row.account_name || '',
+    account_number: row.account_number || '',
+    ifsc_code: row.ifsc_code || '',
+    branch_name: row.branch_name || '',
+    nature: row.nature || 'Current Account',
+    signature_path: row.signature_path || '',
+    stamp_path: row.stamp_path || '',
   };
 }
 
@@ -508,8 +554,8 @@ async function getAdminCompanySettingsRow(companyId) {
     const company = companyRows?.[0] || {};
     const result = await query(
       `INSERT INTO company_settings
-       (company_id, company_name, email, phone, address, time_zone, currency, date_format, gst_number, pan_number, quotation_template, quotation_header_text, quotation_footer_text, logo_path)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (company_id, company_name, email, phone, address, time_zone, currency, date_format, gst_number, pan_number, quotation_template, quotation_header_text, quotation_footer_text, logo_path, bank_name, account_holder_name, account_number, ifsc_code, branch_name, nature, signature_path, stamp_path)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         companyId,
         company.company_name || 'Company',
@@ -525,6 +571,14 @@ async function getAdminCompanySettingsRow(companyId) {
         '',
         'Thank you for your business!',
         company.logo_path || null,
+        company.bank_name || '',
+        company.account_holder_name || company.account_name || '',
+        company.account_number || '',
+        company.ifsc_code || '',
+        company.branch_name || '',
+        company.nature || 'Current Account',
+        company.signature_path || null,
+        company.stamp_path || null,
       ]
     );
     const createdRows = await query('SELECT * FROM company_settings WHERE id = ? LIMIT 1', [result.insertId]).catch(() => []);
@@ -536,9 +590,9 @@ async function getAdminCompanySettingsRow(companyId) {
 
   const result = await query(
     `INSERT INTO company_settings
-     (company_name, email, phone, address, time_zone, currency, date_format, gst_number, pan_number, quotation_template, quotation_header_text, quotation_footer_text, logo_path)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ['Marcom Street CRM', '', '', '', 'Asia/Kolkata', 'INR', 'DD/MM/YYYY', '', '', 'standard', '', 'Thank you for your business!', null]
+     (company_name, email, phone, address, time_zone, currency, date_format, gst_number, pan_number, quotation_template, quotation_header_text, quotation_footer_text, logo_path, bank_name, account_holder_name, account_number, ifsc_code, branch_name, nature, signature_path, stamp_path)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ['Marcom Street CRM', '', '', '', 'Asia/Kolkata', 'INR', 'DD/MM/YYYY', '', '', 'standard', '', 'Thank you for your business!', null, '', '', '', '', '', 'Current Account', null, null]
   );
   const createdRows = await query('SELECT * FROM company_settings WHERE id = ? LIMIT 1', [result.insertId]).catch(() => []);
   return normalizeCompanySettings(createdRows?.[0] || {});
@@ -959,15 +1013,15 @@ router.put('/company-settings', verifyToken, requireAdminOnly, async (req, res) 
 
     if (!existing?.id) return res.status(500).json({ success: false, message: 'Company settings not initialized' });
 
-    await query(
-
-      `UPDATE company_settings
-
-       SET company_name=?, email=?, phone=?, address=?, time_zone=?, currency=?, date_format=?, gst_number=?, pan_number=?, quotation_template=?, quotation_header_text=?, quotation_footer_text=?, updated_at=NOW()
-
-       WHERE id=?`,
-
-      [
+    await query(
+
+      `UPDATE company_settings
+
+       SET company_name=?, email=?, phone=?, address=?, time_zone=?, currency=?, date_format=?, gst_number=?, pan_number=?, quotation_template=?, quotation_header_text=?, quotation_footer_text=?, bank_name=?, account_holder_name=?, account_number=?, ifsc_code=?, branch_name=?, nature=?, signature_path=?, stamp_path=?, updated_at=NOW()
+
+       WHERE id=?`,
+
+      [
 
         b.company_name || existing.company_name,
 
@@ -993,9 +1047,25 @@ router.put('/company-settings', verifyToken, requireAdminOnly, async (req, res) 
 
         b.quotation_footer_text !== undefined ? b.quotation_footer_text : (existing.quotation_footer_text || 'Thank you for your business!'),
 
+        b.bank_name !== undefined ? b.bank_name : (existing.bank_name || ''),
+
+        b.account_holder_name !== undefined ? b.account_holder_name : (existing.account_holder_name || existing.account_name || ''),
+
+        b.account_number !== undefined ? b.account_number : (existing.account_number || ''),
+
+        b.ifsc_code !== undefined ? b.ifsc_code : (existing.ifsc_code || ''),
+
+        b.branch_name !== undefined ? b.branch_name : (existing.branch_name || ''),
+
+        b.nature !== undefined ? b.nature : (existing.nature || 'Current Account'),
+
+        b.signature_path !== undefined ? b.signature_path : (existing.signature_path || ''),
+
+        b.stamp_path !== undefined ? b.stamp_path : (existing.stamp_path || ''),
+
         existing.id,
-
-      ]
+
+      ]
 
     );
 
@@ -1028,9 +1098,9 @@ router.put('/company-settings', verifyToken, requireAdminOnly, async (req, res) 
 
 
 
-router.post('/company-settings/logo', verifyToken, requireAdminOnly, (req, res) => {
-
-  uploadCompanyLogo.single('logo')(req, res, async (err) => {
+router.post('/company-settings/logo', verifyToken, requireAdminOnly, (req, res) => {
+
+  uploadCompanyLogo.single('logo')(req, res, async (err) => {
 
     if (err || !req.file) {
 
@@ -1055,10 +1125,46 @@ router.post('/company-settings/logo', verifyToken, requireAdminOnly, (req, res) 
       return res.status(500).json({ success: false, message: uploadErr.message });
 
     }
-
-  });
-
-});
+
+  });
+
+});
+
+router.post('/company-settings/signature', verifyToken, requireAdminOnly, (req, res) => {
+  uploadCompanyBranding.single('signature')(req, res, async (err) => {
+    if (err || !req.file) {
+      return res.status(400).json({ success: false, message: 'Signature upload failed' });
+    }
+
+    try {
+      const existing = await getAdminCompanySettingsRow(req.employee.company_id);
+      const signaturePath = 'uploads/company_branding/' + req.file.filename;
+      await query('UPDATE company_settings SET signature_path = ?, updated_at=NOW() WHERE id = ?', [signaturePath, existing.id]);
+      const updated = await getAdminCompanySettingsRow(req.employee.company_id);
+      return res.json({ success: true, message: 'Signature updated', data: updated || {} });
+    } catch (uploadErr) {
+      return res.status(500).json({ success: false, message: uploadErr.message });
+    }
+  });
+});
+
+router.post('/company-settings/stamp', verifyToken, requireAdminOnly, (req, res) => {
+  uploadCompanyBranding.single('stamp')(req, res, async (err) => {
+    if (err || !req.file) {
+      return res.status(400).json({ success: false, message: 'Stamp upload failed' });
+    }
+
+    try {
+      const existing = await getAdminCompanySettingsRow(req.employee.company_id);
+      const stampPath = 'uploads/company_branding/' + req.file.filename;
+      await query('UPDATE company_settings SET stamp_path = ?, updated_at=NOW() WHERE id = ?', [stampPath, existing.id]);
+      const updated = await getAdminCompanySettingsRow(req.employee.company_id);
+      return res.json({ success: true, message: 'Stamp updated', data: updated || {} });
+    } catch (uploadErr) {
+      return res.status(500).json({ success: false, message: uploadErr.message });
+    }
+  });
+});
 
 
 
@@ -1967,7 +2073,7 @@ router.post('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
         'company_id', 'employee_code', 'name', 'email', 'phone', 'password', 'role', 'department_id', 'designation', 'designation_id', 'status',
         'address', 'permanent_address', 'dob', 'gender', 'marital_status', 'emergency_contact_name',
         'emergency_contact_phone', 'joining_date', 'employment_type', 'probation_period', 'basic_salary',
-        'hra', 'conveyance', 'medical_allowance', 'lta', 'other_allowances', 'previous_company',
+        'hra', 'conveyance', 'medical_allowance', 'special_allowance', 'lta', 'other_allowances', 'pf_contribution', 'gratuity', 'previous_company',
         'previous_designation', 'experience_years', 'qualification', 'bank_account', 'bank_name',
         'ifsc_code', 'branch_name', 'account_holder_name', 'pan_number', 'aadhar_number',
       ];
@@ -1982,14 +2088,24 @@ router.post('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
           await conn.query('START TRANSACTION');
           employeeCode = await generateEmployeeCode(companyId, b.department_id, b.designation_id, b.joining_date, { connection: conn });
 
+          const basicSalary = normalizeSalaryAmount(b.basic_salary);
+          const hra = normalizeSalaryAmount(b.hra);
+          const conveyance = normalizeSalaryAmount(b.conveyance);
+          const medicalAllowance = normalizeSalaryAmount(b.medical_allowance);
+          const specialAllowance = normalizeSalaryAmount(b.special_allowance);
+          const lta = normalizeSalaryAmount(b.lta);
+          const otherAllowances = normalizeSalaryAmount(b.other_allowances);
+          const pfContribution = normalizeSalaryAmount(b.pf_contribution);
+          const gratuity = normalizeSalaryAmount(b.gratuity);
+
           const params = [
             companyId, employeeCode, b.name, b.email, b.phone || null, hashedPassword,
             b.role || 'employee', b.department_id || null, designation.name || b.designation || null, b.designation_id || null, 'active',
             b.address || null, b.permanent_address || null, b.dob || null, b.gender || null,
             b.marital_status || null, b.emergency_contact_name || null, b.emergency_contact_phone || null,
             b.joining_date || null, b.employment_type || 'full_time', b.probation_period || '3',
-            b.basic_salary || null, b.hra || null, b.conveyance || null, b.medical_allowance || null,
-            b.lta || null, b.other_allowances || null, b.previous_company || null,
+            basicSalary, hra, conveyance, medicalAllowance,
+            specialAllowance, lta, otherAllowances, pfContribution, gratuity, b.previous_company || null,
             b.previous_designation || null, b.experience_years || null, b.qualification || null,
             b.bank_account || null, b.bank_name || null, b.ifsc_code || null, b.branch_name || null,
             b.account_holder_name || null, b.pan_number || null, b.aadhar_number || null,
@@ -2020,43 +2136,54 @@ router.post('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
 
 
 
-    const queryStr = `INSERT INTO employees (
+    const queryStr = `INSERT INTO employees (
+
+      company_id, employee_code, name, email, phone, password, role, department_id, designation, status, 
+
+      address, permanent_address, dob, gender, marital_status, emergency_contact_name, 
+
+      emergency_contact_phone, joining_date, employment_type, probation_period, basic_salary, 
+
+      hra, conveyance, medical_allowance, special_allowance, lta, other_allowances, pf_contribution, gratuity, previous_company, 
+
+      previous_designation, experience_years, qualification, bank_account, bank_name, 
+
+      ifsc_code, branch_name, account_holder_name, pan_number, aadhar_number
 
-      company_id, employee_code, name, email, phone, password, role, department_id, designation, status, 
+    ) VALUES (${Array(40).fill('?').join(',')})`;
+    let fallbackEmployeeCode = b.employee_code || null;
+    if (!fallbackEmployeeCode) {
+      try {
+        const companyRows = await query('SELECT company_code, company_name FROM companies WHERE id = ? LIMIT 1', [req.employee.company_id]);
+        const companyRow = companyRows && companyRows[0];
+        const companyCode = normalizeCompanyCode(companyRow?.company_code, companyRow?.company_name);
+        fallbackEmployeeCode = await buildCompanyScopedEmployeeCode(companyCode, req.employee.company_id, 'EMP', {
+          companyName: companyRow?.company_name,
+        });
+      } catch (e) {
+        fallbackEmployeeCode = `EMP${String(req.employee.company_id || '0')}00001`;
+      }
+    }
+
+    const params = [
 
-      address, permanent_address, dob, gender, marital_status, emergency_contact_name, 
-
-      emergency_contact_phone, joining_date, employment_type, probation_period, basic_salary, 
-
-      hra, conveyance, medical_allowance, lta, other_allowances, previous_company, 
-
-      previous_designation, experience_years, qualification, bank_account, bank_name, 
-
-      ifsc_code, branch_name, account_holder_name, pan_number, aadhar_number
-
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
-
-
-
-    const params = [
-
-      req.employee.company_id, b.employee_code || 'EMP' + Date.now(), b.name, b.email, b.phone || null, hashedPassword,
+      req.employee.company_id, fallbackEmployeeCode, b.name, b.email, b.phone || null, hashedPassword,
 
       b.role || 'employee', b.department_id || null, b.designation || null, 'active',
 
       b.address || null, b.permanent_address || null, b.dob || null, b.gender || null,
 
-      b.marital_status || null, b.emergency_contact_name || null, b.emergency_contact_phone || null,
-
-      b.joining_date || null, b.employment_type || 'full_time', b.probation_period || '3',
-
-      b.basic_salary || null, b.hra || null, b.conveyance || null, b.medical_allowance || null,
-
-      b.lta || null, b.other_allowances || null, b.previous_company || null,
-
-      b.previous_designation || null, b.experience_years || null, b.qualification || null,
-
-      b.bank_account || null, b.bank_name || null, b.ifsc_code || null, b.branch_name || null,
+      b.marital_status || null, b.emergency_contact_name || null, b.emergency_contact_phone || null,
+
+      b.joining_date || null, b.employment_type || 'full_time', b.probation_period || '3',
+
+      b.basic_salary || null, b.hra || null, b.conveyance || null, b.medical_allowance || null,
+
+      b.special_allowance || null, b.lta || null, b.other_allowances || null, b.pf_contribution || null, b.gratuity || null, b.previous_company || null,
+
+      b.previous_designation || null, b.experience_years || null, b.qualification || null,
+
+      b.bank_account || null, b.bank_name || null, b.ifsc_code || null, b.branch_name || null,
 
       b.account_holder_name || null, b.pan_number || null, b.aadhar_number || null
 
@@ -2154,7 +2281,7 @@ router.put('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
         'company_id', 'employee_code', 'name', 'email', 'phone', 'role', 'department_id', 'designation', 'designation_id', 'status',
         'address', 'permanent_address', 'dob', 'gender', 'marital_status', 'emergency_contact_name',
         'emergency_contact_phone', 'joining_date', 'employment_type', 'probation_period', 'basic_salary',
-        'hra', 'conveyance', 'medical_allowance', 'lta', 'other_allowances', 'previous_company',
+        'hra', 'conveyance', 'medical_allowance', 'special_allowance', 'lta', 'other_allowances', 'pf_contribution', 'gratuity', 'previous_company',
         'previous_designation', 'experience_years', 'qualification', 'bank_account', 'bank_name',
         'ifsc_code', 'branch_name', 'account_holder_name', 'pan_number', 'aadhar_number',
       ];
@@ -2193,12 +2320,15 @@ router.put('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
             joining_date: nextJoiningDate || null,
             employment_type: b.employment_type !== undefined && b.employment_type !== null ? b.employment_type : existing.employment_type,
             probation_period: b.probation_period !== undefined && b.probation_period !== null ? b.probation_period : existing.probation_period,
-            basic_salary: b.basic_salary !== undefined && b.basic_salary !== null ? b.basic_salary : existing.basic_salary,
-            hra: b.hra !== undefined && b.hra !== null ? b.hra : existing.hra,
-            conveyance: b.conveyance !== undefined && b.conveyance !== null ? b.conveyance : existing.conveyance,
-            medical_allowance: b.medical_allowance !== undefined && b.medical_allowance !== null ? b.medical_allowance : existing.medical_allowance,
-            lta: b.lta !== undefined && b.lta !== null ? b.lta : existing.lta,
-            other_allowances: b.other_allowances !== undefined && b.other_allowances !== null ? b.other_allowances : existing.other_allowances,
+            basic_salary: b.basic_salary !== undefined && b.basic_salary !== null ? normalizeSalaryAmount(b.basic_salary) : normalizeSalaryAmount(existing.basic_salary),
+            hra: b.hra !== undefined && b.hra !== null ? normalizeSalaryAmount(b.hra) : normalizeSalaryAmount(existing.hra),
+            conveyance: b.conveyance !== undefined && b.conveyance !== null ? normalizeSalaryAmount(b.conveyance) : normalizeSalaryAmount(existing.conveyance),
+            medical_allowance: b.medical_allowance !== undefined && b.medical_allowance !== null ? normalizeSalaryAmount(b.medical_allowance) : normalizeSalaryAmount(existing.medical_allowance),
+            special_allowance: b.special_allowance !== undefined && b.special_allowance !== null ? normalizeSalaryAmount(b.special_allowance) : normalizeSalaryAmount(existing.special_allowance),
+            lta: b.lta !== undefined && b.lta !== null ? normalizeSalaryAmount(b.lta) : normalizeSalaryAmount(existing.lta),
+            other_allowances: b.other_allowances !== undefined && b.other_allowances !== null ? normalizeSalaryAmount(b.other_allowances) : normalizeSalaryAmount(existing.other_allowances),
+            pf_contribution: b.pf_contribution !== undefined && b.pf_contribution !== null ? normalizeSalaryAmount(b.pf_contribution) : normalizeSalaryAmount(existing.pf_contribution),
+            gratuity: b.gratuity !== undefined && b.gratuity !== null ? normalizeSalaryAmount(b.gratuity) : normalizeSalaryAmount(existing.gratuity),
             previous_company: b.previous_company !== undefined && b.previous_company !== null ? b.previous_company : existing.previous_company,
             previous_designation: b.previous_designation !== undefined && b.previous_designation !== null ? b.previous_designation : existing.previous_designation,
             experience_years: b.experience_years !== undefined && b.experience_years !== null ? b.experience_years : existing.experience_years,
@@ -2238,19 +2368,19 @@ router.put('/employees', verifyToken, requireAdminOrHR, async (req, res) => {
 
 
 
-    const updateFields = [
-
-      'employee_code', 'name', 'email', 'phone', 'role', 'department_id', 'designation', 'status',
-
-      'address', 'permanent_address', 'dob', 'gender', 'marital_status', 'emergency_contact_name',
-
-      'emergency_contact_phone', 'joining_date', 'employment_type', 'probation_period', 'basic_salary',
-
-      'hra', 'conveyance', 'medical_allowance', 'lta', 'other_allowances', 'previous_company',
-
-      'previous_designation', 'experience_years', 'qualification', 'bank_account', 'bank_name',
-
-      'ifsc_code', 'branch_name', 'account_holder_name', 'pan_number', 'aadhar_number'
+    const updateFields = [
+
+      'employee_code', 'name', 'email', 'phone', 'role', 'department_id', 'designation', 'status',
+
+      'address', 'permanent_address', 'dob', 'gender', 'marital_status', 'emergency_contact_name',
+
+      'emergency_contact_phone', 'joining_date', 'employment_type', 'probation_period', 'basic_salary',
+
+      'hra', 'conveyance', 'medical_allowance', 'special_allowance', 'lta', 'other_allowances', 'pf_contribution', 'gratuity', 'previous_company',
+
+      'previous_designation', 'experience_years', 'qualification', 'bank_account', 'bank_name',
+
+      'ifsc_code', 'branch_name', 'account_holder_name', 'pan_number', 'aadhar_number'
 
     ];
 
@@ -2634,7 +2764,7 @@ router.put('/companies', verifyToken, requireSuperAdminOnly, async (req, res) =>
     for (const f of updateFields) {
       if (b[f] !== undefined && b[f] !== null) {
         fieldsToSet.push(`${f}=?`);
-        values.push(f === 'company_code' ? normalizeCodePart(b[f]) : b[f]);
+        values.push(f === 'company_code' ? normalizeCompanyCode(b[f], b.company_name) : b[f]);
       }
     }
     
@@ -2706,7 +2836,9 @@ router.post('/companies', verifyToken, requireSuperAdminOnly, async (req, res) =
     // Automatically create/provision an admin employee for this company
     try {
       const companyId = r.insertId;
-      const employeeCode = 'COM' + companyId + '-' + Math.floor(Math.random() * 10000);
+      const employeeCode = await buildCompanyAdminEmployeeCode(normalizeCompanyCode('', b.company_name), companyId, {
+        companyName: b.company_name,
+      });
       await query(
         'INSERT INTO employees (employee_code, name, email, password, role, status, company_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [employeeCode, b.company_name, b.email, hashedPassword, 'admin', 'active', companyId]

@@ -962,6 +962,175 @@ async function generateInvoice(invoice, items) {
   return bufferFromDoc(doc);
 }
 
+async function generateQuotation(quotation, items) {
+  const doc = createDoc();
+  setupPageAddedListener(doc, 'QUOTATION', {
+    letterheadFn: (d) => addLetterhead(d, 'QUOTATION'),
+    contentStartY: hasLetterheadBg() ? LETTERHEAD_CONTENT_START_Y : CONTENT_START_Y,
+  });
+
+  const startY = addLetterhead(doc, 'QUOTATION');
+  const pageWidth = doc.page.width;
+  const margin = MARGIN_X;
+  const right = pageWidth - margin;
+  const navy = '#0f2f59';
+  const blue = '#15508f';
+  const gray = '#6b7280';
+  const border = '#e5e7eb';
+
+  const fmtDate = (v) => {
+    if (!v) return 'N/A';
+    try {
+      const d = v instanceof Date ? v : new Date(v);
+      if (Number.isNaN(d.getTime())) return String(v) || 'N/A';
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch (_) { return 'N/A'; }
+  };
+
+  const fmtMoney = (v) =>
+    `₹${Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const pageBreak = (needed = 0) => {
+    const maxY = doc.page.height - (doc.page.margins.bottom || 60);
+    if (doc.y + needed > maxY) {
+      doc.addPage();
+      doc.y = hasLetterheadBg() ? LETTERHEAD_CONTENT_START_Y : CONTENT_START_Y;
+    }
+  };
+
+  // --- HEADER SECTION ---
+  doc.y = startY + 10;
+  const col1 = margin;
+  const col2 = margin + (right - margin) / 2;
+
+  // Quotation Details (Left)
+  doc.fillColor(navy).font('Helvetica-Bold').fontSize(14).text('QUOTATION DETAILS', col1);
+  doc.moveDown(0.5);
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#374151');
+  doc.text('Quotation No:', col1, doc.y, { continued: true }).font('Helvetica').text(`  ${quotation.quotation_number || 'N/A'}`);
+  doc.font('Helvetica-Bold').text('Issue Date:', col1, doc.y, { continued: true }).font('Helvetica').text(`  ${fmtDate(quotation.issue_date)}`);
+  doc.font('Helvetica-Bold').text('Valid Until:', col1, doc.y, { continued: true }).font('Helvetica').text(`  ${fmtDate(quotation.valid_until)}`);
+
+  // Bill To (Right)
+  doc.y = startY + 10;
+  doc.fillColor(navy).font('Helvetica-Bold').fontSize(14).text('BILL TO', col2);
+  doc.moveDown(0.5);
+  doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827');
+  doc.text(quotation.company_name || quotation.client_name || 'Valued Client', col2);
+  doc.font('Helvetica').fontSize(10).fillColor('#4b5563');
+  if (quotation.contact_person) doc.text(`Attn: ${quotation.contact_person}`, col2);
+  if (quotation.company_phone || quotation.phone) doc.text(`Phone: ${quotation.company_phone || quotation.phone}`, col2);
+  if (quotation.company_email || quotation.email) doc.text(`Email: ${quotation.company_email || quotation.email}`, col2);
+
+  doc.moveDown(2.5);
+  const tableTop = doc.y + 10;
+  
+  // --- ITEMS TABLE ---
+  const tableWidth = right - margin;
+  const colWidths = {
+    name: tableWidth * 0.45,
+    qty: tableWidth * 0.1,
+    rate: tableWidth * 0.2,
+    total: tableWidth * 0.25
+  };
+
+  const xName = margin;
+  const xQty = xName + colWidths.name;
+  const xRate = xQty + colWidths.qty;
+  const xTotal = xRate + colWidths.rate;
+
+  // Header Row
+  doc.rect(margin, tableTop, tableWidth, 25).fillColor(blue).fill();
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10);
+  doc.text('DESCRIPTION', xName + 10, tableTop + 8);
+  doc.text('QTY', xQty, tableTop + 8, { width: colWidths.qty, align: 'center' });
+  doc.text('UNIT PRICE', xRate, tableTop + 8, { width: colWidths.rate, align: 'right' });
+  doc.text('TOTAL', xTotal - 10, tableTop + 8, { width: colWidths.total, align: 'right' });
+
+  doc.y = tableTop + 25;
+  const itemsList = Array.isArray(items) ? items : [];
+  
+  itemsList.forEach((item, index) => {
+    const itemH = item.description ? 35 : 25;
+    pageBreak(itemH + 10);
+    
+    const currentY = doc.y;
+    // Row background (alternate)
+    if (index % 2 === 1) {
+      doc.rect(margin, currentY, tableWidth, itemH).fillColor('#f9fafb').fill();
+    }
+    
+    doc.fillColor('#111827').font('Helvetica').fontSize(10);
+    doc.text(item.item_name || 'Item', xName + 10, currentY + 7, { width: colWidths.name - 15 });
+    if (item.description) {
+      doc.fontSize(8).fillColor(gray).text(item.description, xName + 10, currentY + 20, { width: colWidths.name - 15 });
+    }
+    
+    doc.fontSize(10).fillColor('#111827');
+    doc.text(String(item.quantity || 0), xQty, currentY + 7, { width: colWidths.qty, align: 'center' });
+    doc.text(fmtMoney(item.unit_price || 0), xRate, currentY + 7, { width: colWidths.rate, align: 'right' });
+    doc.font('Helvetica-Bold').text(fmtMoney(item.total_price || (item.quantity * item.unit_price)), xTotal - 10, currentY + 7, { width: colWidths.total, align: 'right' });
+    
+    doc.y = currentY + itemH;
+    // Bottom border for row
+    doc.moveTo(margin, doc.y).lineTo(right, doc.y).strokeColor(border).lineWidth(0.5).stroke();
+  });
+
+  // --- SUMMARY SECTION ---
+  doc.moveDown(1.5);
+  pageBreak(120);
+  const summaryW = 200;
+  const summaryX = right - summaryW;
+
+  const row = (label, value, isTotal = false) => {
+    const h = isTotal ? 30 : 20;
+    if (isTotal) {
+      doc.rect(summaryX, doc.y, summaryW, h).fillColor(blue).fill();
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(12);
+    } else {
+      doc.fillColor('#4b5563').font('Helvetica').fontSize(10);
+    }
+    
+    doc.text(label, summaryX + 10, doc.y + (isTotal ? 8 : 4));
+    doc.text(value, summaryX, doc.y + (isTotal ? 8 : 4), { width: summaryW - 10, align: 'right' });
+    doc.y += h;
+    if (!isTotal) {
+      doc.moveTo(summaryX, doc.y).lineTo(right, doc.y).strokeColor(border).lineWidth(0.5).stroke();
+    }
+  };
+
+  row('Subtotal', fmtMoney(quotation.subtotal));
+  if (quotation.discount_amount > 0) row(`Discount (${quotation.discount_percentage}%)`, `- ${fmtMoney(quotation.discount_amount)}`);
+  if (quotation.tax_amount > 0) row(`GST (${quotation.tax_percentage}%)`, `+ ${fmtMoney(quotation.tax_amount)}`);
+  row('TOTAL AMOUNT', fmtMoney(quotation.total_amount), true);
+
+  // --- FOOTER INFO ---
+  doc.moveDown(2);
+  if (quotation.notes || quotation.terms_conditions) {
+    pageBreak(80);
+    const infoW = (right - margin) * 0.6;
+    doc.x = margin;
+    
+    if (quotation.notes) {
+      doc.fillColor(navy).font('Helvetica-Bold').fontSize(10).text('NOTES:');
+      doc.fillColor('#4b5563').font('Helvetica').fontSize(9).text(quotation.notes, { width: infoW });
+      doc.moveDown(1);
+    }
+    
+    if (quotation.terms_conditions) {
+      doc.fillColor(navy).font('Helvetica-Bold').fontSize(10).text('TERMS & CONDITIONS:');
+      doc.fillColor('#4b5563').font('Helvetica').fontSize(9).text(quotation.terms_conditions, { width: infoW });
+    }
+  }
+
+  // --- THANK YOU ---
+  doc.y = doc.page.height - (hasLetterheadBg() ? 140 : 100);
+  doc.fillColor(blue).font('Helvetica-Bold').fontSize(12).text('Thank you for your business!', margin, doc.y, { align: 'center', width: pageWidth - 2 * margin });
+
+  if (!hasLetterheadBg()) addFooter(doc);
+  return bufferFromDoc(doc);
+}
+
 module.exports = {
   generateOfferLetter,
   generateExperienceLetter,
@@ -969,4 +1138,5 @@ module.exports = {
   generateJoiningForm,
   generateSalarySlip,
   generateInvoice,
+  generateQuotation,
 };

@@ -6,6 +6,28 @@ export default function Holidays() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: '', date: '', description: '' });
+  const [holidayNameMode, setHolidayNameMode] = useState('select');
+
+  const normalizedHolidayOptions = Array.from(
+    new Map(
+      holidays
+        .filter((item) => String(item.name || '').trim())
+        .map((item) => {
+          const name = String(item.name || '').trim();
+          return [
+            name.toLowerCase(),
+            {
+              name,
+              description: item.description || '',
+            },
+          ];
+        })
+    ).values()
+  ).sort((a, b) => a.name.localeCompare(b.name));
+
+  const selectedHolidayNameExists = normalizedHolidayOptions.some(
+    (item) => item.name.toLowerCase() === String(form.name || '').trim().toLowerCase()
+  );
 
   const fetchHolidays = async () => {
     try {
@@ -26,6 +48,22 @@ export default function Holidays() {
   const resetForm = () => {
     setEditing(null);
     setForm({ name: '', date: '', description: '' });
+    setHolidayNameMode('select');
+  };
+
+  const handleHolidaySelect = (value) => {
+    if (value === '__new__') {
+      setHolidayNameMode('new');
+      setForm((prev) => ({ ...prev, name: '', description: prev.description || '' }));
+      return;
+    }
+    setHolidayNameMode('select');
+    const selected = normalizedHolidayOptions.find((item) => item.name === value);
+    setForm((prev) => ({
+      ...prev,
+      name: value,
+      description: prev.description || selected?.description || '',
+    }));
   };
 
   const handleSubmit = async (e) => {
@@ -51,6 +89,7 @@ export default function Holidays() {
       date: String(item.date || '').slice(0, 10),
       description: item.description || '',
     });
+    setHolidayNameMode('new');
   };
 
   const handleDelete = async (item) => {
@@ -82,13 +121,29 @@ export default function Holidays() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Holiday Name</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                required
-              />
+              <select
+                value={holidayNameMode === 'new' || (form.name && !selectedHolidayNameExists) ? '__new__' : form.name}
+                onChange={(e) => handleHolidaySelect(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none bg-white"
+              >
+                <option value="">{normalizedHolidayOptions.length ? 'Select company holiday' : 'No saved holidays yet'}</option>
+                {normalizedHolidayOptions.map((item) => (
+                  <option key={item.name} value={item.name}>
+                    {item.name}
+                  </option>
+                ))}
+                <option value="__new__">+ Create new holiday name</option>
+              </select>
+              {(holidayNameMode === 'new' || (form.name && !selectedHolidayNameExists)) && (
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="mt-2 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                  placeholder="Enter new holiday name"
+                  required
+                />
+              )}
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Date</label>

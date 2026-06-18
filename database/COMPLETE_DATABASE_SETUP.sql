@@ -228,7 +228,7 @@ CREATE TABLE followups (
 CREATE TABLE quotations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     quotation_number VARCHAR(50) UNIQUE NOT NULL,
-    lead_id INT NOT NULL,
+    lead_id INT NULL DEFAULT NULL,
     employee_id INT NOT NULL,
     issue_date DATE NOT NULL,
     valid_until DATE,
@@ -270,6 +270,7 @@ CREATE TABLE invoices (
     id INT AUTO_INCREMENT PRIMARY KEY,
     invoice_number VARCHAR(50) UNIQUE NOT NULL,
     quotation_id INT,
+    company_id INT DEFAULT NULL,
     lead_id INT NOT NULL,
     employee_id INT NOT NULL,
     issue_date DATE NOT NULL,
@@ -277,6 +278,8 @@ CREATE TABLE invoices (
     subtotal DECIMAL(15, 2) NOT NULL DEFAULT 0,
     tax_percentage DECIMAL(5, 2) DEFAULT 0,
     tax_amount DECIMAL(15, 2) DEFAULT 0,
+    tds_percentage DECIMAL(5, 2) DEFAULT 0,
+    tds_amount DECIMAL(15, 2) DEFAULT 0,
     discount_percentage DECIMAL(5, 2) DEFAULT 0,
     discount_amount DECIMAL(15, 2) DEFAULT 0,
     total_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
@@ -316,12 +319,13 @@ CREATE TABLE invoice_items (
 CREATE TABLE leaves (
     id INT AUTO_INCREMENT PRIMARY KEY,
     employee_id INT NOT NULL,
-    type ENUM('sick', 'casual', 'annual', 'other') NOT NULL,
+    type VARCHAR(120) NOT NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     reason TEXT,
-    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    status ENUM('pending', 'approved', 'rejected', 'cancelled') DEFAULT 'pending',
     approved_by INT,
+    admin_reason TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
@@ -329,6 +333,30 @@ CREATE TABLE leaves (
     INDEX idx_employee (employee_id),
     INDEX idx_status (status),
     INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Leave Types Master
+CREATE TABLE hr_leave_types (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL UNIQUE,
+    code VARCHAR(30) NULL,
+    default_balance INT NOT NULL DEFAULT 0,
+    description TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Leave Balances
+CREATE TABLE hr_leave_balances (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    employee_id INT NOT NULL,
+    leave_type_id INT NOT NULL,
+    balance INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_leave_balance (employee_id, leave_type_id),
+    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+    FOREIGN KEY (leave_type_id) REFERENCES hr_leave_types(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Salary Slips Table
@@ -646,6 +674,20 @@ INSERT INTO invoice_items (invoice_id, item_name, description, quantity, unit_pr
 (1, 'Support Package', 'Standard support for 1 year', 1, 5000.00, 5000.00);
 
 -- Insert HRMS Data
+INSERT INTO hr_leave_types (name, code, default_balance, description) VALUES
+('Casual Leave', 'CL', 12, 'Personal kaam, emergency ya short break ke liye. Aam taur par 6-12 din per year.'),
+('Sick Leave', 'SL', 12, 'Bimari ya health issue ke liye. Aam taur par 6-12 din per year.'),
+('Earned Leave / Privilege Leave', 'EL', 24, 'Kaam karne ke badle accumulate hone wali leave. 12-24 din per year.'),
+('Paid Leave', 'PL', 0, 'Leave ke dauran salary milti hai. Policy ke hisab se CL, SL aur EL aksar paid hote hain.'),
+('Unpaid Leave', 'LWP', 0, 'Salary ke bina leave. Jab paid leave balance khatam ho jaye.'),
+('Maternity Leave', 'ML', 182, 'Mahila employees ke liye. Eligible employees ko 26 weeks tak mil sakti hai.'),
+('Paternity Leave', 'PTL', 7, 'Kuch companies mein male employees ko child birth ke samay di jati hai.'),
+('Bereavement Leave', 'BL', 3, 'Family member ke nidhan par di jane wali leave.'),
+('Marriage Leave', 'MRL', 5, 'Shaadi ke liye kuch companies 3-7 din ki leave deti hain.'),
+('Compensatory Off', 'COMP', 0, 'Weekend ya holiday par kaam karne ke badle milne wali leave.'),
+('Public Holidays', 'PH', 0, 'National aur festival holidays.'),
+('Optional Holiday', 'RH', 2, 'Employee apni choice se kuch festival holidays select kar sakta hai.');
+
 INSERT INTO leaves (employee_id, type, start_date, end_date, reason, status, approved_by) VALUES
 (2, 'annual', DATE_ADD(CURDATE(), INTERVAL 10 DAY), DATE_ADD(CURDATE(), INTERVAL 15 DAY), 'Family vacation', 'approved', 4),
 (3, 'sick', DATE_ADD(CURDATE(), INTERVAL 5 DAY), DATE_ADD(CURDATE(), INTERVAL 6 DAY), 'Medical appointment', 'pending', NULL),

@@ -13,6 +13,14 @@
 2. **Database** – MySQL chala hona chahiye, same DB: `marcom_street_crm`.  
    Optional: `.env` banao (`.env.example` copy karke) aur `DB_*` set karein.
 
+   Agar quotations se WhatsApp par PDF send karna hai, to `.env` me ye bhi set karein:
+   ```env
+   WHATSAPP_ACCESS_TOKEN=your_meta_access_token
+   WHATSAPP_PHONE_NUMBER_ID=your_whatsapp_phone_number_id
+   WHATSAPP_GRAPH_VERSION=v20.0
+   ```
+   App fallback aliases bhi accept karta hai: `META_AUTH_TOKEN`, `META_WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_ID`, `META_PHONE_NUMBER_ID`, `META_WHATSAPP_PHONE_NUMBER_ID`, `META_GRAPH_VERSION`.
+
    Quick check:
    ```bash
    npm run db:doctor
@@ -42,7 +50,7 @@
 
 ## API Routes (sab Node par, bina .php)
 
-- **Auth:** `POST /api/auth/login`, `POST /api/auth/logout`, forgot password: `POST /api/auth/forgot-password/request-otp`, `POST /api/auth/forgot-password/verify-otp`, `POST /api/auth/forgot-password/reset` (SMS via Twilio when `TWILIO_*` env vars are set; otherwise OTP is logged on the server—see `.env.example`)
+- **Auth:** `POST /api/auth/login`, `POST /api/auth/logout`, forgot password: `POST /api/auth/forgot-password/request-otp`, `POST /api/auth/forgot-password/verify-otp`, `POST /api/auth/forgot-password/reset` (email OTP uses SMTP config from `.env` or Super Admin -> Global System Settings -> Email OTP; preview mode is local-only when `ALLOW_EMAIL_PREVIEW=true`)
 - **Checkin:** `GET /api/checkin/status`, `POST /api/checkin/checkin`
 - **Activities:** `GET /api/activities`, `POST /api/activities/create`
 - **Companies:** `GET/POST/PUT /api/companies`, `GET /api/companies/history`, `GET /api/companies/:id`, `GET /api/companies/:id/leads`, etc.
@@ -54,6 +62,7 @@
 - **Chat:** `GET/POST /api/chat?action=users|unread_count|notifications|user_id=...`
 - **Dashboard:** `GET /api/dashboard`
 - **HRMS:** `GET/POST /api/hrms/documents`, `POST /api/hrms/generate_document`, `GET/POST /api/hrms/salary`, `GET/POST/PUT /api/hrms/leaves`, `GET/POST /api/hrms/attendance`, `GET /api/hrms/stats`, `GET /api/hrms/joining_submissions`, `POST /api/hrms/verify_joining`, `POST /api/hrms/generate_qr`
+- **Public HRMS onboarding:** `GET /api/hrms/public/joining-form/:token`, `POST /api/hrms/public/joining-form/:token`
 - **Reports:** `GET/POST /api/reports`, `GET /api/reports/sample`, `POST /api/reports/create`, `GET /api/reports/download`
 - **Quotations / Invoices:** `GET/POST/DELETE /api/quotations`, `GET/POST /api/invoices`
 - **Admin:** `GET /api/admin/dashboard`, `GET /api/admin/attendance`, `GET /api/admin/insights`, `GET /api/admin/revenue`, `GET/POST/PUT/DELETE /api/admin/tasks`, `GET/POST/PUT/DELETE /api/admin/employees`, `GET/POST/PUT /api/admin/api-keys`, `GET /api/admin/audit-logs`, `GET/PUT/POST/DELETE /api/admin/companies`, `GET /api/admin/ai-lead-score`, `POST /api/admin/generate_offer_letter`
@@ -63,3 +72,7 @@
 - **Group Meetings:** `GET/POST/PUT/DELETE /api/group-meetings`
 - **WhatsApp / AI / Designer:** `GET /api/whatsapp`, `GET /api/ai/guidance`, `GET /api/designer/dashboard`
 - **PDF:** `GET /serve-pdf?file=uploads/hr_documents/...` ya `uploads/salary_slips/...` (correct MIME, no PHP error)
+
+## Public Joining Form
+
+`POST /api/hrms/generate_qr` ab live domain ke hisaab se QR URL banata hai. QR scan karke user `/public/joining-form/:token` route ke through form open kar sakta hai, aur form submit hone par data `joining_form_submissions` me save hota hai.

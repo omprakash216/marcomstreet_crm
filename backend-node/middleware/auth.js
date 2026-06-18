@@ -3,62 +3,73 @@ const { query } = require('../config/database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'marcom_crm_secret_key_2024';
 
-async function verifyToken(req, res, next) {
-  let token = null;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.slice(7);
-  }
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      message: 'Unauthorized - Please login again',
-      error: 'Authentication token missing or invalid',
+function clearSessionAndRespond(req, res, status, payload) {
+  if (req.session && typeof req.session.destroy === 'function') {
+    req.session.destroy(() => {
+      res.clearCookie('sid');
+      return res.status(status).json(payload);
     });
+    return;
   }
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    if (!decoded || !decoded.id) {
-      return res.status(401).json({ success: false, message: 'Invalid token' });
-    }
-
-    let employee = null;
-    try {
-      const rows = await query('SELECT * FROM employees WHERE id = ? AND status = ?', [decoded.id, 'active']);
-      employee = rows[0] || null;
-    } catch (err) {
-      // Backward compatibility: older schemas may not have `status` column.
-      if (err && err.code === 'ER_BAD_FIELD_ERROR' && /status/i.test(err.message || '')) {
-        const rows = await query('SELECT * FROM employees WHERE id = ?', [decoded.id]);
-        employee = rows[0] || null;
-        if (employee && employee.status && String(employee.status).toLowerCase() !== 'active') {
-          employee = null;
-        }
-      } else {
-        throw err;
-      }
-    }
-    if (!employee) {
-      return res.status(401).json({ success: false, message: 'User not found or inactive' });
-    }
-    const dbTokenVersion = Number(employee.tokenVersion || 0);
-    const jwtTokenVersion = Number(decoded.tokenVersion || 0);
-    if (dbTokenVersion !== jwtTokenVersion) {
-      return res.status(401).json({
-        success: false,
-        message: 'Session expired. Please login again.',
-      });
-    }
-    req.employee = employee;
-    next();
-  } catch (err) {
-    return res.status(401).json({
-      success: false,
-      message: 'Unauthorized - Please login again',
-      error: err.message,
-    });
-  }
+  res.clearCookie('sid');
+  return res.status(status).json(payload);
 }
+
+function buildSessionGuard({ touchActivity = true } = {}) {
+  return function verifySession(req, res, next) {
+  // Set cache control headers to prevent back-button viewing
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
+  console.log('[DEBUG AUTH] URL:', req.originalUrl || req.url);
+  console.log('[DEBUG AUTH] Cookie Header:', req.headers.cookie);
+  console.log('[DEBUG AUTH] Session ID:', req.sessionID);
+  console.log('[DEBUG AUTH] Session employee:', req.session ? req.session.employee : 'no session');
+
+  if (!req.session || !req.session.employee) {
+    console.log('[DEBUG AUTH] Auth failed - no session or employee');
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized - Please login again',
+      error: 'Session missing or invalid',
+    });
+  }
+
+  const now = Date.now();
+  const idleTimeout = 15 * 60 * 1000; // 15 minutes
+  const absoluteTimeout = 8 * 60 * 60 * 1000; // 8 hours
+
+  const lastActive = req.session.lastActive || now;
+  const createdAt = req.session.createdAt || now;
+
+  // 1) Idle Timeout Check
+  if (now - lastActive > idleTimeout) {
+    return clearSessionAndRespond(req, res, 401, {
+      success: false,
+      message: 'Session expired due to inactivity. Please login again.',
+    });
+  }
+
+  // 2) Absolute Timeout Check
+  if (now - createdAt > absoluteTimeout) {
+    return clearSessionAndRespond(req, res, 401, {
+      success: false,
+      message: 'Session expired (absolute timeout). Please login again.',
+    });
+  }
+
+  // Session is valid, update activity and set req.employee
+  if (touchActivity) {
+    req.session.lastActive = now;
+  }
+  req.employee = req.session.employee;
+  next();
+  };
+}
+
+const verifyToken = buildSessionGuard({ touchActivity: true });
+const verifyTokenNoTouch = buildSessionGuard({ touchActivity: false });
 
 async function verifySuperAdmin(req, res, next) {
   if (!req.employee) {
@@ -91,4 +102,4 @@ async function verifyApiKey(req, res, next) {
   }
 }
 
-module.exports = { verifyToken, verifySuperAdmin, verifyApiKey, JWT_SECRET };
+module.exports = { verifyToken, verifyTokenNoTouch, verifySuperAdmin, verifyApiKey, JWT_SECRET };

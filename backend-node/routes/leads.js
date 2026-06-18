@@ -40,32 +40,35 @@ router.get('/', verifyToken, async (req, res) => {
     const offset = (page - 1) * requestedLimit;
     const limit = Math.min(requestedLimit + 1, 501);
 
-    let sql = `SELECT l.id, l.lead_code, l.company_name, l.contact_person, l.email, l.phone,
-               l.assigned_to, l.source, l.status, l.priority, l.estimated_value, l.notes,
-               l.next_followup_date, l.created_at, l.updated_at
-               FROM leads l WHERE 1=1`;
+    let whereSql = ' FROM leads l WHERE 1=1';
     const params = [];
     if (!isSuper) {
-      sql += ' AND l.company_id = ?';
+      whereSql += ' AND l.company_id = ?';
       params.push(req.employee.company_id);
     }
-    if (status) { sql += ' AND l.status = ?'; params.push(status); }
-    if (priority) { sql += ' AND l.priority = ?'; params.push(priority); }
-    if (dateFrom) { sql += ' AND DATE(l.created_at) >= ?'; params.push(dateFrom); }
-    if (dateTo) { sql += ' AND DATE(l.created_at) <= ?'; params.push(dateTo); }
+    if (status) { whereSql += ' AND l.status = ?'; params.push(status); }
+    if (priority) { whereSql += ' AND l.priority = ?'; params.push(priority); }
+    if (dateFrom) { whereSql += ' AND DATE(l.created_at) >= ?'; params.push(dateFrom); }
+    if (dateTo) { whereSql += ' AND DATE(l.created_at) <= ?'; params.push(dateTo); }
     if (search) {
-      sql += ' AND (l.company_name LIKE ? OR l.contact_person LIKE ? OR l.email LIKE ? OR l.phone LIKE ? OR l.lead_code LIKE ?)';
+      whereSql += ' AND (l.company_name LIKE ? OR l.contact_person LIKE ? OR l.email LIKE ? OR l.phone LIKE ? OR l.lead_code LIKE ?)';
       const term = '%' + search + '%';
       params.push(term, term, term, term, term);
     }
-    sql += ' ORDER BY l.created_at DESC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
+    const countRows = await query(`SELECT COUNT(*) as total${whereSql}`, params);
+    const total = Number(countRows?.[0]?.total || 0);
 
-    let rows = await query(sql, params);
+    let sql = `SELECT l.id, l.lead_code, l.company_name, l.contact_person, l.email, l.phone,
+               l.assigned_to, l.source, l.status, l.priority, l.estimated_value, l.notes,
+               l.next_followup_date, l.created_at, l.updated_at
+               ${whereSql}
+               ORDER BY l.created_at DESC LIMIT ? OFFSET ?`;
+
+    let rows = await query(sql, [...params, limit, offset]);
     const hasNext = Array.isArray(rows) && rows.length > requestedLimit;
     if (hasNext) rows = rows.slice(0, requestedLimit);
 
-    return res.json({ success: true, data: rows, page, limit: requestedLimit, has_next: hasNext });
+    return res.json({ success: true, data: rows, page, limit: requestedLimit, total, has_next: hasNext });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

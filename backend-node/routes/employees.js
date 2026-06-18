@@ -15,9 +15,25 @@ router.get('/', verifyToken, async (req, res) => {
       const isSuper = isSuperRole(req.employee.role);
       const companyId = req.employee.company_id;
       
-      const queryStr = isSuper 
-        ? 'SELECT e.id, e.employee_code, e.name, e.email, e.phone, e.role, e.department_id, e.designation_id, e.designation, e.status, d.name as department_name, dg.name as designation_name FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN designations dg ON e.designation_id = dg.id WHERE e.status = ? ORDER BY e.name'
-        : "SELECT e.id, e.employee_code, e.name, e.email, e.phone, e.role, e.department_id, e.designation_id, e.designation, e.status, d.name as department_name, dg.name as designation_name FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN designations dg ON e.designation_id = dg.id WHERE e.status = ? AND e.company_id = ? AND LOWER(REPLACE(REPLACE(TRIM(e.role), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin') ORDER BY e.name";
+      const salarySelectFields = [
+        'ABS(COALESCE(e.basic_salary, 0)) as basic_salary',
+        'ABS(COALESCE(e.hra, 0)) as hra',
+        'ABS(COALESCE(e.conveyance, 0)) as conveyance',
+        'ABS(COALESCE(e.medical_allowance, 0)) as medical_allowance',
+        'ABS(COALESCE(e.special_allowance, 0)) as special_allowance',
+        'ABS(COALESCE(e.other_allowances, 0)) as other_allowances',
+        'ABS(COALESCE(e.pf_contribution, 0)) as pf_contribution',
+        'ABS(COALESCE(e.gratuity, 0)) as gratuity',
+        'e.bank_account',
+        'e.bank_name',
+        'e.ifsc_code',
+        'e.branch_name',
+        'e.account_holder_name',
+      ].join(', ');
+
+      const queryStr = isSuper
+        ? `SELECT e.id, e.employee_code, e.name, e.email, e.phone, e.role, e.department_id, e.designation_id, e.designation, e.status, ${salarySelectFields}, d.name as department_name, dg.name as designation_name FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN designations dg ON e.designation_id = dg.id WHERE e.status = ? ORDER BY e.name`
+        : `SELECT e.id, e.employee_code, e.name, e.email, e.phone, e.role, e.department_id, e.designation_id, e.designation, e.status, ${salarySelectFields}, d.name as department_name, dg.name as designation_name FROM employees e LEFT JOIN departments d ON e.department_id = d.id LEFT JOIN designations dg ON e.designation_id = dg.id WHERE e.status = ? AND e.company_id = ? AND LOWER(REPLACE(REPLACE(TRIM(e.role), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin') ORDER BY e.name`;
         
       const queryParams = isSuper ? ['active'] : ['active', companyId];
       
@@ -33,7 +49,11 @@ router.get('/', verifyToken, async (req, res) => {
       let fallbackQuery = `
          SELECT id, NULL as employee_code, name, email, NULL as phone,
                 'employee' as role, NULL as department_id, NULL as designation,
-                'active' as status, 'General' as department_name
+                'active' as status,
+                NULL as basic_salary, NULL as hra, NULL as conveyance, NULL as medical_allowance,
+                NULL as special_allowance, NULL as other_allowances, NULL as pf_contribution, NULL as gratuity,
+                NULL as bank_account, NULL as bank_name, NULL as ifsc_code, NULL as branch_name, NULL as account_holder_name,
+                'General' as department_name, NULL as designation_name
          FROM employees
       `;
       let fallbackParams = [];
@@ -55,7 +75,7 @@ router.get('/', verifyToken, async (req, res) => {
           rows = await query(
             `SELECT id, NULL as employee_code, name, email, NULL as phone,
                     'employee' as role, NULL as department_id, NULL as designation,
-                    'active' as status, 'General' as department_name
+                    'active' as status, 'General' as department_name, NULL as designation_name
              FROM employees ORDER BY name`
           );
       }

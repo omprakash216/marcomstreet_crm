@@ -1,6 +1,7 @@
 const express = require('express');
 const { query } = require('../../config/database');
 const { verifyToken, verifySuperAdmin } = require('../../middleware/auth');
+const { buildCompanyAdminEmployeeCode, normalizeCompanyCode } = require('../../utils/companyCode');
 
 const bcrypt = require('bcryptjs');
 const router = express.Router();
@@ -72,7 +73,9 @@ router.post('/', verifyToken, verifySuperAdmin, async (req, res) => {
 
         // Auto create corresponding admin employee
         try {
-            const employeeCode = 'COM' + companyId + '-' + Math.floor(Math.random() * 10000);
+            const employeeCode = await buildCompanyAdminEmployeeCode(normalizeCompanyCode('', company_name), companyId, {
+                companyName: company_name,
+            });
             await query(
                 'INSERT INTO employees (employee_code, name, email, password, role, status, company_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [employeeCode, adminName || company_name, email, hashedPassword, 'admin', 'active', companyId]

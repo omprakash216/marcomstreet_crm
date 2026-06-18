@@ -1,35 +1,59 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export default function Reports() {
+  const [searchParams] = useSearchParams();
+  const isFinanceScope = searchParams.get('scope') === 'finance';
+  const createDefaultFormData = () => ({
+    report_name: '',
+    report_type: isFinanceScope ? 'financial' : 'sales',
+    date_from: '',
+    date_to: '',
+    include_leads: !isFinanceScope,
+    include_meetings: !isFinanceScope,
+    include_tasks: !isFinanceScope,
+    include_invoices: true,
+    include_quotations: isFinanceScope,
+  });
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [filters, setFilters] = useState({
     search: '',
-    report_type: '',
+    report_type: isFinanceScope ? 'financial' : '',
     date_from: '',
     date_to: '',
     status: '',
   });
-  const [formData, setFormData] = useState({
-    report_name: '',
-    report_type: 'sales',
-    date_from: '',
-    date_to: '',
-    include_leads: true,
-    include_meetings: true,
-    include_tasks: true,
-    include_invoices: true,
-    include_quotations: false,
-  });
+  const [formData, setFormData] = useState(createDefaultFormData);
+  const pageSize = 5;
 
   useEffect(() => {
     fetchReports();
   }, []);
+
+  useEffect(() => {
+    if (!isFinanceScope) return;
+    setFilters((current) => ({ ...current, report_type: 'financial' }));
+    setFormData((current) => ({
+      ...current,
+      report_type: 'financial',
+      include_leads: false,
+      include_meetings: false,
+      include_tasks: false,
+      include_invoices: true,
+      include_quotations: true,
+    }));
+  }, [isFinanceScope]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.search, filters.report_type, filters.date_from, filters.date_to, filters.status, isFinanceScope]);
 
   useEffect(() => {
     fetchReports();
@@ -67,13 +91,15 @@ export default function Reports() {
   };
 
   const handleFilterChange = (field, value) => {
+    setCurrentPage(1);
     setFilters({ ...filters, [field]: value });
   };
 
   const clearFilters = () => {
+    setCurrentPage(1);
     setFilters({
       search: '',
-      report_type: '',
+      report_type: isFinanceScope ? 'financial' : '',
       date_from: '',
       date_to: '',
       status: '',
@@ -85,17 +111,7 @@ export default function Reports() {
     try {
       await api.post('/reports/create', formData);
       setShowModal(false);
-      setFormData({
-        report_name: '',
-        report_type: 'sales',
-        date_from: '',
-        date_to: '',
-        include_leads: true,
-        include_meetings: true,
-        include_tasks: true,
-        include_invoices: true,
-        include_quotations: false,
-      });
+      setFormData(createDefaultFormData());
       fetchReports();
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to create report');
@@ -149,6 +165,9 @@ export default function Reports() {
         ['Tasks', reportData.tasks?.length || 0],
         ['Invoices', reportData.invoices?.length || 0],
         ['Quotations', reportData.quotations?.length || 0],
+        ['Payments', reportData.payments?.length || 0],
+        ['Expenses', reportData.expenses?.length || 0],
+        ['Bank Accounts', reportData.accounts?.length || 0],
       ];
       const summarySheet = workbook.addWorksheet('Summary');
       summaryData.forEach((row) => summarySheet.addRow(row));
@@ -231,6 +250,42 @@ export default function Reports() {
         addObjectSheet('Quotations', quotationsData);
       }
 
+      if (reportData.payments && reportData.payments.length > 0) {
+        const paymentsData = reportData.payments.map(payment => ({
+          'Payment Date': payment.payment_date ? new Date(payment.payment_date).toLocaleDateString() : '',
+          'Invoice Number': payment.invoice_number || '',
+          'Company': payment.company_name || '',
+          'Method': payment.method || '',
+          'Reference': payment.reference_no || '',
+          'Bank Account': payment.bank_name || '',
+          'Amount': payment.amount || 0,
+        }));
+        addObjectSheet('Payments', paymentsData);
+      }
+
+      if (reportData.expenses && reportData.expenses.length > 0) {
+        const expensesData = reportData.expenses.map(expense => ({
+          'Expense Date': expense.expense_date ? new Date(expense.expense_date).toLocaleDateString() : '',
+          'Type': expense.type || '',
+          'Description': expense.description || '',
+          'Account': expense.account_bank || '',
+          'Amount': expense.amount || 0,
+        }));
+        addObjectSheet('Expenses', expensesData);
+      }
+
+      if (reportData.accounts && reportData.accounts.length > 0) {
+        const accountsData = reportData.accounts.map(account => ({
+          'Bank Name': account.bank_name || '',
+          'Account Holder': account.account_holder_name || '',
+          'Account Number': account.account_number || '',
+          'IFSC': account.ifsc_code || '',
+          'Branch': account.branch_name || '',
+          'Balance': account.balance || 0,
+        }));
+        addObjectSheet('Bank Accounts', accountsData);
+      }
+
       // Generate filename
       const fileName = `${report.report_name.replace(/[^a-z0-9]/gi, '_')}_${new Date().getTime()}.xlsx`;
 
@@ -286,6 +341,9 @@ export default function Reports() {
         ['Tasks', reportData.tasks?.length || 0],
         ['Invoices', reportData.invoices?.length || 0],
         ['Quotations', reportData.quotations?.length || 0],
+        ['Payments', reportData.payments?.length || 0],
+        ['Expenses', reportData.expenses?.length || 0],
+        ['Bank Accounts', reportData.accounts?.length || 0],
       ];
       autoTable(doc, {
         startY: yPos,
@@ -375,10 +433,63 @@ export default function Reports() {
           theme: 'striped',
           headStyles: { fillColor: [66, 139, 202] },
         });
+        yPos = doc.lastAutoTable.finalY + 15;
+      }
+
+      if (reportData.payments && reportData.payments.length > 0) {
+        if (yPos > 250) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.setFontSize(14);
+        doc.text('Payments', 14, yPos);
+        yPos += 10;
+
+        const paymentsData = reportData.payments.map(payment => [
+          payment.payment_date ? new Date(payment.payment_date).toLocaleDateString() : '',
+          payment.invoice_number || '',
+          payment.bank_name || '',
+          `Rs. ${payment.amount || 0}`,
+        ]);
+
+        autoTable(doc, {
+          startY: yPos,
+          head: [['Date', 'Invoice #', 'Account', 'Amount']],
+          body: paymentsData,
+          theme: 'striped',
+          headStyles: { fillColor: [66, 139, 202] },
+        });
+        yPos = doc.lastAutoTable.finalY + 15;
+      }
+
+      if (reportData.expenses && reportData.expenses.length > 0) {
+        if (yPos > 250) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.setFontSize(14);
+        doc.text('Expenses', 14, yPos);
+        yPos += 10;
+
+        const expensesData = reportData.expenses.map(expense => [
+          expense.expense_date ? new Date(expense.expense_date).toLocaleDateString() : '',
+          expense.type || '',
+          expense.account_bank || '',
+          `Rs. ${expense.amount || 0}`,
+        ]);
+
+        autoTable(doc, {
+          startY: yPos,
+          head: [['Date', 'Type', 'Account', 'Amount']],
+          body: expensesData,
+          theme: 'striped',
+          headStyles: { fillColor: [66, 139, 202] },
+        });
       }
 
       // Save PDF
-      const fileName = `${report.report_name.replace(/[^a-z0-9]/gi, '_')}_${new Date().getTime()}.pdf`;
+      const currentDate = new Date().toISOString().slice(0, 10);
+      const fileName = `report_${currentDate}.pdf`;
       doc.save(fileName);
     } catch (error) {
       console.error('Error exporting to PDF:', error);
@@ -404,6 +515,9 @@ export default function Reports() {
 • Tasks: ${reportData.tasks?.length || 0}
 • Invoices: ${reportData.invoices?.length || 0}
 • Quotations: ${reportData.quotations?.length || 0}
+• Payments: ${reportData.payments?.length || 0}
+• Expenses: ${reportData.expenses?.length || 0}
+• Bank Accounts: ${reportData.accounts?.length || 0}
 
 📅 Created: ${new Date(report.created_at).toLocaleString()}
     `.trim();
@@ -470,6 +584,18 @@ export default function Reports() {
               <div class="summary-card">
                 <h3>${reportData.quotations?.length || 0}</h3>
                 <p>Quotations</p>
+              </div>
+              <div class="summary-card">
+                <h3>${reportData.payments?.length || 0}</h3>
+                <p>Payments</p>
+              </div>
+              <div class="summary-card">
+                <h3>${reportData.expenses?.length || 0}</h3>
+                <p>Expenses</p>
+              </div>
+              <div class="summary-card">
+                <h3>${reportData.accounts?.length || 0}</h3>
+                <p>Bank Accounts</p>
               </div>
             </div>
             
@@ -558,6 +684,90 @@ export default function Reports() {
                 </table>
               </div>
             ` : ''}
+
+            ${reportData.payments && reportData.payments.length > 0 ? `
+              <div class="section">
+                <h2>Payments (${reportData.payments.length})</h2>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Invoice #</th>
+                      <th>Company</th>
+                      <th>Account</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${reportData.payments.map(payment => `
+                      <tr>
+                        <td>${payment.payment_date ? new Date(payment.payment_date).toLocaleDateString() : ''}</td>
+                        <td>${payment.invoice_number || ''}</td>
+                        <td>${payment.company_name || ''}</td>
+                        <td>${payment.bank_name || ''}</td>
+                        <td>Rs. ${payment.amount || 0}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : ''}
+
+            ${reportData.expenses && reportData.expenses.length > 0 ? `
+              <div class="section">
+                <h2>Expenses (${reportData.expenses.length})</h2>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Type</th>
+                      <th>Description</th>
+                      <th>Account</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${reportData.expenses.map(expense => `
+                      <tr>
+                        <td>${expense.expense_date ? new Date(expense.expense_date).toLocaleDateString() : ''}</td>
+                        <td>${expense.type || ''}</td>
+                        <td>${expense.description || ''}</td>
+                        <td>${expense.account_bank || ''}</td>
+                        <td>Rs. ${expense.amount || 0}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : ''}
+
+            ${reportData.accounts && reportData.accounts.length > 0 ? `
+              <div class="section">
+                <h2>Bank Accounts (${reportData.accounts.length})</h2>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Bank</th>
+                      <th>Account Holder</th>
+                      <th>Account No</th>
+                      <th>IFSC</th>
+                      <th>Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${reportData.accounts.map(account => `
+                      <tr>
+                        <td>${account.bank_name || ''}</td>
+                        <td>${account.account_holder_name || ''}</td>
+                        <td>${account.account_number || ''}</td>
+                        <td>${account.ifsc_code || ''}</td>
+                        <td>Rs. ${account.balance || 0}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : ''}
           </div>
         </body>
       </html>
@@ -587,6 +797,10 @@ export default function Reports() {
     }
     return true;
   });
+  const totalPages = Math.max(1, Math.ceil(filteredReports.length / pageSize));
+  const safePage = Math.min(Math.max(currentPage, 1), totalPages);
+  const pageStart = filteredReports.length === 0 ? 0 : (safePage - 1) * pageSize;
+  const pagedReports = filteredReports.slice(pageStart, pageStart + pageSize);
 
   return (
     <div>
@@ -613,8 +827,12 @@ export default function Reports() {
 
               {/* Title and Description */}
               <div className="flex-1">
-                <h1 className="text-3xl font-bold text-white mb-1">Reports</h1>
-                <p className="text-slate-300 text-sm">Generate, view, and export comprehensive reports</p>
+                <h1 className="text-3xl font-bold text-white mb-1">{isFinanceScope ? 'Finance Reports' : 'Reports'}</h1>
+                <p className="text-slate-300 text-sm">
+                  {isFinanceScope
+                    ? 'Generate billing, payment, expense, and bank account reports'
+                    : 'Generate, view, and export comprehensive reports'}
+                </p>
               </div>
             </div>
 
@@ -702,51 +920,66 @@ export default function Reports() {
       </div>
 
       {/* Reports Table */}
-      <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-        {/* Table Headers - Always Visible */}
-        <div className="bg-gray-50 border-b border-gray-200 px-6 py-4">
-          <table className="min-w-full">
-            <thead>
-              <tr>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SL No</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Report Name</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created Date</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-          </table>
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-md">
+        <div className="flex flex-col gap-3 border-b border-gray-100 bg-gray-50/70 px-6 py-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-400">Report Directory</p>
+            <h2 className="mt-1 text-lg font-black text-gray-900">
+              {filteredReports.length} Report{filteredReports.length === 1 ? '' : 's'}
+            </h2>
+            <p className="text-sm text-gray-500">Clean table view with export and quick preview actions.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600">
+              Showing {filteredReports.length === 0 ? 0 : pageStart + 1}-{Math.min(pageStart + pageSize, filteredReports.length)} of {filteredReports.length}
+            </span>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50"
+            >
+              Reset
+            </button>
+          </div>
         </div>
 
         {/* Reports Content */}
         {loading ? (
-          <div className="p-12 text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p className="mt-2 text-gray-600">Loading reports...</p>
+          <div className="px-6 py-16 text-center">
+            <div className="inline-flex items-center gap-3 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-500">
+              <i className="fas fa-circle-notch fa-spin text-blue-600"></i>
+              Loading reports...
+            </div>
           </div>
-        ) : filteredReports.length === 0 ? (
-          <div className="p-12 text-center">
-            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No reports found</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              {filters.search || filters.report_type || filters.date_from || filters.date_to
+        ) : pagedReports.length === 0 ? (
+          <div className="px-6 py-16 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 text-gray-400">
+              <i className="fas fa-chart-column text-xl"></i>
+            </div>
+            <h3 className="mt-4 text-lg font-black text-gray-900">No reports found</h3>
+            <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
+              {filters.search || filters.report_type || filters.date_from || filters.date_to || filters.status
                 ? 'Try adjusting your filters to see more results.'
-                : 'Get started by creating your first report.'}
+                : 'Create your first report to see it listed here.'}
             </p>
-            {(filters.search || filters.report_type || filters.date_from || filters.date_to) && (
-              <div className="mt-6">
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              {(filters.search || filters.report_type || filters.date_from || filters.date_to || filters.status) && (
                 <button
+                  type="button"
                   onClick={clearFilters}
-                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                  className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
                 >
                   Clear Filters
                 </button>
-              </div>
-            )}
+              )}
+              <button
+                type="button"
+                onClick={() => setShowModal(true)}
+                className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-50"
+              >
+                Create Report
+              </button>
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -766,6 +999,9 @@ export default function Reports() {
                         <div className="font-semibold text-gray-900">{report.report_name}</div>
                         <div className="text-sm text-gray-500">
                           {reportData.leads?.length || 0} Leads, {reportData.meetings?.length || 0} Meetings, {reportData.invoices?.length || 0} Invoices
+                          {report.report_type === 'financial'
+                            ? `, ${reportData.payments?.length || 0} Payments, ${reportData.expenses?.length || 0} Expenses`
+                            : ''}
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -783,8 +1019,8 @@ export default function Reports() {
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold ${report.status === 'completed'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-yellow-100 text-yellow-800'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-yellow-100 text-yellow-800'
                           }`}>
                           {report.status || 'completed'}
                         </span>

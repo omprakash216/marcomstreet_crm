@@ -15,6 +15,15 @@ const emptyProfile = {
   quotation_header_text: '',
   quotation_footer_text: 'Thank you for your business!',
   logo_path: '',
+  bank_name: '',
+  account_holder_name: '',
+  account_name: '',
+  account_number: '',
+  ifsc_code: '',
+  branch_name: '',
+  nature: 'Current Account',
+  signature_path: '',
+  stamp_path: '',
 };
 
 const profileFields = [
@@ -27,6 +36,14 @@ const profileFields = [
   'time_zone',
   'currency',
   'date_format',
+  'logo_path',
+  'bank_name',
+  'account_holder_name',
+  'account_number',
+  'ifsc_code',
+  'branch_name',
+  'nature',
+  'stamp_path',
 ];
 
 export default function AdminCompanyProfile() {
@@ -46,6 +63,7 @@ export default function AdminCompanyProfile() {
   }, []);
 
   const logoUrl = profile.logo_path ? `${uploadsBase}/${profile.logo_path}` : '';
+  const stampUrl = profile.stamp_path ? `${uploadsBase}/${profile.stamp_path}` : '';
 
   const completion = useMemo(() => {
     const filled = profileFields.filter((field) => String(profile[field] || '').trim()).length;
@@ -118,6 +136,25 @@ export default function AdminCompanyProfile() {
       }
     } catch (err) {
       alert(err.response?.data?.message || 'Logo upload nahi ho paaya');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const uploadStamp = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('stamp', file);
+      const response = await api.post('/admin/company-settings/stamp', form);
+      if (response.data?.success) {
+        const next = { ...emptyProfile, ...(response.data.data || profile) };
+        setProfile(next);
+        setOriginalProfile(next);
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Stamp upload nahi ho paaya');
     } finally {
       setUploading(false);
     }
@@ -246,6 +283,19 @@ export default function AdminCompanyProfile() {
                 <p>GSTIN: {profile.gst_number || '-'}</p>
                 <p>PAN: {profile.pan_number || '-'}</p>
                 <p>Currency: {profile.currency || 'INR'}</p>
+                <p>Bank: {profile.bank_name || '-'}</p>
+                <p>A/C: {profile.account_number || '-'}</p>
+                <p>IFSC: {profile.ifsc_code || '-'}</p>
+              </div>
+              <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em] text-gray-500">Signature Box</p>
+                    <p className="mt-1 text-[11px] font-semibold text-gray-400">Manual sign on printed invoice</p>
+                  </div>
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-black text-gray-500">Blank</span>
+                </div>
+                <div className="mt-3 h-20 rounded-xl border border-dashed border-gray-300 bg-gray-50"></div>
               </div>
             </div>
           </div>
@@ -282,6 +332,62 @@ export default function AdminCompanyProfile() {
                 maxLength={10}
                 placeholder="AAAAA0000A"
               />
+            </div>
+          </Section>
+
+          <Section title="Bank & Invoice Details" icon="fa-university">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label="Bank Name" value={profile.bank_name} onChange={(value) => updateField('bank_name', value)} placeholder="Canara Bank" />
+              <Field label="Account Holder Name" value={profile.account_holder_name} onChange={(value) => updateField('account_holder_name', value)} placeholder="Vanya Group" />
+              <Field label="Account Number" value={profile.account_number} onChange={(value) => updateField('account_number', value)} placeholder="1234567890" />
+              <Field label="IFSC Code" value={profile.ifsc_code} onChange={(value) => updateField('ifsc_code', value)} placeholder="SBIN0000123" />
+              <Field label="Branch Name" value={profile.branch_name} onChange={(value) => updateField('branch_name', value)} placeholder="Noida" />
+              <Field label="Nature" value={profile.nature} onChange={(value) => updateField('nature', value)} placeholder="Current Account" />
+            </div>
+          </Section>
+
+          <Section title="Signature & Mohar" icon="fa-pen-fancy">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black text-gray-900">Manual Signature Area</p>
+                    <p className="mt-1 text-xs font-semibold text-gray-500">Printed copy par pen se sign karna hai</p>
+                  </div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-gray-500">No image</span>
+                </div>
+                <div className="mt-4 rounded-xl border border-dashed border-gray-300 bg-white p-4">
+                  <div className="flex h-20 items-end justify-center">
+                    <div className="w-40 border-b-2 border-gray-400"></div>
+                  </div>
+                  <p className="mt-2 text-center text-[11px] font-semibold text-gray-400">Authorized Signatory</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black text-gray-900">Mohar / Stamp</p>
+                    <p className="mt-1 text-xs font-semibold text-gray-500">PDF me company seal ke roop me print hogi</p>
+                  </div>
+                  {stampUrl ? (
+                    <div className="flex h-16 w-20 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-white p-2">
+                      <img src={stampUrl} alt="Stamp preview" className="max-h-full max-w-full object-contain" />
+                    </div>
+                  ) : null}
+                </div>
+                <label className="mt-4 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#2c86ab]/20 bg-white px-4 py-2.5 text-sm font-black text-[#2c86ab] hover:bg-blue-50">
+                  <i className={`fas ${uploading ? 'fa-spinner fa-spin' : 'fa-stamp'}`}></i>
+                  {uploading ? 'Uploading...' : (stampUrl ? 'Replace Stamp' : 'Upload Stamp')}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    disabled={uploading}
+                    onChange={(event) => uploadStamp(event.target.files?.[0])}
+                  />
+                </label>
+              </div>
             </div>
           </Section>
 

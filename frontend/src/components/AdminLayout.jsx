@@ -1,12 +1,12 @@
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect, useRef, useMemo, forwardRef } from "react";
 import { createPortal } from "react-dom";
-import { getEmployee, clearAuth, normalizeRole, isSuperAdminRole } from "../utils/auth";
+import { getEmployee, clearAuth, normalizeRole, isSuperAdminRole, hasModuleAccess } from "../utils/auth";
 import api from "../utils/api";
 import MarcomLogo from "./MarcomLogo";
 import NotificationDropdown from "./NotificationDropdown";
 
-function getAdminSidebarSections(showMasterCompanyManagement) {
+function getAdminSidebarSections(showMasterCompanyManagement, showPoshManagement = false) {
   const sections = [
     {
       key: "company",
@@ -16,7 +16,6 @@ function getAdminSidebarSections(showMasterCompanyManagement) {
         { to: "/admin/company-profile", icon: "fas fa-id-card", label: "Company Profile" },
         { to: "/admin/calendar", icon: "fas fa-calendar-alt", label: "Meeting Calendar" },
         { to: "/admin/chat", icon: "fas fa-comments", label: "Team Chat" },
-        { to: "/admin/notifications", icon: "fas fa-bell", label: "Notifications" },
       ],
     },
     {
@@ -130,17 +129,38 @@ function getAdminSidebarSections(showMasterCompanyManagement) {
     });
   }
 
+  if (showPoshManagement) {
+    sections.splice(5, 0, {
+      key: "posh",
+      label: "POSH Management",
+      icon: "fas fa-shield-alt",
+      items: [
+        { to: "/admin/posh", icon: "fas fa-shield-alt", label: "Dashboard", activeWhen: (location) => location.pathname === "/admin/posh" && !location.search },
+        { to: "/admin/posh?tab=complaints", icon: "fas fa-clipboard-list", label: "All Complaints", activeWhen: (location) => location.pathname === "/admin/posh" && location.search.includes("tab=complaints") },
+        { to: "/admin/posh?tab=icc", icon: "fas fa-user-shield", label: "ICC Committee", activeWhen: (location) => location.pathname === "/admin/posh" && location.search.includes("tab=icc") },
+        { to: "/admin/posh?tab=investigations", icon: "fas fa-search", label: "Investigations", activeWhen: (location) => location.pathname === "/admin/posh" && location.search.includes("tab=investigations") },
+        { to: "/admin/posh?tab=hearings", icon: "fas fa-calendar-check", label: "Hearings", activeWhen: (location) => location.pathname === "/admin/posh" && location.search.includes("tab=hearings") },
+        { to: "/admin/posh?tab=evidence", icon: "fas fa-lock", label: "Evidence Vault", activeWhen: (location) => location.pathname === "/admin/posh" && location.search.includes("tab=evidence") },
+        { to: "/admin/posh?tab=reports", icon: "fas fa-chart-pie", label: "Reports", activeWhen: (location) => location.pathname === "/admin/posh" && location.search.includes("tab=reports") },
+        { to: "/admin/posh?tab=settings", icon: "fas fa-cog", label: "Settings", activeWhen: (location) => location.pathname === "/admin/posh" && location.search.includes("tab=settings") },
+      ],
+    });
+  }
+
   return sections;
 }
 
 export default function AdminLayout() {
   const [employee, setEmployee] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [openSection, setOpenSection] = useState("company");
   const [checkedIn, setCheckedIn] = useState(false);
   const [checkInLoading, setCheckInLoading] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [chatPollingEnabled, setChatPollingEnabled] = useState(true);
   const dropdownRef = useRef(null);
   const profileButtonRef = useRef(null);
   const profileMenuRef = useRef(null);
@@ -155,30 +175,113 @@ export default function AdminLayout() {
   const location = useLocation();
 
   useEffect(() => {
-    const emp = getEmployee();
-    if (!emp) {
-      navigate("/login", { replace: true });
-      return;
-    }
+    let cancelled = false;
 
-    const role = normalizeRole(emp.role);
-    if (role !== "admin" && role !== "superadmin" && role !== "super_admin") {
-      navigate("/", { replace: true });
-      return;
-    }
+    const bootstrapSession = async () => {
+      setAuthReady(false);
 
-    setEmployee(emp);
-    checkCheckInStatus();
+      const emp = getEmployee();
+      if (!emp) {
+        clearAuth();
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      const cachedRole = normalizeRole(emp.role);
+      if (cachedRole !== "admin" && cachedRole !== "superadmin" && cachedRole !== "super_admin") {
+        navigate("/", { replace: true });
+        return;
+      }
+
+      try {
+        const response = await api.get("/auth/verify");
+        const verifiedEmployee = response.data?.data?.employee;
+        if (!verifiedEmployee) {
+          throw new Error("Invalid session payload");
+        }
+
+        const role = normalizeRole(verifiedEmployee.role);
+        if (role !== "admin" && role !== "superadmin" && role !== "super_admin") {
+          navigate("/", { replace: true });
+          return;
+        }
+
+        if (cancelled) return;
+        setEmployee(verifiedEmployee);
+        localStorage.setItem("employee", JSON.stringify(verifiedEmployee));
+        setCheckedIn(false);
+        setCheckingStatus(true);
+        setUnreadChatCount(0);
+        setChatPollingEnabled(true);
+        setAuthReady(true);
+      } catch (error) {
+        if (cancelled) return;
+        if (error.response?.status === 401) {
+          clearAuth();
+          navigate("/login", { replace: true });
+          return;
+        }
+
+        setEmployee(emp);
+        setCheckedIn(false);
+        setCheckingStatus(true);
+        setAuthReady(true);
+      }
+    };
+
+    bootstrapSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [navigate]);
 
+  useEffect(() => {
+    if (!authReady || !employee) return;
+    setCheckingStatus(true);
+    setCheckedIn(false);
+    checkCheckInStatus();
+  }, [authReady, employee]);
+
+  const fetchUnreadCount = async () => {
+    if (!employee || !chatPollingEnabled) return;
+
+    try {
+      const response = await api.get("/chat?action=unread_count");
+      if (response.data.success) {
+        setUnreadChatCount(response.data.count);
+      }
+    } catch (error) {
+      if (error.response?.status === 401) {
+        setUnreadChatCount(0);
+        setChatPollingEnabled(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!authReady || !employee || !chatPollingEnabled) return;
+
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 10000);
+    return () => clearInterval(interval);
+  }, [authReady, employee, chatPollingEnabled]);
+
   const checkCheckInStatus = async () => {
+    if (!employee) {
+      setCheckingStatus(false);
+      return;
+    }
+
     try {
       const response = await api.get("/checkin/status");
       if (response.data && response.data.success) {
         setCheckedIn(response.data.data?.checked_in || false);
       }
     } catch (error) {
-      // Silently handle status check errors
+      if (error.response?.status !== 401) {
+        // Silently handle status check errors
+      }
     } finally {
       setCheckingStatus(false);
     }
@@ -300,9 +403,10 @@ export default function AdminLayout() {
   const closeMobileSidebar = () => setShowMobileSidebar(false);
 
   const showMasterCompanyManagement = employee ? isSuperAdminRole(employee?.role) : false;
+  const showPoshManagement = employee ? hasModuleAccess(employee, "posh") : false;
   const sidebarSections = useMemo(
-    () => getAdminSidebarSections(showMasterCompanyManagement),
-    [showMasterCompanyManagement]
+    () => getAdminSidebarSections(showMasterCompanyManagement, showPoshManagement),
+    [showMasterCompanyManagement, showPoshManagement]
   );
   const activeSectionKey = sidebarSections.find((section) => section.items.some(isItemActive))?.key || "";
 
@@ -310,7 +414,7 @@ export default function AdminLayout() {
     if (activeSectionKey) setOpenSection(activeSectionKey);
   }, [activeSectionKey]);
 
-  if (!employee) return null;
+  if (!authReady || !employee) return null;
 
   return (
     <div className="admin-shell h-screen bg-gray-50 flex flex-col overflow-hidden">
@@ -350,22 +454,22 @@ export default function AdminLayout() {
           </div>
 
           {/* Middle Banner (Desktop only) */}
-          <div className="hidden md:flex flex-1 items-center gap-4 px-6 h-full">
-            <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-white bg-white/10 border border-white/20 shadow-inner">
-              <i className="fas fa-cubes text-lg"></i>
+            <div className="hidden md:flex flex-1 items-center gap-4 px-6 h-full">
+              <div className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-white bg-white/10 border border-white/20 shadow-inner">
+                <i className="fas fa-cubes text-base"></i>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-[24px] font-black uppercase tracking-[0.14em] text-white leading-tight">
+                  Company Admin Panel
+                </h1>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-100/95 truncate">
+                  Complete CRM System & HRMS
+                </p>
+              </div>
+              <span className="flex-shrink-0 inline-flex items-center px-4 py-1.5 rounded-full text-[11px] font-bold tracking-widest uppercase text-white bg-white/15 border border-white/30">
+                COMPANY ADMIN
+              </span>
             </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-[22px] font-extrabold tracking-wide text-white leading-tight">
-                Company Admin Panel
-              </h1>
-              <p className="text-xs font-semibold text-blue-100 truncate">
-                Complete CRM System & HRMS
-              </p>
-            </div>
-            <span className="flex-shrink-0 inline-flex items-center px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest uppercase text-white bg-white/15 border border-white/30">
-              COMPANY ADMIN
-            </span>
-          </div>
 
           <div className="flex items-center gap-3 sm:gap-6">
             {/* Global Attendance Toggle */}
@@ -399,7 +503,7 @@ export default function AdminLayout() {
               <TopNavButton to="/admin/support-tickets" icon="fas fa-life-ring" label="Support" />
             </div>
 
-            <NotificationDropdown theme="light" />
+            <NotificationDropdown theme="light" unreadCount={unreadChatCount} />
 
             <div className="relative profile-dropdown-container z-[9999]" ref={dropdownRef}>
               <button
@@ -618,14 +722,16 @@ function TopNavButton({ to, icon, label }) {
   return (
     <Link
       to={to}
-      className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+      title={label}
+      aria-label={label}
+      className={`group inline-flex h-10 w-10 items-center justify-center rounded-xl text-xs font-bold border transition-all duration-200 ${
         active
           ? "bg-white text-[#2c86ab] border-white shadow-md"
-          : "bg-white/10 text-white border-white/20 hover:bg-white/20"
+          : "bg-white/10 text-white border-white/20 hover:bg-white/20 hover:-translate-y-0.5"
       }`}
     >
-      <i className={icon}></i>
-      <span>{label}</span>
+      <i className={`${icon} text-[14px] transition-transform duration-200 group-hover:scale-110`}></i>
+      <span className="sr-only">{label}</span>
     </Link>
   );
 }

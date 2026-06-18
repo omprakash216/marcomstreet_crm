@@ -7,18 +7,16 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
+const { query } = require('../config/database');
 
 const router = express.Router();
 const UPLOADS_ROOT = path.join(__dirname, '../../uploads');
-// Allow-list of folders under /uploads that can be served via /serve-pdf.
-// Note: `hr_docs` exists in some legacy deployments.
 const ALLOWED_DIRS = ['hr_documents', 'hr_docs', 'salary_slips'];
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const fileParam = req.query.file;
   if (!fileParam) {
-    res.set('Content-Type', 'application/pdf');
-    return res.status(400).end();
+    return res.status(400).json({ success: false, message: 'Missing file parameter' });
   }
 
   const wantsDownload =
@@ -26,8 +24,7 @@ router.get('/', (req, res) => {
     req.query.download === 'true' ||
     req.query.disposition === 'attachment';
 
-  // Some clients accidentally send pre-encoded paths (e.g. "uploads%2Fsalary_slips%2F...")
-  // or double-encode the value. Decode defensively (max 2 times).
+  // Decode defensively (max 2 times)
   let decodedPath = String(fileParam);
   for (let i = 0; i < 2; i++) {
     if (/%2f|%5c|%25/i.test(decodedPath)) {
@@ -42,13 +39,12 @@ router.get('/', (req, res) => {
   let normalized = decodedPath.replace(/\\/g, '/').trim();
   if (normalized.startsWith('/')) normalized = normalized.slice(1);
 
-  // Allow callers to omit the "uploads/" prefix (older UI/DB values)
+  // Allow callers to omit the "uploads/" prefix
   if (normalized.startsWith('salary_slips/')) normalized = 'uploads/' + normalized;
   if (normalized.startsWith('hr_documents/')) normalized = 'uploads/' + normalized;
   if (normalized.startsWith('hr_docs/')) normalized = 'uploads/' + normalized;
 
-  // Some legacy DB rows store an absolute path (e.g. "D:/.../uploads/hr_documents/file.pdf").
-  // Extract the safe relative segment if present.
+  // Extract safe relative segment
   const lower = normalized.toLowerCase();
   const idxHr = lower.indexOf('uploads/hr_documents/');
   const idxHrDocs = lower.indexOf('uploads/hr_docs/');
@@ -57,8 +53,6 @@ router.get('/', (req, res) => {
   if (idxHrDocs >= 0) normalized = normalized.slice(idxHrDocs);
   if (idxSalary >= 0) normalized = normalized.slice(idxSalary);
 
-  // Also allow callers to pass "hr_documents/<file>.pdf" (no uploads prefix).
-  // (We still keep the allow-list strict: only these two folders.)
   const lower2 = normalized.toLowerCase();
   const idxHr2 = lower2.indexOf('hr_documents/');
   const idxHrDocs2 = lower2.indexOf('hr_docs/');
@@ -67,22 +61,20 @@ router.get('/', (req, res) => {
   if (idxHrDocs2 >= 0) normalized = 'uploads/' + normalized.slice(idxHrDocs2);
   if (idxSalary2 >= 0) normalized = 'uploads/' + normalized.slice(idxSalary2);
 
-  // Normalize casing for folder names.
   normalized = normalized.replace(/^uploads\/hr_documents\//i, 'uploads/hr_documents/');
   normalized = normalized.replace(/^uploads\/hr_docs\//i, 'uploads/hr_docs/');
   normalized = normalized.replace(/^uploads\/salary_slips\//i, 'uploads/salary_slips/');
 
-  // Security: only allow uploads/hr_documents/ or uploads/salary_slips/
+  // Security check
   const allowed =
     normalized.startsWith('uploads/hr_documents/') ||
     normalized.startsWith('uploads/hr_docs/') ||
     normalized.startsWith('uploads/salary_slips/');
   if (!allowed) {
-    res.set('Content-Type', 'text/plain; charset=utf-8');
     if (process.env.NODE_ENV !== 'production') {
       console.warn('[serve-pdf] blocked path:', { fileParam, decodedPath, normalized });
     }
-    return res.status(403).send('Access denied. Invalid file path.');
+    return res.status(403).json({ success: false, message: 'Access denied. Invalid file path.' });
   }
 
   const joinedPath = path.join(__dirname, '../../', normalized);
@@ -90,13 +82,9 @@ router.get('/', (req, res) => {
   const basePath = path.resolve(UPLOADS_ROOT);
 
   if (!fullPath.startsWith(basePath)) {
-    res.set('Content-Type', 'text/plain; charset=utf-8');
-    return res.status(403).send('Access denied. Invalid file path.');
+    return res.status(403).json({ success: false, message: 'Access denied. Invalid file path.' });
   }
 
-  // If DB points to a missing file (common after cleanup), try to resolve to the latest matching PDF
-  // in the same folder. Example:
-  // uploads/hr_documents/Experience_Letter_NAME_1769516657.pdf -> uploads/hr_documents/Experience_Letter_NAME_<latest>.pdf
   const tryResolveLatestSibling = () => {
     try {
       const relDir = path.dirname(normalized).replace(/\\/g, '/');
@@ -104,15 +92,10 @@ router.get('/', (req, res) => {
       const absDir = path.resolve(path.join(__dirname, '../../', relDir));
       if (!absDir.startsWith(basePath) || !fs.existsSync(absDir)) return null;
 
-      // Candidate prefixes to search for "latest matching file"
       const prefixes = [];
-
-      // 1) Files with timestamp suffix: <prefix>_<ts>.pdf
       const mTs = base.match(/^(.*)_\d{10,13}\.pdf$/i);
       if (mTs) prefixes.push(mTs[1] + '_');
 
-      // 2) Salary slips sometimes stored in DB without timestamp: EMP003_2026-01.pdf
-      // Actual generated format: EMP003_202601_<ts>.pdf
       const mSalaryDash = base.match(/^([A-Za-z0-9]+)_(\d{4})-(\d{2})\.pdf$/i);
       if (mSalaryDash) {
         const code = mSalaryDash[1];
@@ -122,13 +105,11 @@ router.get('/', (req, res) => {
         prefixes.push(`${code}_${y}-${mm}_`);
       }
 
-      // 3) Salary slips without dash: EMP003_202601.pdf -> EMP003_202601_<ts>.pdf
       const mSalaryPlain = base.match(/^([A-Za-z0-9]+)_(\d{6})\.pdf$/i);
       if (mSalaryPlain) {
         prefixes.push(`${mSalaryPlain[1]}_${mSalaryPlain[2]}_`);
       }
 
-      // 4) Generic: "<name>.pdf" -> "<name>_" prefix
       if (prefixes.length === 0 && base.toLowerCase().endsWith('.pdf')) {
         prefixes.push(base.slice(0, -4) + '_');
       }
@@ -195,8 +176,7 @@ router.get('/', (req, res) => {
 
   const ext = path.extname(fullPath).toLowerCase();
   if (ext !== '.pdf') {
-    res.set('Content-Type', 'application/pdf');
-    return res.status(400).end();
+    return res.status(400).json({ success: false, message: 'Invalid file extension. Only PDFs are allowed.' });
   }
 
   const buf = Buffer.alloc(4);
@@ -207,22 +187,75 @@ router.get('/', (req, res) => {
     fs.closeSync(fd);
   }
   if (buf.toString('ascii', 0, 4) !== '%PDF') {
-    res.set('Content-Type', 'application/pdf');
-    return res.status(400).end();
+    return res.status(400).json({ success: false, message: 'File is not a valid PDF document.' });
   }
 
   const stat = fs.statSync(fullPath);
   if (stat.size < 100) {
-    res.set('Content-Type', 'application/pdf');
-    return res.status(400).end();
+    return res.status(400).json({ success: false, message: 'PDF file is empty or corrupted.' });
+  }
+
+  const baseName = path.basename(fullPath);
+  const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  let friendlyFilename = safeName;
+
+  if (normalized.includes('salary_slips/')) {
+    try {
+      const slipRows = await query(
+        `SELECT s.month, e.employee_code 
+         FROM salary_slips s 
+         JOIN employees e ON s.employee_id = e.id 
+         WHERE s.file_path LIKE ? OR s.file_path LIKE ?`,
+        [`%${baseName}`, `%${normalized}`]
+      );
+      const slip = slipRows[0];
+      if (slip) {
+        const cleanEmpCode = String(slip.employee_code || 'EMP').trim().replace(/[^a-zA-Z0-9._-]/g, '_');
+        const cleanMonth = String(slip.month || '').trim().replace(/[^a-zA-Z0-9._-]/g, '_');
+        friendlyFilename = `salary-slip_${cleanEmpCode}_${cleanMonth}.pdf`;
+      }
+    } catch (dbErr) {
+      console.error('servePdf db error (salary):', dbErr);
+    }
+  } else if (normalized.includes('hr_documents/') || normalized.includes('hr_docs/')) {
+    try {
+      const docRows = await query(
+        `SELECT d.type, d.title, d.file_path, e.employee_code 
+         FROM hr_documents d 
+         LEFT JOIN employees e ON d.employee_id = e.id 
+         WHERE d.file_path LIKE ? OR d.file_path LIKE ?`,
+        [`%${baseName}`, `%${normalized}`]
+      );
+      const doc = docRows[0];
+      if (doc) {
+        let docType = 'document';
+        const typeLower = String(doc.type || '').toLowerCase();
+        const titleLower = String(doc.title || '').toLowerCase();
+        const pathLower = String(doc.file_path || '').toLowerCase();
+
+        if (typeLower === 'offer_letter' || pathLower.includes('offer_letter') || titleLower.includes('offer letter')) {
+          docType = 'offer-letter';
+        } else if (typeLower === 'experience_letter' || pathLower.includes('experience_letter') || titleLower.includes('experience letter')) {
+          docType = 'experience-letter';
+        } else if (typeLower === 'joining_form' || pathLower.includes('joining_form') || titleLower.includes('joining form')) {
+          docType = 'joining-form';
+        } else if (typeLower === 'full_and_final' || pathLower.includes('full_and_final') || titleLower.includes('full_and_final') || titleLower.includes('f&f') || titleLower.includes('full and final')) {
+          docType = 'full-and-final';
+        } else if (typeLower && typeLower !== 'other') {
+          docType = typeLower.replace(/_/g, '-');
+        }
+
+        const cleanEmpCode = String(doc.employee_code || 'EMP').trim().replace(/[^a-zA-Z0-9._-]/g, '_');
+        friendlyFilename = `${docType}_${cleanEmpCode}.pdf`;
+      }
+    } catch (dbErr) {
+      console.error('servePdf db error (hr):', dbErr);
+    }
   }
 
   res.set('Content-Type', 'application/pdf');
   res.set('Content-Length', stat.size);
-
-  // Default: inline view in browser. If `download=1`, force attachment download.
-  const safeName = path.basename(fullPath).replace(/[^a-zA-Z0-9._-]/g, '_');
-  res.set('Content-Disposition', `${wantsDownload ? 'attachment' : 'inline'}; filename="${safeName}"`);
+  res.set('Content-Disposition', `${wantsDownload ? 'attachment' : 'inline'}; filename="${friendlyFilename}"`);
   res.set('Cache-Control', 'private, max-age=3600, must-revalidate');
   res.set('X-Content-Type-Options', 'nosniff');
   res.set('Accept-Ranges', 'bytes');

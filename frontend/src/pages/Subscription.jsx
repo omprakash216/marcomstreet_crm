@@ -105,7 +105,7 @@ export default function Subscription() {
               disabled={submitting}
               className="mt-2 w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 transition disabled:opacity-60"
             >
-              {submitting ? 'Creating checkout…' : 'Proceed to payment'}
+              {submitting ? 'Creating checkout...' : 'Proceed to payment'}
             </button>
 
             <p className="text-[11px] text-slate-500 leading-relaxed">

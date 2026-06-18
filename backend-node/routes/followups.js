@@ -35,7 +35,7 @@ function isInvalidTypeValueError(err) {
   return msg.includes('followup_type') && (msg.includes('truncated') || msg.includes('incorrect'));
 }
 
-function buildFollowupListSql({ includeTypeColumn, filters, employee }) {
+function buildFollowupListSql({ includeTypeColumn, filters, employee, countOnly = false, limit = null, offset = 0 }) {
   const {
     leadId,
     status,
@@ -51,9 +51,15 @@ function buildFollowupListSql({ includeTypeColumn, filters, employee }) {
   const superUser = isSuperUser(employee);
   const viewCompanyWide = canViewCompanyFollowups(employee);
 
-  let sql = `SELECT f.id, f.lead_id, f.employee_id, f.scheduled_date, f.completed_date,
+  let sql = countOnly
+    ? `SELECT COUNT(*) as total
+    FROM followups f
+    LEFT JOIN leads l ON f.lead_id = l.id
+    LEFT JOIN employees e ON f.employee_id = e.id
+    WHERE 1=1`
+    : `SELECT f.id, f.lead_id, f.employee_id, f.scheduled_date, f.completed_date,
       ${includeTypeColumn ? 'f.followup_type' : "'other' AS followup_type"},
-      f.notes, f.status, l.company_name, l.contact_person, l.phone, e.name AS employee_name
+      f.notes, f.outcome, f.status, l.company_name, l.contact_person, l.phone, e.name AS employee_name
     FROM followups f
     LEFT JOIN leads l ON f.lead_id = l.id
     LEFT JOIN employees e ON f.employee_id = e.id
@@ -104,7 +110,13 @@ function buildFollowupListSql({ includeTypeColumn, filters, employee }) {
     const term = `%${search}%`;
     params.push(term, term, term);
   }
-  sql += ' ORDER BY f.scheduled_date DESC, f.id DESC';
+  if (!countOnly) {
+    sql += ' ORDER BY f.scheduled_date DESC, f.id DESC';
+    if (Number.isFinite(limit)) {
+      sql += ' LIMIT ? OFFSET ?';
+      params.push(limit, Math.max(Number(offset) || 0, 0));
+    }
+  }
 
   return { sql, params };
 }
@@ -117,6 +129,48 @@ function normalizeFollowupType(value) {
 function normalizeFollowupStatus(value) {
   const next = String(value || 'pending').toLowerCase().trim();
   return FOLLOWUP_STATUSES.has(next) ? next : 'pending';
+}
+
+function normalizeDateTimeValue(value) {
+  if (!value) return '';
+
+  if (value instanceof Date) {
+    const pad = (num) => String(num).padStart(2, '0');
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}`;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  const cleaned = raw.replace('T', ' ').replace(/Z$/i, '');
+  const match = cleaned.match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2})(?::\d{2})?)?/);
+  if (match) {
+    return `${match[1]} ${match[2] || '00:00'}:00`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    const pad = (num) => String(num).padStart(2, '0');
+    return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
+  }
+
+  return cleaned.slice(0, 19);
+}
+
+function getRequestedScheduledDateTime(body) {
+  return normalizeDateTimeValue(body?.scheduled_date || body?.followup_date || body?.scheduled_at || '');
+}
+
+function buildFollowupDetailSql(includeTypeColumn) {
+  return `SELECT f.id, f.lead_id, f.employee_id, f.scheduled_date, f.completed_date,
+      ${includeTypeColumn ? 'f.followup_type' : "'other' AS followup_type"},
+      f.notes, f.outcome, f.status,
+      l.company_id AS lead_company_id, l.company_name, l.contact_person, l.phone,
+      e.company_id AS employee_company_id, e.name AS employee_name
+    FROM followups f
+    LEFT JOIN leads l ON f.lead_id = l.id
+    LEFT JOIN employees e ON f.employee_id = e.id
+    WHERE f.id = ? LIMIT 1`;
 }
 
 async function createFollowupRecord({ leadId, employeeId, followupType, scheduledDate, notes, status }) {
@@ -153,7 +207,7 @@ async function createFollowupHandler(req, res) {
       return res.status(400).json({ success: false, message: 'Lead is required' });
     }
 
-    const scheduledDate = b.followup_date || b.scheduled_date || new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const scheduledDate = getRequestedScheduledDateTime(b) || new Date().toISOString().slice(0, 19).replace('T', ' ');
     const followupType = normalizeFollowupType(b.followup_type);
     const status = normalizeFollowupStatus(b.status);
 
@@ -190,23 +244,61 @@ router.get('/', verifyToken, async (req, res) => {
     const dateFrom = req.query.date_from || null;
     const dateTo = req.query.date_to || null;
     const filters = { leadId, status, type, search, dateFilter, dateFrom, dateTo };
+    const shouldPaginate = req.query.unlimited !== 'true' && (req.query.page || req.query.limit);
+    const requestedLimit = Math.min(parseInt(req.query.limit, 10) || 10, 100);
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const offset = (page - 1) * requestedLimit;
+    const queryLimit = requestedLimit + 1;
 
     let rows;
+    let total = 0;
     try {
-      const withTypeSql = buildFollowupListSql({ includeTypeColumn: true, filters, employee: req.employee });
+      const withTypeSql = buildFollowupListSql({
+        includeTypeColumn: true,
+        filters,
+        employee: req.employee,
+        limit: shouldPaginate ? queryLimit : null,
+        offset,
+      });
       rows = await query(withTypeSql.sql, withTypeSql.params);
+      if (shouldPaginate) {
+        const countSql = buildFollowupListSql({ includeTypeColumn: true, filters, employee: req.employee, countOnly: true });
+        const countRows = await query(countSql.sql, countSql.params);
+        total = Number(countRows?.[0]?.total || 0);
+      }
     } catch (err) {
       if (!isMissingTypeColumnError(err)) throw err;
-      const withoutTypeSql = buildFollowupListSql({ includeTypeColumn: false, filters, employee: req.employee });
+      const withoutTypeSql = buildFollowupListSql({
+        includeTypeColumn: false,
+        filters,
+        employee: req.employee,
+        limit: shouldPaginate ? queryLimit : null,
+        offset,
+      });
       rows = await query(withoutTypeSql.sql, withoutTypeSql.params);
+      if (shouldPaginate) {
+        const countSql = buildFollowupListSql({ includeTypeColumn: false, filters, employee: req.employee, countOnly: true });
+        const countRows = await query(countSql.sql, countSql.params);
+        total = Number(countRows?.[0]?.total || 0);
+      }
     }
 
+    const hasNext = shouldPaginate && Array.isArray(rows) && rows.length > requestedLimit;
+    if (hasNext) rows = rows.slice(0, requestedLimit);
     const data = (rows || []).map((row) => ({
       ...row,
       followup_type: row.followup_type || 'other',
       followup_date: row.scheduled_date,
+      outcome: row.outcome || '',
     }));
-    return res.json({ success: true, data });
+    return res.json({
+      success: true,
+      data,
+      page: shouldPaginate ? page : 1,
+      limit: shouldPaginate ? requestedLimit : data.length,
+      total: shouldPaginate ? total : data.length,
+      has_next: hasNext,
+    });
   } catch (err) {
     console.error('Followups GET:', err.message);
     return res.status(500).json({ success: false, message: err.message });
@@ -251,6 +343,178 @@ router.put('/update_status', verifyToken, async (req, res) => {
     if (!r || r.affectedRows === 0) return res.status(404).json({ success: false, message: 'Follow-up not found' });
     await logActivity(req.employee.id, 'followup_status_updated', 'followup', b.followup_id, 'Follow-up status updated to ' + nextStatus, req);
     return res.json({ success: true, message: 'Follow-up status updated successfully' });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/:id', verifyToken, async (req, res) => {
+  try {
+    const followupId = Number(req.params.id);
+    if (!Number.isFinite(followupId) || followupId <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid follow-up ID is required' });
+    }
+
+    let row = null;
+    try {
+      const rows = await query(buildFollowupDetailSql(true), [followupId]);
+      row = Array.isArray(rows) ? rows[0] : null;
+    } catch (err) {
+      if (!isMissingTypeColumnError(err)) throw err;
+      const rows = await query(buildFollowupDetailSql(false), [followupId]);
+      row = Array.isArray(rows) ? rows[0] : null;
+    }
+
+    if (!row) {
+      return res.status(404).json({ success: false, message: 'Follow-up not found' });
+    }
+
+    const superUser = isSuperUser(req.employee);
+    const viewCompanyWide = canViewCompanyFollowups(req.employee);
+    const recordCompanyId = row.employee_company_id || row.lead_company_id || null;
+
+    if (!superUser && req.employee?.company_id && recordCompanyId && Number(recordCompanyId) !== Number(req.employee.company_id)) {
+      return res.status(404).json({ success: false, message: 'Follow-up not found' });
+    }
+    if (!viewCompanyWide && Number(row.employee_id) !== Number(req.employee.id)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized to view this follow-up' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...row,
+        followup_type: row.followup_type || 'other',
+        followup_date: row.scheduled_date,
+        outcome: row.outcome || '',
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.put('/:id', verifyToken, async (req, res) => {
+  try {
+    const followupId = Number(req.params.id);
+    if (!Number.isFinite(followupId) || followupId <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid follow-up ID is required' });
+    }
+
+    const body = req.body || {};
+    const nextScheduledDate = getRequestedScheduledDateTime(body);
+    const nextLeadId = body.lead_id !== undefined && body.lead_id !== '' ? Number(body.lead_id) : null;
+
+    if (nextLeadId !== null && (!Number.isFinite(nextLeadId) || nextLeadId <= 0)) {
+      return res.status(400).json({ success: false, message: 'Valid lead is required' });
+    }
+    if (!nextScheduledDate) {
+      return res.status(400).json({ success: false, message: 'Scheduled date and time are required' });
+    }
+
+    const followupRows = await query(
+      buildFollowupDetailSql(true),
+      [followupId]
+    ).catch(async (err) => {
+      if (!isMissingTypeColumnError(err)) throw err;
+      return query(buildFollowupDetailSql(false), [followupId]);
+    });
+    const existing = Array.isArray(followupRows) ? followupRows[0] : null;
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Follow-up not found' });
+    }
+
+    const superUser = isSuperUser(req.employee);
+    const viewCompanyWide = canViewCompanyFollowups(req.employee);
+    const recordCompanyId = existing.employee_company_id || existing.lead_company_id || null;
+
+    if (!superUser && req.employee?.company_id && recordCompanyId && Number(recordCompanyId) !== Number(req.employee.company_id)) {
+      return res.status(404).json({ success: false, message: 'Follow-up not found' });
+    }
+    if (!viewCompanyWide && Number(existing.employee_id) !== Number(req.employee.id)) {
+      return res.status(403).json({ success: false, message: 'Unauthorized to update this follow-up' });
+    }
+
+    let resolvedLeadId = nextLeadId || Number(existing.lead_id);
+    if (!resolvedLeadId || !Number.isFinite(resolvedLeadId)) {
+      return res.status(400).json({ success: false, message: 'Lead is required' });
+    }
+
+    if (nextLeadId !== null && Number(nextLeadId) !== Number(existing.lead_id)) {
+      const leadRows = await query('SELECT id, company_id FROM leads WHERE id = ? LIMIT 1', [nextLeadId]);
+      const lead = Array.isArray(leadRows) ? leadRows[0] : null;
+      if (!lead) {
+        return res.status(404).json({ success: false, message: 'Lead not found' });
+      }
+      if (!superUser && req.employee?.company_id && Number(lead.company_id) !== Number(req.employee.company_id)) {
+        return res.status(403).json({ success: false, message: 'Unauthorized lead access' });
+      }
+      resolvedLeadId = nextLeadId;
+    }
+
+    const nextStatus = body.status !== undefined
+      ? normalizeFollowupStatus(body.status)
+      : normalizeFollowupStatus(existing.status);
+    const nextFollowupType = body.followup_type !== undefined
+      ? normalizeFollowupType(body.followup_type)
+      : normalizeFollowupType(existing.followup_type);
+    const nextNotes = body.notes !== undefined ? String(body.notes || '') : String(existing.notes || '');
+    const nextOutcome = body.outcome !== undefined ? String(body.outcome || '') : String(existing.outcome || '');
+
+    const nextCompletedDate = nextStatus === 'completed'
+      ? (existing.completed_date || new Date().toISOString().slice(0, 19).replace('T', ' '))
+      : null;
+
+    const updateWithTypeSql = `
+      UPDATE followups
+      SET lead_id = ?, followup_type = ?, scheduled_date = ?, status = ?, notes = ?, outcome = ?, completed_date = ?, updated_at = NOW()
+      WHERE id = ?`;
+    const updateWithoutTypeSql = `
+      UPDATE followups
+      SET lead_id = ?, scheduled_date = ?, status = ?, notes = ?, outcome = ?, completed_date = ?, updated_at = NOW()
+      WHERE id = ?`;
+
+    async function executeFollowupUpdate(sql, params) {
+      const conn = await getConnection();
+      try {
+        const [result] = await conn.execute(sql, params);
+        return result?.affectedRows || 0;
+      } finally {
+        conn.release();
+      }
+    }
+
+    let affectedRows = 0;
+    try {
+      affectedRows = await executeFollowupUpdate(updateWithTypeSql, [
+        resolvedLeadId,
+        nextFollowupType,
+        nextScheduledDate,
+        nextStatus,
+        nextNotes,
+        nextOutcome,
+        nextCompletedDate,
+        followupId,
+      ]);
+    } catch (err) {
+      if (!isMissingTypeColumnError(err)) throw err;
+      affectedRows = await executeFollowupUpdate(updateWithoutTypeSql, [
+        resolvedLeadId,
+        nextScheduledDate,
+        nextStatus,
+        nextNotes,
+        nextOutcome,
+        nextCompletedDate,
+        followupId,
+      ]);
+    }
+
+    if (!affectedRows) {
+      return res.status(404).json({ success: false, message: 'Follow-up not found' });
+    }
+
+    await logActivity(req.employee.id, 'followup_updated', 'followup', followupId, `Follow-up updated to ${nextStatus}`, req).catch(() => {});
+    return res.json({ success: true, message: 'Follow-up updated successfully' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

@@ -159,20 +159,39 @@ async function ensureEmployeeCodeSchemaNow() {
   await addColumnIfMissing('employees', 'employee_code', 'VARCHAR(50) NULL');
   await addColumnIfMissing('employees', 'designation_id', 'INT NULL');
   await addColumnIfMissing('employees', 'joining_date', 'DATE NULL');
+  await addColumnIfMissing('employees', 'basic_salary', 'DECIMAL(12,2) NULL DEFAULT 0');
+  await addColumnIfMissing('employees', 'hra', 'DECIMAL(12,2) NULL DEFAULT 0');
+  await addColumnIfMissing('employees', 'conveyance', 'DECIMAL(12,2) NULL DEFAULT 0');
+  await addColumnIfMissing('employees', 'medical_allowance', 'DECIMAL(12,2) NULL DEFAULT 0');
+  await addColumnIfMissing('employees', 'special_allowance', 'DECIMAL(12,2) NULL DEFAULT 0');
+  await addColumnIfMissing('employees', 'other_allowances', 'DECIMAL(12,2) NULL DEFAULT 0');
+  await addColumnIfMissing('employees', 'pf_contribution', 'DECIMAL(12,2) NULL DEFAULT 0');
+  await addColumnIfMissing('employees', 'gratuity', 'DECIMAL(12,2) NULL DEFAULT 0');
 
   await safeSchemaQuery(`
     UPDATE companies
     SET company_code = CASE
-      WHEN LOWER(COALESCE(company_name, '')) LIKE '%vanya%' OR LOWER(COALESCE(company_name, '')) LIKE '%vg%' THEN 'VG'
-      ELSE UPPER(LEFT(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(company_name, '')), ' ', ''), '/', ''), '-', ''), '.', ''), 6))
+      WHEN UPPER(TRIM(COALESCE(company_code, ''))) LIKE 'MARCOM%' THEN 'VG'
+      WHEN UPPER(TRIM(COALESCE(company_code, ''))) REGEXP '^COMP[0-9]+$' THEN CASE
+        WHEN LOWER(COALESCE(company_name, '')) LIKE '%marcom%' OR LOWER(COALESCE(company_name, '')) LIKE '%vanya%' OR LOWER(COALESCE(company_name, '')) LIKE '%vg%' THEN 'VG'
+        ELSE COALESCE(NULLIF(UPPER(LEFT(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(company_name, '')), ' ', ''), '/', ''), '-', ''), '.', ''), 6)), ''), 'CMP')
+      END
+      WHEN LOWER(COALESCE(company_name, '')) LIKE '%marcom%' OR LOWER(COALESCE(company_name, '')) LIKE '%vanya%' OR LOWER(COALESCE(company_name, '')) LIKE '%vg%' THEN 'VG'
+      ELSE COALESCE(NULLIF(UPPER(LEFT(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(company_name, '')), ' ', ''), '/', ''), '-', ''), '.', ''), 6)), ''), 'CMP')
     END
-    WHERE company_code IS NULL OR TRIM(company_code) = ''
+    WHERE company_code IS NULL OR TRIM(company_code) = '' OR UPPER(TRIM(COALESCE(company_code, ''))) LIKE 'MARCOM%' OR LOWER(COALESCE(company_name, '')) LIKE '%marcom%' OR UPPER(TRIM(COALESCE(company_code, ''))) REGEXP '^COMP[0-9]+$'
   `);
 
   await safeSchemaQuery(`
     UPDATE companies
     SET company_code = CONCAT('C', LPAD(id, 3, '0'))
     WHERE company_code IS NULL OR TRIM(company_code) = ''
+  `);
+
+  await safeSchemaQuery(`
+    UPDATE employees
+    SET employee_code = CONCAT('VG', SUBSTRING(employee_code, 7))
+    WHERE UPPER(TRIM(COALESCE(employee_code, ''))) LIKE 'MARCOM%'
   `);
 
   await safeSchemaQuery(`

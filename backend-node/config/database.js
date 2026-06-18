@@ -18,6 +18,13 @@ const dbConfig = {
 let pool = null;
 const QUERY_MODE = 'text-first';
 
+function getPool() {
+  if (!pool) {
+    pool = mysql.createPool(dbConfig);
+  }
+  return pool;
+}
+
 async function getConnection() {
   if (!pool) {
     pool = mysql.createPool(dbConfig);
@@ -53,4 +60,4 @@ async function queryOne(sql, params = []) {
   return Array.isArray(rows) ? rows[0] : rows;
 }
 
-module.exports = { getConnection, query, queryOne, QUERY_MODE };
+module.exports = { getConnection, query, queryOne, QUERY_MODE, getPool };

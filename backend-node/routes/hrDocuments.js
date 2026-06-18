@@ -20,7 +20,7 @@ router.get('/', verifyToken, async (req, res) => {
   try {
     const category = req.query.category || null;
     const search = req.query.search || null;
-    let sql = 'SELECT d.*, e.name as employee_name FROM hr_documents d JOIN employees e ON d.employee_id = e.id WHERE 1=1';
+    let sql = 'SELECT d.*, e.name as employee_name, e.employee_code FROM hr_documents d JOIN employees e ON d.employee_id = e.id WHERE 1=1';
     const params = [];
     if (category) { sql += ' AND d.type = ?'; params.push(category); }
     if (search) { sql += ' AND (d.title LIKE ? OR e.name LIKE ?)'; const t = '%' + search + '%'; params.push(t, t); }
@@ -47,13 +47,40 @@ router.post('/', verifyToken, upload.single('file'), async (req, res) => {
 
 router.get('/:id/download', verifyToken, async (req, res) => {
   try {
-    const rows = await query('SELECT * FROM hr_documents WHERE id = ?', [req.params.id]);
+    const rows = await query(
+      `SELECT d.*, e.employee_code 
+       FROM hr_documents d 
+       LEFT JOIN employees e ON d.employee_id = e.id 
+       WHERE d.id = ?`,
+      [req.params.id]
+    );
     const doc = rows[0];
     if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
     const fullPath = path.join(__dirname, '../../', doc.file_path);
     if (!fs.existsSync(fullPath)) return res.status(404).json({ success: false, message: 'File not found' });
+
+    let docType = 'document';
+    const typeLower = String(doc.type || '').toLowerCase();
+    const titleLower = String(doc.title || '').toLowerCase();
+    const pathLower = String(doc.file_path || '').toLowerCase();
+
+    if (typeLower === 'offer_letter' || pathLower.includes('offer_letter') || titleLower.includes('offer letter')) {
+      docType = 'offer-letter';
+    } else if (typeLower === 'experience_letter' || pathLower.includes('experience_letter') || titleLower.includes('experience letter')) {
+      docType = 'experience-letter';
+    } else if (typeLower === 'joining_form' || pathLower.includes('joining_form') || titleLower.includes('joining form')) {
+      docType = 'joining-form';
+    } else if (typeLower === 'full_and_final' || pathLower.includes('full_and_final') || titleLower.includes('full_and_final') || titleLower.includes('f&f') || titleLower.includes('full and final')) {
+      docType = 'full-and-final';
+    } else if (typeLower && typeLower !== 'other') {
+      docType = typeLower.replace(/_/g, '-');
+    }
+
+    const cleanEmpCode = String(doc.employee_code || 'EMP').trim().replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filename = `${docType}_${cleanEmpCode}.pdf`;
+
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(doc.file_path)}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     fs.createReadStream(fullPath).pipe(res);
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

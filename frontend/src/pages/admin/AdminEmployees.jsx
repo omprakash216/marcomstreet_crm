@@ -73,6 +73,7 @@ function AdminEmployees() {
     hra: '',
     conveyance: '',
     medical_allowance: '',
+    special_allowance: '',
     lta: '',
     other_allowances: '',
     pf_contribution: '',
@@ -250,6 +251,7 @@ function AdminEmployees() {
       hra: '',
       conveyance: '',
       medical_allowance: '',
+      special_allowance: '',
       lta: '',
       other_allowances: '',
       pf_contribution: '',
@@ -388,14 +390,15 @@ function AdminEmployees() {
       joining_date: toDateInputValue(detail.joining_date),
       employment_type: detail.employment_type || 'full_time',
       probation_period: detail.probation_period || '3',
-      basic_salary: detail.basic_salary || '',
-      hra: detail.hra || '',
-      conveyance: detail.conveyance || '',
-      medical_allowance: detail.medical_allowance || '',
-      lta: detail.lta || '',
-      other_allowances: detail.other_allowances || '',
-      pf_contribution: detail.pf_contribution || '',
-      gratuity: detail.gratuity || '',
+      basic_salary: toMoneyInputValue(detail.basic_salary),
+      hra: toMoneyInputValue(detail.hra),
+      conveyance: toMoneyInputValue(detail.conveyance),
+      medical_allowance: toMoneyInputValue(detail.medical_allowance),
+      special_allowance: toMoneyInputValue(detail.special_allowance),
+      lta: toMoneyInputValue(detail.lta),
+      other_allowances: toMoneyInputValue(detail.other_allowances),
+      pf_contribution: toMoneyInputValue(detail.pf_contribution),
+      gratuity: toMoneyInputValue(detail.gratuity),
 
       // Additional Info
       previous_company: detail.previous_company || '',
@@ -484,6 +487,34 @@ function AdminEmployees() {
       status: ''
     });
   };
+
+  const toMoneyNumber = (value) => {
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? Math.abs(n) : 0;
+  };
+
+  const toMoneyInputValue = (value) => {
+    const normalized = toMoneyNumber(value);
+    return normalized === 0 ? '0' : String(normalized);
+  };
+
+  const salaryStructureEarnings = [
+    ['Basic Salary', formData.basic_salary],
+    ['HRA', formData.hra],
+    ['Conveyance', formData.conveyance],
+    ['Medical Allowance', formData.medical_allowance],
+    ['Special Allowance', formData.special_allowance],
+    ['Other Allowances', formData.other_allowances],
+  ];
+
+  const salaryStructureBenefits = [
+    ['PF Contribution', formData.pf_contribution],
+    ['Gratuity', formData.gratuity],
+  ];
+
+  const salaryStructureGross = salaryStructureEarnings.reduce((sum, [, value]) => sum + toMoneyNumber(value), 0);
+  const salaryStructureBenefitsTotal = salaryStructureBenefits.reduce((sum, [, value]) => sum + toMoneyNumber(value), 0);
+  const formatMoney = (value) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(toMoneyNumber(value));
 
   const isSuperAdminEmployee = (emp) => {
     const role = String(emp?.role || '').toLowerCase();
@@ -794,111 +825,122 @@ function AdminEmployees() {
       {/* Table Section */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-gray-50/50">
+          <table className="min-w-[1480px] w-full table-fixed text-left text-sm">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">SL No</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Email</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Emp Code</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Role</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Department</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Designation</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                <th className="w-16 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">SL No</th>
+                <th className="w-52 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Name</th>
+                <th className="w-64 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Email</th>
+                <th className="w-40 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Emp Code</th>
+                <th className="w-36 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Role</th>
+                <th className="w-40 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Department</th>
+                <th className="w-44 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Designation</th>
+                <th className="w-32 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+                <th className="w-72 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan="9" className="px-6 py-12 text-center text-gray-400"><i className="fas fa-spinner fa-spin mr-2"></i>Loading employees...</td></tr>
+                <tr><td colSpan="9" className="px-6 py-12 text-center text-sm text-slate-500"><i className="fas fa-spinner fa-spin mr-2"></i>Loading employees...</td></tr>
               ) : totalRows === 0 ? (
-                <tr><td colSpan="9" className="px-6 py-12 text-center text-gray-400">No employees match your filters</td></tr>
+                <tr><td colSpan="9" className="px-6 py-12 text-center text-sm text-slate-500">No employees match your filters</td></tr>
               ) : (
-                paginatedEmployees.map((emp, index) => (
-                  <tr key={emp.id} className="hover:bg-blue-50/30 transition-colors group">
-                    <td className="px-4 py-4 text-xs font-bold text-gray-400">
-                      {(startIndex + index + 1).toString().padStart(2, '0')}
-                    </td>
-                    <td className="px-4 py-4">
-                      <p className="font-bold text-gray-900 text-sm leading-tight">{emp.name}</p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <p className="text-xs text-gray-600">{emp.email}</p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <p className="text-[10px] text-blue-500 font-mono font-semibold">{emp.employee_code}</p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className="text-sm font-semibold text-gray-700 capitalize">{emp.role?.replace('_', ' ')}</span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className="text-xs text-gray-600">{emp.department_name || 'General'}</span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className="text-xs text-gray-600">{emp.designation_name || emp.designation || 'Staff'}</span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${emp.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                        }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${emp.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                        {emp.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex justify-end space-x-2">
-                        {canToggleStatus && (
+                paginatedEmployees.map((emp, index) => {
+                  const employeeName = emp.name || 'Unnamed Employee';
+                  const employeeEmail = emp.email || 'N/A';
+                  const employeeCode = emp.employee_code || 'N/A';
+                  const displayRole = String(emp.role || 'employee').replace(/_/g, ' ');
+                  const departmentName = emp.department_name || 'General';
+                  const designationName = emp.designation_name || emp.designation || 'Staff';
+                  const status = String(emp.status || 'active').toLowerCase();
+                  const isActive = status === 'active';
+
+                  return (
+                    <tr key={emp.id} className="hover:bg-blue-50/30 transition-colors group">
+                      <td className="px-4 py-3 align-middle text-sm font-semibold text-slate-500 tabular-nums">
+                        {(startIndex + index + 1).toString().padStart(2, '0')}
+                      </td>
+                      <td className="px-4 py-3 align-middle">
+                        <p className="truncate text-sm font-semibold leading-5 text-slate-900" title={employeeName}>{employeeName}</p>
+                      </td>
+                      <td className="px-4 py-3 align-middle">
+                        <p className="truncate text-sm leading-5 text-slate-600" title={employeeEmail}>{employeeEmail}</p>
+                      </td>
+                      <td className="px-4 py-3 align-middle">
+                        <p className="truncate font-mono text-sm font-semibold leading-5 text-blue-700" title={employeeCode}>{employeeCode}</p>
+                      </td>
+                      <td className="px-4 py-3 align-middle">
+                        <span className="block truncate text-sm font-medium leading-5 text-slate-700 capitalize" title={displayRole}>{displayRole}</span>
+                      </td>
+                      <td className="px-4 py-3 align-middle">
+                        <span className="block truncate text-sm leading-5 text-slate-600" title={departmentName}>{departmentName}</span>
+                      </td>
+                      <td className="px-4 py-3 align-middle">
+                        <span className="block truncate text-sm leading-5 text-slate-600" title={designationName}>{designationName}</span>
+                      </td>
+                      <td className="px-4 py-3 align-middle">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-sm font-semibold uppercase ${isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                          <span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${isActive ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                          {status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex justify-end gap-2">
+                          {canToggleStatus && (
+                            <button
+                              onClick={() => handleToggleStatus(emp)}
+                              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all ${isActive
+                                  ? 'text-red-600 bg-red-50 hover:bg-red-100'
+                                  : 'text-green-600 bg-green-50 hover:bg-green-100'
+                                }`}
+                              title={isActive ? 'Deactivate Employee' : 'Activate Employee'}
+                            >
+                              <i className={`fas ${isActive ? 'fa-user-slash' : 'fa-user-check'} text-sm`}></i>
+                            </button>
+                          )}
+                          {canResetPassword && (
+                            <button
+                              onClick={() => handleResetPassword(emp)}
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-600 transition-all hover:bg-slate-100"
+                              title="Reset Password"
+                            >
+                              <i className="fas fa-key text-sm"></i>
+                            </button>
+                          )}
                           <button
-                            onClick={() => handleToggleStatus(emp)}
-                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${emp.status === 'active'
-                                ? 'text-red-600 bg-red-50 hover:bg-red-100'
-                                : 'text-green-600 bg-green-50 hover:bg-green-100'
-                              }`}
-                            title={emp.status === 'active' ? 'Deactivate Employee' : 'Activate Employee'}
+                            onClick={() => handleOffer(emp)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 transition-all hover:bg-emerald-100"
+                            title="Generate Offer Letter"
                           >
-                            <i className={`fas ${emp.status === 'active' ? 'fa-user-slash' : 'fa-user-check'} text-sm`}></i>
+                            <i className="fas fa-file-contract text-sm"></i>
                           </button>
-                        )}
-                        {canResetPassword && (
                           <button
-                            onClick={() => handleResetPassword(emp)}
-                            className="w-8 h-8 flex items-center justify-center text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all"
-                            title="Reset Password"
+                            onClick={() => handleView(emp)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition-all hover:bg-blue-100"
+                            title="View Details"
                           >
-                            <i className="fas fa-key text-sm"></i>
+                            <i className="fas fa-eye text-sm"></i>
                           </button>
-                        )}
-                        <button
-                          onClick={() => handleOffer(emp)}
-                          className="w-8 h-8 flex items-center justify-center text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all"
-                          title="Generate Offer Letter"
-                        >
-                          <i className="fas fa-file-contract text-sm"></i>
-                        </button>
-                        <button
-                          onClick={() => handleView(emp)}
-                          className="w-8 h-8 flex items-center justify-center text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-all"
-                          title="View Details"
-                        >
-                          <i className="fas fa-eye text-sm"></i>
-                        </button>
-                        <button
-                          onClick={() => handleEdit(emp)}
-                          className="w-8 h-8 flex items-center justify-center text-amber-600 bg-amber-50 hover:bg-amber-100 rounded-lg transition-all"
-                          title="Edit Employee"
-                        >
-                          <i className="fas fa-edit text-sm"></i>
-                        </button>
-                        <button
-                          onClick={() => handleDelete(emp.id)}
-                          className="w-8 h-8 flex items-center justify-center text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-all"
-                          title="Delete Employee"
-                        >
-                          <i className="fas fa-trash-alt text-sm"></i>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          <button
+                            onClick={() => handleEdit(emp)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 transition-all hover:bg-amber-100"
+                            title="Edit Employee"
+                          >
+                            <i className="fas fa-edit text-sm"></i>
+                          </button>
+                          <button
+                            onClick={() => handleDelete(emp.id)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 transition-all hover:bg-red-100"
+                            title="Delete Employee"
+                          >
+                            <i className="fas fa-trash-alt text-sm"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -906,7 +948,7 @@ function AdminEmployees() {
 
         {!loading && totalRows > 0 && (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-gray-100 bg-white">
-            <div className="text-xs text-gray-500">
+            <div className="text-sm text-gray-500">
               Showing <span className="font-semibold text-gray-700">{startIndex + 1}</span>-<span className="font-semibold text-gray-700">{endIndex}</span> of{' '}
               <span className="font-semibold text-gray-700">{totalRows}</span>
             </div>
@@ -915,18 +957,18 @@ function AdminEmployees() {
                 type="button"
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={safePage === 0}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 text-sm font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
               </button>
-              <div className="text-xs text-gray-500">
+              <div className="text-sm text-gray-500">
                 Page <span className="font-semibold text-gray-700">{safePage + 1}</span> / <span className="font-semibold text-gray-700">{totalPages}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                 disabled={safePage >= totalPages - 1}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 text-sm font-semibold rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next
               </button>
@@ -1270,6 +1312,189 @@ function AdminEmployees() {
                   </div>
                 </div>
 
+                {/* Salary Structure Section */}
+                <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm">
+                  <div className="flex items-center space-x-3 mb-4 sm:mb-6">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+                      <i className="fas fa-coins"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">Salary Structure</h3>
+                      <p className="text-sm text-gray-500">Store earnings and benefit values for payroll and salary slips</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                    <div className="xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Basic Salary <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={formData.basic_salary}
+                          onChange={(e) => setFormData({ ...formData, basic_salary: e.target.value })}
+                          className="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all text-sm"
+                          placeholder="0.00"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">HRA</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.hra}
+                          onChange={(e) => setFormData({ ...formData, hra: e.target.value })}
+                          className="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all text-sm"
+                          placeholder="0.00"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Conveyance</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.conveyance}
+                          onChange={(e) => setFormData({ ...formData, conveyance: e.target.value })}
+                          className="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all text-sm"
+                          placeholder="0.00"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Medical Allowance</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.medical_allowance}
+                          onChange={(e) => setFormData({ ...formData, medical_allowance: e.target.value })}
+                          className="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all text-sm"
+                          placeholder="0.00"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Special Allowance</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.special_allowance}
+                          onChange={(e) => setFormData({ ...formData, special_allowance: e.target.value })}
+                          className="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all text-sm"
+                          placeholder="0.00"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Other Allowances</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.other_allowances}
+                          onChange={(e) => setFormData({ ...formData, other_allowances: e.target.value })}
+                          className="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all text-sm"
+                          placeholder="0.00"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">LTA</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={formData.lta}
+                          onChange={(e) => setFormData({ ...formData, lta: e.target.value })}
+                          className="w-full px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all text-sm"
+                          placeholder="0.00"
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <div className="rounded-xl border border-amber-100 bg-white p-4">
+                          <div className="flex items-center justify-between gap-3 mb-3">
+                            <div>
+                              <p className="text-sm font-bold text-gray-900">Benefit Values</p>
+                              <p className="text-xs text-gray-500">Optional employer-side values saved with the employee profile</p>
+                            </div>
+                            <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full">
+                              Used in payroll setup
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">PF Contribution</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={formData.pf_contribution}
+                                onChange={(e) => setFormData({ ...formData, pf_contribution: e.target.value })}
+                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all text-sm"
+                                placeholder="0.00"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">Gratuity</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={formData.gratuity}
+                                onChange={(e) => setFormData({ ...formData, gratuity: e.target.value })}
+                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all text-sm"
+                                placeholder="0.00"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-white p-4 shadow-sm">
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">Live Preview</p>
+                      <div className="mt-4 space-y-2">
+                        {salaryStructureEarnings.map(([label, value]) => (
+                          <div key={label} className="flex items-center justify-between text-sm">
+                            <span className="text-gray-600">{label}</span>
+                            <span className="font-semibold text-gray-900">Rs. {formatMoney(value)}</span>
+                          </div>
+                        ))}
+                        <div className="border-t border-amber-200 pt-3 mt-3 flex items-center justify-between">
+                          <span className="text-sm font-bold text-gray-700">Gross Earnings</span>
+                          <span className="text-xl font-extrabold text-amber-600">Rs. {formatMoney(salaryStructureGross)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-600">LTA</span>
+                          <span className="font-semibold text-gray-900">Rs. {formatMoney(formData.lta)}</span>
+                        </div>
+                        <p className="text-[11px] text-gray-500">LTA is stored on the employee profile for reference and offer letters.</p>
+                      </div>
+
+                      <div className="mt-4 rounded-xl bg-white/90 border border-amber-100 p-3">
+                        <p className="text-[11px] uppercase font-bold tracking-wider text-amber-700 mb-2">Benefits</p>
+                        <div className="space-y-2">
+                          {salaryStructureBenefits.map(([label, value]) => (
+                            <div key={label} className="flex items-center justify-between text-sm">
+                              <span className="text-gray-600">{label}</span>
+                              <span className="font-semibold text-gray-900">Rs. {formatMoney(value)}</span>
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between text-sm font-bold border-t border-amber-100 pt-2">
+                            <span className="text-gray-700">Benefits Total</span>
+                            <span className="text-gray-900">Rs. {formatMoney(salaryStructureBenefitsTotal)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <p className="mt-4 text-xs leading-relaxed text-gray-500">
+                        This salary structure will auto-fill salary slip generation and stays editable later.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Account Details Section */}
                 <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm">
                   <div className="flex items-center space-x-3 mb-4 sm:mb-6">
@@ -1512,6 +1737,66 @@ function AdminEmployees() {
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] text-gray-500 font-medium">Designation</span>
                         <span className="text-xs text-gray-900 font-semibold">{selectedEmployee.designation_name || selectedEmployee.designation || 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Salary Structure */}
+                <div className="bg-white rounded-lg border border-gray-200 p-2.5 shadow-sm">
+                  <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center">
+                    <i className="fas fa-coins mr-1.5 text-amber-500"></i> Salary Structure
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-y-3 gap-x-4">
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Basic Salary</p>
+                      <p className="text-xs text-gray-900 font-semibold">Rs. {formatMoney(selectedEmployee.basic_salary || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">HRA</p>
+                      <p className="text-xs text-gray-900 font-semibold">Rs. {formatMoney(selectedEmployee.hra || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Conveyance</p>
+                      <p className="text-xs text-gray-900 font-semibold">Rs. {formatMoney(selectedEmployee.conveyance || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Medical</p>
+                      <p className="text-xs text-gray-900 font-semibold">Rs. {formatMoney(selectedEmployee.medical_allowance || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Special</p>
+                      <p className="text-xs text-gray-900 font-semibold">Rs. {formatMoney(selectedEmployee.special_allowance || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Other</p>
+                      <p className="text-xs text-gray-900 font-semibold">Rs. {formatMoney(selectedEmployee.other_allowances || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">PF Contribution</p>
+                      <p className="text-xs text-gray-900 font-semibold">Rs. {formatMoney(selectedEmployee.pf_contribution || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">Gratuity</p>
+                      <p className="text-xs text-gray-900 font-semibold">Rs. {formatMoney(selectedEmployee.gratuity || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">LTA</p>
+                      <p className="text-xs text-gray-900 font-semibold">Rs. {formatMoney(selectedEmployee.lta || 0)}</p>
+                    </div>
+                    <div className="md:col-span-3 rounded-md bg-amber-50 px-3 py-2 border border-amber-100">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[10px] font-bold text-amber-700 uppercase tracking-widest">Gross Earnings</span>
+                        <span className="text-sm font-extrabold text-amber-700">
+                          Rs. {formatMoney(
+                            (Number.parseFloat(selectedEmployee.basic_salary) || 0) +
+                            (Number.parseFloat(selectedEmployee.hra) || 0) +
+                            (Number.parseFloat(selectedEmployee.conveyance) || 0) +
+                            (Number.parseFloat(selectedEmployee.medical_allowance) || 0) +
+                            (Number.parseFloat(selectedEmployee.special_allowance) || 0) +
+                            (Number.parseFloat(selectedEmployee.other_allowances) || 0)
+                          )}
+                        </span>
                       </div>
                     </div>
                   </div>

@@ -6,6 +6,8 @@ import {
   hasCrmModuleAccess,
   hasHrmsModuleAccess,
   hasModuleAccess,
+  isPoshManagementRole,
+  isHrPortalRole,
   normalizeRole,
 } from "../utils/auth";
 import api from "../utils/api";
@@ -15,11 +17,13 @@ import NotificationDropdown from "./NotificationDropdown";
 export default function Layout() {
   const [employee, setEmployee] = useState(null);
   const [company, setCompany] = useState(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [checkedIn, setCheckedIn] = useState(false);
   const [checkInLoading, setCheckInLoading] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [chatPollingEnabled, setChatPollingEnabled] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
   const isDashboard = location.pathname === "/";
@@ -32,58 +36,105 @@ export default function Layout() {
   const role = normalizeRole(employee?.role);
   const canCRM = !isCompanyRoute && employee ? hasCrmModuleAccess(employee) : false;
   const canHRMS = !isCompanyRoute && employee ? hasHrmsModuleAccess(employee) : false;
-  const isHRorAdmin = role === "human_resources" || role === "admin";
+  const canPOSH = !isCompanyRoute && employee ? hasModuleAccess(employee, "posh") : false;
+  const isHRorAdmin = isHrPortalRole(role);
   const isHrPanel = location.pathname.startsWith("/hr");
-  const showHrManagementNav = canHRMS && (isHrPanel || role === "human_resources" || !canCRM);
+  const hasPoshManagerAccess = employee ? isPoshManagementRole(employee) : false;
+  const showHrManagementNav = isHrPanel && isHrPortalRole(role);
   const showCrmNav = canCRM && !showHrManagementNav;
+  const poshPath = isHrPanel || hasPoshManagerAccess ? "/hr/posh" : "/posh";
 
   useEffect(() => {
-    if (isCompanyRoute) {
-      // Handle company routes
-      const companyData = localStorage.getItem("company");
-      const companyToken = localStorage.getItem("company_token");
+    let cancelled = false;
 
-      if (!companyData || !companyToken) {
+    const bootstrapSession = async () => {
+      setSessionReady(false);
+
+      if (isCompanyRoute) {
+        const companyData = localStorage.getItem("company");
+        const companyToken = localStorage.getItem("company_token");
+
+        if (!companyData || !companyToken) {
+          navigate("/login", { replace: true });
+          return;
+        }
+
+        try {
+          const parsedCompany = JSON.parse(companyData);
+          if (cancelled) return;
+          setCompany(parsedCompany);
+          setEmployee(null);
+          setCheckedIn(false);
+          setCheckingStatus(true);
+          setUnreadChatCount(0);
+          setSessionReady(true);
+        } catch (e) {
+          console.error("Error parsing company data:", e);
+          navigate("/login", { replace: true });
+        }
+        return;
+      }
+
+      const emp = getEmployee();
+      if (!emp) {
+        clearAuth();
         navigate("/login", { replace: true });
         return;
       }
 
       try {
-        setCompany(JSON.parse(companyData));
-      } catch (e) {
-        console.error("Error parsing company data:", e);
-        navigate("/login", { replace: true });
+        const response = await api.get("/auth/verify");
+        const verifiedEmployee = response.data?.data?.employee;
+        if (!verifiedEmployee) {
+          throw new Error("Invalid session payload");
+        }
+
+        if (cancelled) return;
+        setEmployee(verifiedEmployee);
+        setCompany(null);
+        localStorage.setItem("employee", JSON.stringify(verifiedEmployee));
+        setCheckedIn(false);
+        setCheckingStatus(true);
+        setUnreadChatCount(0);
+        setChatPollingEnabled(true);
+        setSessionReady(true);
+      } catch (error) {
+        if (cancelled) return;
+        if (error.response?.status === 401) {
+          clearAuth();
+          navigate("/login", { replace: true });
+          return;
+        }
+
+        setEmployee(emp);
+        setCompany(null);
+        setCheckedIn(false);
+        setCheckingStatus(true);
+        setUnreadChatCount(0);
+        setSessionReady(true);
       }
-    } else {
-      // Handle employee routes
-      const emp = getEmployee();
-      if (!emp) {
-        navigate("/login", { replace: true });
-        return;
-      }
-      setEmployee(emp);
-      // Check check-in status for employees (only if logged in)
-      if (emp && !isCompanyRoute) {
-        checkCheckInStatus();
-        fetchUnreadCount();
-        const interval = setInterval(fetchUnreadCount, 10000);
-        return () => clearInterval(interval);
-      }
-    }
+    };
+
+    bootstrapSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [navigate, isCompanyRoute]);
 
   const fetchUnreadCount = async () => {
+    if (!employee || !chatPollingEnabled) return;
+
     try {
       const response = await api.get("/chat?action=unread_count");
       if (response.data.success) {
         setUnreadChatCount(response.data.count);
       }
     } catch (error) {
-      // Silently fail for most errors, but handle 401 (Unauthorized)
       if (error.response?.status === 401) {
-        // Token is invalid/expired - force logout to stop the polling loop
-        clearAuth();
-        navigate("/login", { replace: true });
+        setUnreadChatCount(0);
+        setChatPollingEnabled(false);
+        return;
       }
     }
   };
@@ -91,9 +142,7 @@ export default function Layout() {
   const checkCheckInStatus = async () => {
     if (isCompanyRoute) return;
 
-    // Only check if employee is logged in and token exists
-    const token = localStorage.getItem("token");
-    if (!token) {
+    if (!employee) {
       setCheckingStatus(false);
       return;
     }
@@ -104,29 +153,31 @@ export default function Layout() {
         setCheckedIn(response.data.data?.checked_in || false);
       }
     } catch (error) {
-      // Silently handle errors - don't log expected 401 or network errors
       if (error.response?.status === 401) {
-        // User not authenticated - this is expected if not logged in
         setCheckedIn(false);
       } else if (error.code === "ERR_NETWORK") {
-        // Backend not available - silently fail
         setCheckedIn(false);
       } else if (error.response?.status === 404) {
-        // Endpoint not found - silently fail (might be API routing issue)
         setCheckedIn(false);
       }
-      // Only log unexpected errors (not 401, 404, or network errors)
-      if (
-        error.response?.status &&
-        error.response.status !== 401 &&
-        error.response.status !== 404
-      ) {
+      if (error.response?.status && error.response.status !== 401 && error.response.status !== 404) {
         console.error("Check status error:", error);
       }
     } finally {
       setCheckingStatus(false);
     }
   };
+
+  useEffect(() => {
+    if (isCompanyRoute || !sessionReady || !employee) return;
+
+    setCheckingStatus(true);
+    setCheckedIn(false);
+    checkCheckInStatus();
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 10000);
+    return () => clearInterval(interval);
+  }, [employee, isCompanyRoute, sessionReady, chatPollingEnabled]);
 
   const handleCheckIn = async () => {
     setCheckInLoading(true);
@@ -218,6 +269,7 @@ export default function Layout() {
   };
 
   // Don't render if not authenticated
+  if (!sessionReady) return null;
   if (isCompanyRoute && !company) return null;
   if (!isCompanyRoute && !employee) return null;
 
@@ -259,22 +311,22 @@ export default function Layout() {
             </div>
           </div>
 
-          <div className="hidden md:flex flex-1 items-center gap-4 px-6 h-full">
-            <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-white bg-white/10 border border-white/20 shadow-inner">
-              <i className={`fas ${panelInfo.icon} text-lg`}></i>
+            <div className="hidden md:flex flex-1 items-center gap-4 px-6 h-full">
+              <div className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-white bg-white/10 border border-white/20 shadow-inner">
+                <i className={`fas ${panelInfo.icon} text-base`}></i>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-[24px] font-black uppercase tracking-[0.14em] text-white leading-tight">
+                  {panelInfo.title}
+                </h1>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-100/95 truncate">
+                  {panelInfo.subtitle}
+                </p>
+              </div>
+              <span className="flex-shrink-0 inline-flex items-center px-4 py-1.5 rounded-full text-[11px] font-bold tracking-widest uppercase text-white bg-white/15 border border-white/30">
+                {panelInfo.badge}
+              </span>
             </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-[22px] font-extrabold tracking-wide text-white leading-tight">
-                {panelInfo.title}
-              </h1>
-              <p className="text-xs font-semibold text-blue-100 truncate">
-                {panelInfo.subtitle}
-              </p>
-            </div>
-            <span className="flex-shrink-0 inline-flex items-center px-4 py-1.5 rounded-full text-[10px] font-bold tracking-widest uppercase text-white bg-white/15 border border-white/30">
-              {panelInfo.badge}
-            </span>
-          </div>
 
           <div className="flex items-center gap-3 sm:gap-6">
             {!isCompanyRoute && (
@@ -285,7 +337,7 @@ export default function Layout() {
               </div>
             )}
 
-            {!isCompanyRoute && <NotificationDropdown theme="light" />}
+            {!isCompanyRoute && <NotificationDropdown theme="light" unreadCount={unreadChatCount} />}
 
             {/* Profile Dropdown */}
             <div className="relative profile-dropdown-container z-[9999]">
@@ -583,6 +635,37 @@ export default function Layout() {
                     <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                   )}
                 </Link>
+
+                {canPOSH && (
+                  <Link
+                    to={poshPath}
+                    className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(poshPath)
+                      ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                      : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                      }`}
+                  >
+                    <svg
+                      className={`w-5 h-5 mr-3 ${isActive(poshPath)
+                        ? "text-white"
+                        : "text-gray-500 group-hover:text-blue-600"
+                        }`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 3l7 4v5c0 4.5-3 8.5-7 9-4-0.5-7-4.5-7-9V7l7-4z"
+                      />
+                    </svg>
+                    <span>{hasPoshManagerAccess ? "POSH Management" : "POSH Portal"}</span>
+                    {isActive(poshPath) && (
+                      <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                    )}
+                  </Link>
+                )}
 
 
                 {/* Sales Features - Hidden for HR and Designers */}
@@ -1857,14 +1940,16 @@ function TopNavButton({ to, icon, label }) {
   return (
     <Link
       to={to}
-      className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+      title={label}
+      aria-label={label}
+      className={`group inline-flex h-10 w-10 items-center justify-center rounded-xl text-xs font-bold border transition-all duration-200 ${
         active
           ? "bg-white text-[#2c86ab] border-white shadow-md"
-          : "bg-white/10 text-white border-white/20 hover:bg-white/20"
+          : "bg-white/10 text-white border-white/20 hover:bg-white/20 hover:-translate-y-0.5"
       }`}
     >
-      <i className={icon}></i>
-      <span>{label}</span>
+      <i className={`${icon} text-[14px] transition-transform duration-200 group-hover:scale-110`}></i>
+      <span className="sr-only">{label}</span>
     </Link>
   );
 }

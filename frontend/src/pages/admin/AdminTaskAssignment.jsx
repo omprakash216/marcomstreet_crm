@@ -220,7 +220,7 @@ export default function AdminTaskAssignment() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading task assignments...</p>
         </div>
       </div>
@@ -235,20 +235,20 @@ export default function AdminTaskAssignment() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 rounded-xl shadow-xl p-4 sm:p-6">
+      <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-blue-950 rounded-xl shadow-xl p-4 sm:p-6 border border-slate-700/50">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-blue-500/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg border border-white/10">
               <i className="fas fa-tasks text-white text-2xl sm:text-3xl"></i>
             </div>
             <div>
               <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-1">Task Assignment</h1>
-              <p className="text-purple-100 text-sm md:text-base">Assign and track tasks across your organization</p>
+              <p className="text-slate-300 text-sm md:text-base">Assign and track tasks across your organization</p>
             </div>
           </div>
           <button
             onClick={() => setShowForm(true)}
-            className="w-full sm:w-auto px-5 py-3 bg-white/20 hover:bg-white/30 text-white rounded-lg backdrop-blur-sm transition-all font-semibold flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-5 py-3 bg-white/10 hover:bg-white/15 text-white rounded-lg backdrop-blur-sm transition-all font-semibold flex items-center justify-center gap-2 border border-white/15 shadow-lg"
           >
             <i className="fas fa-plus"></i>
             <span>Assign Task</span>
@@ -312,12 +312,12 @@ export default function AdminTaskAssignment() {
             placeholder="Search tasks..."
             value={filter.search}
             onChange={(e) => setFilter({ ...filter, search: e.target.value })}
-            className="flex-1 min-w-[200px] border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="flex-1 min-w-[200px] border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <select
             value={filter.status}
             onChange={(e) => setFilter({ ...filter, status: e.target.value })}
-            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">All Status</option>
             <option value="pending">Pending</option>
@@ -328,7 +328,7 @@ export default function AdminTaskAssignment() {
           <select
             value={filter.priority}
             onChange={(e) => setFilter({ ...filter, priority: e.target.value })}
-            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">All Priorities</option>
             <option value="low">Low</option>
@@ -339,7 +339,7 @@ export default function AdminTaskAssignment() {
           <select
             value={filter.assignee}
             onChange={(e) => setFilter({ ...filter, assignee: e.target.value })}
-            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">All Assignees</option>
             {employees.map(emp => (
@@ -405,13 +405,13 @@ export default function AdminTaskAssignment() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                         <div className="flex items-center">
-                          <i className="fas fa-user mr-2 text-purple-600"></i>
+                          <i className="fas fa-user mr-2 text-blue-600"></i>
                           {assignee?.name || 'Unassigned'}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                         <div className="flex items-center gap-2">
-                          <i className="far fa-calendar-alt text-purple-600"></i>
+                          <i className="far fa-calendar-alt text-blue-600"></i>
                           <span>{dueDate ? dueDate.toLocaleDateString() : '—'}</span>
                           {isOverdue ? (
                             <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-full bg-red-100 text-red-700">
@@ -433,7 +433,7 @@ export default function AdminTaskAssignment() {
                           <select
                             value={task.status}
                             onChange={(e) => handleStatusChange(task.id, e.target.value)}
-                            className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                             title="Change status"
                           >
                             <option value="pending">Pending</option>
@@ -453,7 +453,7 @@ export default function AdminTaskAssignment() {
                           </button>
                           <button
                             onClick={() => handleEdit(task)}
-                            className="w-9 h-9 inline-flex items-center justify-center text-purple-600 hover:text-purple-900 hover:bg-purple-50 rounded-lg"
+                            className="w-9 h-9 inline-flex items-center justify-center text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-lg"
                             title="Edit"
                           >
                             <i className="fas fa-edit"></i>
@@ -509,7 +509,7 @@ export default function AdminTaskAssignment() {
       {showForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-4 flex items-center justify-between sticky top-0">
+            <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-blue-950 px-6 py-4 flex items-center justify-between sticky top-0">
               <h2 className="text-xl font-bold text-white">
                 {editingTask ? 'Edit Task' : 'Assign New Task'}
               </h2>
@@ -533,7 +533,7 @@ export default function AdminTaskAssignment() {
                     required
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Enter task title"
                   />
                 </div>
@@ -543,7 +543,7 @@ export default function AdminTaskAssignment() {
                     required
                     value={formData.assignee_id}
                     onChange={(e) => setFormData({ ...formData, assignee_id: e.target.value })}
-                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select assignee</option>
                     {employees.map(emp => (
@@ -559,7 +559,7 @@ export default function AdminTaskAssignment() {
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   rows={3}
-                  className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Task description and requirements"
                 />
               </div>
@@ -570,7 +570,7 @@ export default function AdminTaskAssignment() {
                   <select
                     value={formData.priority}
                     onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -585,7 +585,7 @@ export default function AdminTaskAssignment() {
                     required
                     value={formData.due_date}
                     onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
-                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
@@ -600,7 +600,7 @@ export default function AdminTaskAssignment() {
                       const next = raw === '' ? '' : parseFloat(raw);
                       setFormData({ ...formData, estimated_hours: Number.isNaN(next) ? '' : next });
                     }}
-                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -611,7 +611,7 @@ export default function AdminTaskAssignment() {
                   type="text"
                   value={formData.tags}
                   onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                  className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="urgent, client, follow-up"
                 />
               </div>
@@ -622,7 +622,7 @@ export default function AdminTaskAssignment() {
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   rows={2}
-                  className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Any additional instructions or context"
                 />
               </div>
@@ -640,7 +640,7 @@ export default function AdminTaskAssignment() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center space-x-2"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center space-x-2"
                 >
                   <i className="fas fa-save"></i>
                   <span>{editingTask ? 'Update Task' : 'Assign Task'}</span>
@@ -655,7 +655,7 @@ export default function AdminTaskAssignment() {
       {viewTask && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-4 flex items-center justify-between sticky top-0">
+            <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-blue-950 px-6 py-4 flex items-center justify-between sticky top-0">
               <h2 className="text-xl font-bold text-white">Task Details</h2>
               <button onClick={() => setViewTask(null)} className="text-white hover:text-gray-200">
                 <i className="fas fa-times text-xl"></i>
@@ -739,7 +739,7 @@ export default function AdminTaskAssignment() {
                         setViewTask(null);
                         handleEdit(viewTask);
                       }}
-                      className="px-5 py-2 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors"
+                      className="px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors"
                     >
                       Edit
                     </button>

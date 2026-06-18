@@ -152,7 +152,7 @@ router.get('/__routes', (req, res) => {
 // GET /hrms/documents - list documents
 router.get('/documents', verifyToken, async (req, res) => {
   try {
-    let sql = `SELECT d.*, e.name as employee_name 
+    let sql = `SELECT d.*, e.name as employee_name, e.employee_code 
                FROM hr_documents d JOIN employees e ON d.employee_id = e.id WHERE e.company_id = ?`;
     const params = [];
     if (req.query.employee_id) {
@@ -500,7 +500,11 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
       req.query.force === 'true' ||
       Boolean(req.query.ts);
 
-    const ensureAndSend = (absPath) => {
+    const cleanEmpCode = String(slip.employee_code || 'EMP').trim().replace(/[^a-zA-Z0-9._-]/g, '_');
+    const cleanMonth = String(slip.month || '').trim().replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeFilename = `salary-slip_${cleanEmpCode}_${cleanMonth}.pdf`;
+
+    const ensureAndSend = (absPath, filename) => {
       const stat = fs.statSync(absPath);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Length', stat.size);
@@ -511,7 +515,7 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
       res.setHeader('X-Salary-PDF-Generated-At', new Date().toISOString());
       res.setHeader(
         'Content-Disposition',
-        `${wantsDownload ? 'attachment' : 'inline'}; filename="${path.basename(absPath).replace(/[^a-zA-Z0-9._-]/g, '_')}"`
+        `${wantsDownload ? 'attachment' : 'inline'}; filename="${filename}"`
       );
       fs.createReadStream(absPath).pipe(res);
     };
@@ -522,7 +526,7 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
       const abs = path.resolve(path.join(__dirname, '../../', filePath));
       const uploadsRoot = path.resolve(path.join(__dirname, '../../uploads'));
       if (abs.startsWith(uploadsRoot) && fs.existsSync(abs)) {
-        return ensureAndSend(abs);
+        return ensureAndSend(abs, safeFilename);
       }
     }
 
@@ -584,7 +588,7 @@ router.get('/salary/:id/pdf', verifyToken, async (req, res) => {
       }
     } catch (_) { }
 
-    return ensureAndSend(absOut);
+    return ensureAndSend(absOut, safeFilename);
   } catch (err) {
     console.error('Salary PDF:', err);
     return res.status(500).json({ success: false, message: err.message || 'Failed to serve salary slip PDF' });
