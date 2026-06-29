@@ -255,6 +255,12 @@ export default function Payment() {
                       <strong className="text-slate-900">{formatMoney(sessionInfo.amount)}</strong>
                     </div>
                     <div className="flex items-center justify-between gap-4">
+                      <span className="font-semibold text-slate-500">Billing</span>
+                      <strong className="text-slate-900">
+                        {sessionInfo.billing_cycle ? String(sessionInfo.billing_cycle).replace(/^./, (char) => char.toUpperCase()) : 'Monthly'}
+                      </strong>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
                       <span className="font-semibold text-slate-500">Email</span>
                       <strong className="truncate text-slate-900">{sessionInfo.email}</strong>
                     </div>

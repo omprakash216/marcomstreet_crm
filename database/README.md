@@ -1,74 +1,47 @@
-# MARCOM STREET CRM - Database Setup
+# MARCOM STREET CRM - Database Guide
 
-## 🚀 Quick Setup
+This folder contains two different database paths:
 
-**एक कमांड में सब कुछ Setup करने के लिए:**
+- `COMPLETE_DATABASE_SETUP.sql` is a demo/staging import. It drops and recreates the target database, then inserts sample rows.
+- Live production databases should be upgraded with the backend bootstrap scripts after you take a backup.
+
+## Recommended Live Path
+
+1. Take a full MySQL backup.
+2. Import the base schema only if you are starting from an empty database.
+3. From `backend-node`, run:
 
 ```bash
-cd database
-php setup_database.php
+npm run db:bootstrap
 ```
 
-ये command automatically:
-- Database create करेगा
-- सभी tables create करेगा
-- Demo data insert करेगा
-- सब कुछ ready करेगा
+4. Verify the connection and schema:
 
-## 📁 Files
+```bash
+npm run db:test
+npm run db:doctor
+```
 
-- `COMPLETE_DATABASE_SETUP.sql` - Complete database schema with all tables and demo data
-- `setup_database.php` - PHP script to run the complete setup
-- `README.md` - This file
+## What `db:bootstrap` Adds Or Fixes
 
-## 👥 Demo Users
+- `companies.company_code`
+- `employees.company_id`, `designation_id`, `joining_date`, and the bank/profile fields used by HR/Admin screens
+- `departments.company_id`, `department_code`
+- `designations` table and standard designations
+- `leads.company_id`
+- `meetings.company_id`
+- `tasks.company_id`
+- `quotations.company_id`
+- `followups.followup_type`, `followups.completed_date`
+- `company_settings.company_id` plus GST/PAN, invoice, bank, signature, and stamp fields
+- `bank_accounts`, `api_keys`, `employee_module_access`
+- password reset tables for email/SMS OTP flows
+- HRMS tables used by the current code
+- SaaS/control tables used by the super admin screens, including `modules`, `company_modules`, `subscriptions`, `audit_logs`, `login_sessions`, and `backups`
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | admin@crm.com | password123 |
-| Manager | john.manager@crm.com | password123 |
-| Sales Rep | sarah.sales@crm.com | password123 |
-| HR Manager | hr@crm.com | password123 |
+## Fresh Demo Or Staging Import
 
-## 📊 What Gets Created
+If you only need a local demo database, import `COMPLETE_DATABASE_SETUP.sql` into an empty MySQL database.
 
-### Core CRM Tables (11)
-- companies, departments, employees
-- leads, meetings, tasks, followups
-- quotations, quotation_items
-- invoices, invoice_items
+Warning: that file drops the target database and seeds demo users/data, so do not use it directly on production.
 
-### HRMS Tables (4)
-- leaves, salary_slips, hr_documents
-
-### Communication Tables (3)
-- chat_messages, whatsapp_logs
-
-### System Tables (4)
-- activity_logs, api_audit_log, reports, reminders
-
-### Demo Data
-- 5 Employees (different roles)
-- 10 Sample Leads
-- 5 Meetings & Tasks
-- Quotations & Invoices
-- Chat messages & Activity logs
-
-## 🔧 Manual Setup (Alternative)
-
-अगर PHP script नहीं चलाना चाहते तो:
-
-1. phpMyAdmin में जाएं
-2. `COMPLETE_DATABASE_SETUP.sql` file को import करें
-3. सब कुछ ready हो जाएगा
-
-## 🌐 Usage
-
-Setup के बाद:
-1. XAMPP start करें
-2. Browser में जाएं: `http://localhost/MARCOM-NEW-CRM`
-3. ऊपर दिए गए credentials से login करें
-
-## 📞 Support
-
-कोई problem आए तो बताएं!

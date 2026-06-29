@@ -2,12 +2,13 @@ const express = require('express');
 const { query } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const { logActivity } = require('../middleware/activityLog');
+const { cleanParams, getSafePagination } = require('../utils/queryHelpers');
 
 const router = express.Router();
 
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const { safeLimit } = getSafePagination(req.query, { defaultLimit: 100, maxLimit: 500 });
     const activityType = req.query.activity_type || null;
     const dateFrom = req.query.date_from || null;
     const dateTo = req.query.date_to || null;
@@ -16,9 +17,8 @@ router.get('/', verifyToken, async (req, res) => {
     if (activityType) { sql += ' AND activity_type = ?'; params.push(activityType); }
     if (dateFrom) { sql += ' AND DATE(created_at) >= ?'; params.push(dateFrom); }
     if (dateTo) { sql += ' AND DATE(created_at) <= ?'; params.push(dateTo); }
-    sql += ' ORDER BY created_at DESC LIMIT ?';
-    params.push(limit);
-    const rows = await query(sql, params);
+    sql += ` ORDER BY created_at DESC LIMIT ${safeLimit}`;
+    const rows = await query(sql, cleanParams(params));
     return res.json({ success: true, data: rows || [] });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

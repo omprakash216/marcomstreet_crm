@@ -1,6 +1,7 @@
 const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
+const { cleanParams, getSafePagination } = require('../utils/queryHelpers');
 
 const router = express.Router();
 
@@ -11,6 +12,11 @@ function normalizeRole(role) {
 function isSuperUser(employee) {
   const role = normalizeRole(employee?.role);
   return role === 'superadmin' || role === 'super_admin';
+}
+
+function toPositiveInt(value) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
 }
 
 function formatClientCode(id) {
@@ -39,18 +45,17 @@ function mapClientRow(row) {
 router.get('/', verifyToken, async (req, res) => {
   try {
     const isSuper = isSuperUser(req.employee);
+    const companyId = toPositiveInt(req.employee.company_id);
     const search = String(req.query.search || '').trim();
     const status = String(req.query.status || '').trim().toLowerCase();
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(parseInt(req.query.limit, 10) || 25, 1000);
-    const offset = (page - 1) * limit;
+    const { page, safeLimit, safeOffset } = getSafePagination(req.query, { defaultLimit: 25, maxLimit: 1000 });
 
     let where = [];
     const params = [];
 
     if (!isSuper) {
       where.push('sc.company_id = ?');
-      params.push(req.employee.company_id);
+      params.push(companyId);
     }
     if (status) {
       where.push('LOWER(sc.status) = ?');
@@ -72,7 +77,7 @@ router.get('/', verifyToken, async (req, res) => {
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const fromSql = `FROM sales_clients sc LEFT JOIN employees creator ON creator.id = sc.created_by`;
-    const countRows = await query(`SELECT COUNT(*) as total ${fromSql} ${whereSql}`, params);
+    const countRows = await query(`SELECT COUNT(*) as total ${fromSql} ${whereSql}`, cleanParams(params));
     const total = Number(countRows?.[0]?.total || 0);
 
     const rows = await query(
@@ -80,11 +85,12 @@ router.get('/', verifyToken, async (req, res) => {
               creator.name AS created_by_name,
               creator.email AS created_by_email
        ${fromSql} ${whereSql}
-       ORDER BY sc.created_at DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+       ORDER BY sc.created_at DESC
+       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      cleanParams(params)
     );
 
-    return res.json({ success: true, data: rows.map(mapClientRow), total, page, limit, has_next: rows.length === limit });
+    return res.json({ success: true, data: rows.map(mapClientRow), total, page, limit: safeLimit, has_next: rows.length === safeLimit });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -94,6 +100,8 @@ router.get('/', verifyToken, async (req, res) => {
 router.get('/:id', verifyToken, async (req, res) => {
   try {
     const isSuper = isSuperUser(req.employee);
+    const companyId = toPositiveInt(req.employee.company_id);
+    const clientId = toPositiveInt(req.params.id) || req.params.id;
     const sql = isSuper
       ? `SELECT sc.*, CONCAT('CL-', LPAD(sc.id, 6, '0')) AS client_code,
                 creator.name AS created_by_name,
@@ -107,8 +115,8 @@ router.get('/:id', verifyToken, async (req, res) => {
          FROM sales_clients sc
          LEFT JOIN employees creator ON creator.id = sc.created_by
          WHERE sc.id = ? AND sc.company_id = ?`;
-    const params = isSuper ? [req.params.id] : [req.params.id, req.employee.company_id];
-    const rows = await query(sql, params);
+    const params = isSuper ? [clientId] : [clientId, companyId];
+    const rows = await query(sql, cleanParams(params));
     if (!rows[0]) return res.status(404).json({ success: false, message: 'Client not found' });
     return res.json({ success: true, data: mapClientRow(rows[0]) });
   } catch (err) {
@@ -120,6 +128,7 @@ router.get('/:id', verifyToken, async (req, res) => {
 router.post('/', verifyToken, async (req, res) => {
   try {
     const b = req.body || {};
+    const companyId = toPositiveInt(req.employee.company_id);
     if (!b.full_name || !b.full_name.trim()) {
       return res.status(400).json({ success: false, message: 'Client full name is required' });
     }
@@ -158,7 +167,7 @@ router.post('/', verifyToken, async (req, res) => {
          status, created_by)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        req.employee.company_id,
+        companyId,
         b.full_name.trim(),
         b.company_name?.trim() || null,
         b.phone_number?.trim() || null,
@@ -193,6 +202,8 @@ router.post('/', verifyToken, async (req, res) => {
 router.put('/:id', verifyToken, async (req, res) => {
   try {
     const isSuper = isSuperUser(req.employee);
+    const companyId = toPositiveInt(req.employee.company_id);
+    const clientId = toPositiveInt(req.params.id) || req.params.id;
     const b = req.body || {};
 
     const cleanAadhar = (b.aadhar_number && String(b.aadhar_number).trim() && String(b.aadhar_number).toLowerCase().trim() !== 'null' && String(b.aadhar_number).toLowerCase().trim() !== 'undefined')
@@ -243,10 +254,10 @@ router.put('/:id', verifyToken, async (req, res) => {
       cleanPan,
       cleanGst,
       String(b.status || 'active').toLowerCase().trim() || 'active',
-      req.params.id,
+      clientId,
     ];
 
-    const params = isSuper ? baseParams : [...baseParams, req.employee.company_id];
+    const params = isSuper ? baseParams : [...baseParams, companyId];
     await query(sql, params);
     return res.json({ success: true, message: 'Client updated successfully' });
   } catch (err) {
@@ -265,7 +276,9 @@ router.delete('/:id', verifyToken, async (req, res) => {
     const sql = isSuper
       ? 'DELETE FROM sales_clients WHERE id = ?'
       : 'DELETE FROM sales_clients WHERE id = ? AND company_id = ?';
-    const params = isSuper ? [req.params.id] : [req.params.id, req.employee.company_id];
+    const params = isSuper
+      ? [toPositiveInt(req.params.id) || req.params.id]
+      : [toPositiveInt(req.params.id) || req.params.id, toPositiveInt(req.employee.company_id)];
     await query(sql, params);
     return res.json({ success: true, message: 'Client deleted successfully' });
   } catch (err) {

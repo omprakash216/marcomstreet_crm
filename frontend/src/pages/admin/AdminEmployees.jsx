@@ -282,6 +282,7 @@ function AdminEmployees() {
     { key: 'followups', label: 'Follow Ups' },
     { key: 'quotations', label: 'Quotations' },
     { key: 'invoices', label: 'Invoices' },
+    { key: 'sales_orders', label: 'Sales Orders' },
     { key: 'reports', label: 'Reports' },
     { key: 'history', label: 'History' },
     { key: 'whatsapp', label: 'WhatsApp' },
@@ -306,7 +307,7 @@ function AdminEmployees() {
 
   function getTemplateModules(templateKey, roleKey) {
     const common = ['calendar', 'notifications', 'chat'];
-    const crm = ['leads', 'meetings', 'tasks', 'followups', 'quotations', 'invoices', 'reports', 'history', 'whatsapp', 'group_meetings'];
+    const crm = ['leads', 'meetings', 'tasks', 'followups', 'quotations', 'invoices', 'sales_orders', 'reports', 'history', 'whatsapp', 'group_meetings'];
     const hrms = [
       'hrms',
       'hrms_attendance',

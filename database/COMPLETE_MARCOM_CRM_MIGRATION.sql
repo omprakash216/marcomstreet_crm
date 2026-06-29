@@ -1,1 +1,15 @@
- 
+-- MARCOM STREET CRM live upgrade note
+--
+-- This repository now uses the Node bootstrap migrations for production-ready
+-- schema alignment instead of a single monolithic SQL dump.
+--
+-- Run from `backend-node` after taking a backup:
+--   npm run db:bootstrap
+--   npm run db:test
+--   npm run db:doctor
+--
+-- The bootstrap step adds the current codebase requirements such as:
+-- companies.company_code, employees.company_id, departments.company_id,
+-- designations, company-scoped CRM tables, company_settings invoice/bank fields,
+-- bank_accounts, api_keys, password reset tables, HRMS support tables, and
+-- super admin control tables.

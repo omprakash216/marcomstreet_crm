@@ -114,7 +114,7 @@ function formatQuotationDate(value) {
   return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export default function Quotations() {
+export default function SalesOrders() {
   const employee = getEmployee();
   const canEditCompanySettings = ['admin', 'superadmin', 'super_admin'].includes(String(employee?.role || '').toLowerCase());
   const canApprove = isManagerOrAdmin(employee);
@@ -168,15 +168,7 @@ export default function Quotations() {
   }, [quotations]);
 
   const fetchPendingQuotations = async () => {
-    const token = localStorage.getItem('token');
-    if (!token || !canApprove) return;
-    try {
-      const response = await api.get('/quotations?pending_approval=1');
-      setPendingQuotations(Array.isArray(response.data.data) ? response.data.data : []);
-    } catch (e) {
-      if (e.response?.status !== 401 && e.code !== 'ERR_NETWORK') console.error('Pending quotations:', e);
-      setPendingQuotations([]);
-    }
+    setPendingQuotations([]);
   };
 
   const fetchQuotations = async () => {
@@ -195,7 +187,7 @@ export default function Quotations() {
       if (filters.date_to) params.append('date_to', filters.date_to);
       if (filters.status) params.append('status', filters.status);
 
-      const response = await api.get(`/quotations?${params.toString()}`);
+      const response = await api.get(`/sales-orders?${params.toString()}`);
       setQuotations(Array.isArray(response.data.data) ? response.data.data : []);
     } catch (error) {
       // Only log unexpected errors
@@ -278,7 +270,7 @@ export default function Quotations() {
     setCompanySettingsLoading(true);
     setCompanySettingsError('');
     try {
-      const response = await api.get('/quotations/template-settings');
+      const response = await api.get('/sales-orders/template-settings');
       const nextSettings = normalizeCompanySettings(response?.data?.data || {});
       setCompanySettings(nextSettings);
       setCompanySettingsSnapshot(nextSettings);
@@ -444,18 +436,26 @@ export default function Quotations() {
 
       const payload = {
         ...formData,
-        subject: formData.project_name || formData.subject || '',
         client_id: formData.lead_id ? Number(formData.lead_id) : null,
-        send_for_approval: canRequestApproval && !!formData.send_for_approval,
-        issue_date: formData.issue_date || new Date().toISOString().slice(0, 10),
+        subject: formData.project_name || formData.subject || '',
+        reference_number: formData.reference_number || '',
+        order_date: formData.order_date || formData.issue_date || new Date().toISOString().slice(0, 10),
+        delivery_date: formData.valid_until || formData.delivery_date || '',
+        billing_address: formData.billing_address || '',
+        shipping_address: formData.shipping_address || '',
+        gst_number: formData.gst_number || '',
+        place_of_supply: formData.place_of_supply || '',
+        salesperson_id: formData.salesperson_id ? Number(formData.salesperson_id) : null,
+        status: formData.send_for_approval ? 'sent' : (formData.status || 'draft'),
+        notes: formData.notes || '',
       };
-      await api.post('/quotations', payload);
+      await api.post('/sales-orders', payload);
       setShowModal(false);
       setFormData(createDefaultQuotationForm());
       fetchQuotations();
       if (canApprove) fetchPendingQuotations();
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to create quotation');
+      alert(error.response?.data?.message || 'Failed to create sales order');
     } finally {
       setQuotationSaving(false);
     }
@@ -464,21 +464,19 @@ export default function Quotations() {
   const handleSendForApproval = async (id) => {
     if (!canRequestApproval) return;
     try {
-      await api.put(`/quotations/${id}/send`);
+      await api.patch(`/sales-orders/${id}/status`, { status: 'sent' });
       fetchQuotations();
-      if (canApprove) fetchPendingQuotations();
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to send for approval');
+      alert(error.response?.data?.message || 'Failed to update sales order');
     }
   };
 
   const handleApprove = async (id, status) => {
     try {
-      await api.put(`/quotations/${id}/approve`, { status });
+      await api.patch(`/sales-orders/${id}/status`, { status });
       fetchQuotations();
-      fetchPendingQuotations();
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to update quotation');
+      alert(error.response?.data?.message || 'Failed to update sales order');
     }
   };
 
@@ -486,29 +484,27 @@ export default function Quotations() {
     const colors = {
       draft: 'bg-gray-100 text-gray-800',
       sent: 'bg-blue-100 text-blue-800',
-      viewed: 'bg-indigo-100 text-indigo-800',
-      accepted: 'bg-green-100 text-green-800',
-      declined: 'bg-red-100 text-red-800',
-      rejected: 'bg-red-100 text-red-800',
-      expired: 'bg-yellow-100 text-yellow-800',
+      confirmed: 'bg-emerald-100 text-emerald-800',
+      fulfilled: 'bg-green-100 text-green-800',
       converted: 'bg-emerald-100 text-emerald-800',
+      cancelled: 'bg-red-100 text-red-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this quotation? This action cannot be undone.')) {
+    if (!window.confirm('Are you sure you want to delete this sales order? This action cannot be undone.')) {
       return;
     }
 
     try {
-      const response = await api.delete('/quotations', { data: { id } });
+      const response = await api.delete('/sales-orders', { data: { id } });
       if (response.data.success) {
-        alert('Quotation deleted successfully');
+        alert('Sales order deleted successfully');
         fetchQuotations();
       }
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to delete quotation');
+      alert(error.response?.data?.message || 'Failed to delete sales order');
     }
   };
 
@@ -520,7 +516,7 @@ export default function Quotations() {
     setShowQuotationViewModal(true);
 
     try {
-      const response = await api.get(`/quotations/${quotation.id}`);
+      const response = await api.get(`/sales-orders/${quotation.id}`);
       setViewQuotation(response?.data?.data || quotation);
     } catch (error) {
       if (error.response?.status !== 401 && error.code !== 'ERR_NETWORK') {
@@ -542,32 +538,32 @@ export default function Quotations() {
   const openQuotationPdf = async (quotation, action = 'view') => {
     if (!quotation?.id) return;
     try {
-      const safeNumber = sanitizePdfFileName(quotation.quotation_number || `QT-${quotation.id}`, 'quotation');
+      const safeNumber = sanitizePdfFileName(quotation.order_number || quotation.quotation_number || `SO-${quotation.id}`, 'sales-order');
       const mode = action === true ? 'download' : action === false ? 'view' : action;
       if (mode === 'download') {
-        downloadPdfUrl(`/quotations/${quotation.id}/pdf`, {
-          fileName: `quotation_${safeNumber}.pdf`,
+        downloadPdfUrl(`/sales-orders/${quotation.id}/pdf`, {
+          fileName: `sales_order_${safeNumber}.pdf`,
         });
         return;
       }
       if (mode === 'print') {
-        await printPdfFromApi(`/quotations/${quotation.id}/pdf`);
+        await printPdfFromApi(`/sales-orders/${quotation.id}/pdf`);
         return;
       }
-      openPdfUrlInNewTab(`/quotations/${quotation.id}/pdf`);
+      openPdfUrlInNewTab(`/sales-orders/${quotation.id}/pdf`);
     } catch (err) {
-      alert(err.message || 'Failed to open quotation PDF');
+      alert(err.message || 'Failed to open sales order PDF');
     }
   };
 
   const handleDuplicateQuotation = async (quotation) => {
     if (!quotation?.id) return;
     try {
-      await api.post(`/quotations/${quotation.id}/duplicate`);
+      await api.post(`/sales-orders/${quotation.id}/duplicate`);
       fetchQuotations();
       if (canApprove) fetchPendingQuotations();
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to duplicate quotation');
+      alert(error.response?.data?.message || 'Failed to duplicate sales order');
     }
   };
 
@@ -576,26 +572,26 @@ export default function Quotations() {
     const recipient = window.prompt('Enter recipient email:', quotation.customer_email || quotation.email || '');
     if (!recipient) return;
     try {
-      await api.post(`/quotations/${quotation.id}/email`, { to: recipient });
-      alert('Quotation emailed successfully');
+      await api.post(`/sales-orders/${quotation.id}/email`, { to: recipient });
+      alert('Sales order emailed successfully');
       fetchQuotations();
       if (canApprove) fetchPendingQuotations();
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to email quotation');
+      alert(error.response?.data?.message || 'Failed to email sales order');
     }
   };
 
   const handleConvertQuotation = async (quotation, target = 'invoice') => {
     if (!quotation?.id) return;
     const label = target === 'sales-order' ? 'sales order' : 'invoice';
-    if (!window.confirm(`Convert this quotation into a ${label}?`)) return;
+    if (!window.confirm(`Convert this sales order into a ${label}?`)) return;
     try {
-      await api.post(`/quotations/${quotation.id}/convert/${target}`);
-      alert(`Quotation converted to ${label} successfully`);
+      await api.post(`/sales-orders/${quotation.id}/convert/${target}`);
+      alert(`Sales order converted to ${label} successfully`);
       fetchQuotations();
       if (canApprove) fetchPendingQuotations();
     } catch (error) {
-      alert(error.response?.data?.message || `Failed to convert quotation to ${label}`);
+      alert(error.response?.data?.message || `Failed to convert sales order to ${label}`);
     }
   };
 
@@ -628,8 +624,8 @@ export default function Quotations() {
 
               {/* Title and Description */}
               <div className="flex-1">
-                <h1 className="text-3xl font-bold text-white mb-1">Quotations</h1>
-                <p className="text-slate-300 text-sm">Create and manage quotations for your clients</p>
+                <h1 className="text-3xl font-bold text-white mb-1">Sales Orders</h1>
+                <p className="text-slate-300 text-sm">Create and manage sales orders for your customers</p>
               </div>
             </div>
 
@@ -645,7 +641,7 @@ export default function Quotations() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              <span>Create Quotation</span>
+              <span>New Sales Order</span>
             </button>
           </div>
         </div>
@@ -666,7 +662,7 @@ export default function Quotations() {
             <table className="min-w-full divide-y divide-blue-100">
               <thead className="bg-blue-100/50">
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-bold text-blue-800 uppercase">Quotation</th>
+                  <th className="px-4 py-2 text-left text-xs font-bold text-blue-800 uppercase">Order</th>
                   <th className="px-4 py-2 text-left text-xs font-bold text-blue-800 uppercase">Company</th>
                   <th className="px-4 py-2 text-right text-xs font-bold text-blue-800 uppercase">Amount</th>
                   <th className="px-4 py-2 text-center text-xs font-bold text-blue-800 uppercase">Actions</th>
@@ -675,22 +671,22 @@ export default function Quotations() {
               <tbody className="divide-y divide-blue-100">
                 {pendingQuotations.map((q) => (
                   <tr key={q.id} className="hover:bg-blue-50/50">
-                    <td className="px-4 py-2 text-sm font-medium text-gray-900">{q.quotation_number}</td>
+                    <td className="px-4 py-2 text-sm font-medium text-gray-900">{q.order_number || q.quotation_number}</td>
                     <td className="px-4 py-2 text-sm text-gray-700">{q.company_name}</td>
                     <td className="px-4 py-2 text-sm text-right font-medium">₹{Math.round(q.total_amount || 0).toLocaleString('en-IN')}</td>
                     <td className="px-4 py-2 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
-                          onClick={() => handleApprove(q.id, 'accepted')}
+                          onClick={() => handleApprove(q.id, 'confirmed')}
                           className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700"
                         >
-                          Approve
+                          Confirm
                         </button>
                         <button
-                          onClick={() => handleApprove(q.id, 'declined')}
+                          onClick={() => handleApprove(q.id, 'cancelled')}
                           className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700"
                         >
-                          Decline
+                          Cancel
                         </button>
                       </div>
                     </td>
@@ -708,7 +704,7 @@ export default function Quotations() {
           <div>
             <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
               <i className="fas fa-calendar-alt text-blue-500 w-4 text-center"></i>
-              <span>Issue Period From</span>
+              <span>Order Date From</span>
             </label>
             <input
               type="date"
@@ -720,7 +716,7 @@ export default function Quotations() {
           <div>
             <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
               <i className="fas fa-calendar-check text-blue-500 w-4 text-center"></i>
-              <span>Issue Period To</span>
+              <span>Order Date To</span>
             </label>
             <input
               type="date"
@@ -732,21 +728,20 @@ export default function Quotations() {
           <div>
             <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
               <i className="fas fa-info-circle text-blue-500 w-4 text-center"></i>
-              <span>Lifecycle Status</span>
+              <span>Status</span>
             </label>
             <select
               value={filters.status}
               onChange={(e) => handleFilterChange('status', e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-medium"
             >
-              <option value="">All Revenue States</option>
-              <option value="draft">Draft Proposal</option>
-              <option value="sent">Dispatched / Sent</option>
-              <option value="viewed">Viewed</option>
-              <option value="accepted">Accepted / Won</option>
-              <option value="declined">Declined / Lost</option>
-              <option value="expired">Link Expired</option>
+              <option value="">All Statuses</option>
+              <option value="draft">Draft</option>
+              <option value="sent">Sent</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="fulfilled">Fulfilled</option>
               <option value="converted">Converted</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
           <button
@@ -758,7 +753,7 @@ export default function Quotations() {
         </div>
       </div>
 
-      {/* Quotations List */}
+      {/* Sales Orders List */}
       {loading ? (
         <div className="bg-white rounded-[1.5rem] p-12 text-center border border-gray-100 shadow-md">
           <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
@@ -767,8 +762,8 @@ export default function Quotations() {
       ) : quotations.length === 0 ? (
         <div className="bg-white rounded-[1.5rem] p-12 text-center border border-gray-100 shadow-md">
           <div className="text-5xl mb-4 opacity-20">📄</div>
-          <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2">No active quotations found</h3>
-          <p className="text-xs text-slate-500 mb-6 max-w-sm mx-auto">Analyze your sales pipeline and initialize your first professional quotation proposal.</p>
+          <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-2">No sales orders found</h3>
+          <p className="text-xs text-slate-500 mb-6 max-w-sm mx-auto">Create your first sales order to start tracking confirmations and deliveries.</p>
           <button
             onClick={() => {
               setFormData(createDefaultQuotationForm());
@@ -777,7 +772,7 @@ export default function Quotations() {
             }}
             className="px-6 py-3 bg-[#244bd8] text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all active:scale-95"
           >
-            Initialize Proposal
+            Create Sales Order
           </button>
         </div>
       ) : (
@@ -787,10 +782,10 @@ export default function Quotations() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">SL No</th>
-                  <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Quotation ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Company & Contact</th>
-                  <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Issue Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Valid Until</th>
+                  <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Order No</th>
+                  <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Customer & Contact</th>
+                  <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Order Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-widest">Delivery Date</th>
                   <th className="px-6 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Amount</th>
                   <th className="px-6 py-3 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Status</th>
                   <th className="px-6 py-3 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Actions</th>
@@ -808,7 +803,7 @@ export default function Quotations() {
                         onClick={() => openQuotationDetails(quotation)}
                         className="text-sm font-black text-blue-700 hover:text-blue-900 hover:underline"
                       >
-                        {quotation.quotation_number || `QT-${quotation.id}`}
+                        {quotation.order_number || quotation.quotation_number || `SO-${quotation.id}`}
                       </button>
                     </td>
                     <td className="px-6 py-4">
@@ -816,10 +811,10 @@ export default function Quotations() {
                       <div className="text-xs text-gray-500">{quotation.contact_person}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatQuotationDate(quotation.issue_date)}
+                      {formatQuotationDate(quotation.order_date || quotation.issue_date)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatQuotationDate(quotation.valid_until)}
+                      {formatQuotationDate(quotation.delivery_date || quotation.valid_until)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="text-sm font-bold text-gray-900">₹{Math.round(quotation.total_amount || 0).toLocaleString('en-IN')}</div>
@@ -836,8 +831,8 @@ export default function Quotations() {
                           type="button"
                           onClick={() => openQuotationDetails(quotation)}
                           className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors shrink-0"
-                          title="View Quotation"
-                          aria-label="View Quotation"
+                          title="View Sales Order"
+                          aria-label="View Sales Order"
                         >
                           <i className="fas fa-eye"></i>
                         </button>
@@ -846,8 +841,8 @@ export default function Quotations() {
                             type="button"
                             onClick={() => handleSendForApproval(quotation.id)}
                             className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-900 transition-colors shrink-0"
-                            title="Send for manager approval"
-                            aria-label="Send for manager approval"
+                            title="Mark as sent"
+                            aria-label="Mark as sent"
                           >
                             <i className="fas fa-paper-plane"></i>
                           </button>
@@ -860,8 +855,8 @@ export default function Quotations() {
                             setShowModal(true);
                           }}
                           className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-900 transition-colors shrink-0"
-                          title="Edit Quotation"
-                          aria-label="Edit Quotation"
+                          title="Edit Sales Order"
+                          aria-label="Edit Sales Order"
                         >
                           <i className="fas fa-edit"></i>
                         </button>
@@ -887,8 +882,8 @@ export default function Quotations() {
                           type="button"
                           onClick={() => handleDelete(quotation.id)}
                           className="w-9 h-9 inline-flex items-center justify-center rounded-lg bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-900 transition-colors shrink-0"
-                          title="Delete Quotation"
-                          aria-label="Delete Quotation"
+                          title="Delete Sales Order"
+                          aria-label="Delete Sales Order"
                         >
                           <i className="fas fa-trash-alt"></i>
                         </button>
@@ -965,9 +960,9 @@ export default function Quotations() {
                   <i className="fas fa-file-invoice text-xl"></i>
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold leading-tight">Quotation Details</h2>
+                  <h2 className="text-lg font-bold leading-tight">Sales Order Details</h2>
                   <p className="text-[10px] opacity-80 uppercase tracking-widest font-black">
-                    {viewQuotation?.quotation_number || `QT-${viewQuotation?.id || ''}`}
+                    {viewQuotation?.order_number || viewQuotation?.quotation_number || `SO-${viewQuotation?.id || ''}`}
                   </p>
                 </div>
               </div>
@@ -984,7 +979,7 @@ export default function Quotations() {
               {viewQuotationLoading ? (
                 <div className="py-16 text-center">
                   <div className="inline-block h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600 mb-4"></div>
-                  <p className="text-xs font-black uppercase tracking-widest text-slate-500">Loading quotation details...</p>
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-500">Loading sales order details...</p>
                 </div>
               ) : (
                 <>
@@ -996,16 +991,16 @@ export default function Quotations() {
 
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 md:col-span-2">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Company</p>
-                      <p className="text-lg font-black text-gray-900">{viewQuotation?.company_name || 'No company'}</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Customer</p>
+                      <p className="text-lg font-black text-gray-900">{viewQuotation?.company_name || 'No customer'}</p>
                       {viewQuotation?.contact_person ? (
                         <p className="text-sm text-gray-500 mt-1">Contact: {viewQuotation.contact_person}</p>
                       ) : null}
                     </div>
                     <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Issue / Valid</p>
-                      <p className="text-sm font-bold text-gray-900">{formatQuotationDate(viewQuotation?.issue_date)}</p>
-                      <p className="text-sm text-gray-500">Valid: {formatQuotationDate(viewQuotation?.valid_until)}</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Order / Delivery</p>
+                      <p className="text-sm font-bold text-gray-900">{formatQuotationDate(viewQuotation?.order_date || viewQuotation?.issue_date)}</p>
+                      <p className="text-sm text-gray-500">Delivery: {formatQuotationDate(viewQuotation?.delivery_date || viewQuotation?.valid_until)}</p>
                     </div>
                     <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Created By</p>
@@ -1076,7 +1071,7 @@ export default function Quotations() {
                             ))
                           ) : (
                             <tr>
-                              <td colSpan="5" className="px-4 py-6 text-center text-sm text-gray-500">No items found for this quotation.</td>
+                              <td colSpan="5" className="px-4 py-6 text-center text-sm text-gray-500">No items found for this sales order.</td>
                             </tr>
                           )}
                         </tbody>
@@ -1203,20 +1198,11 @@ export default function Quotations() {
                   <i className="fas fa-file-invoice-dollar mr-2"></i>
                   Convert to Invoice
                 </button>
-                <button
-                  type="button"
-                  onClick={() => viewQuotation && handleConvertQuotation(viewQuotation, 'sales-order')}
-                  disabled={!viewQuotation || viewQuotationLoading}
-                  className="px-4 py-2 rounded-lg bg-purple-50 text-purple-700 font-bold hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <i className="fas fa-truck mr-2"></i>
-                  Convert to SO
-                </button>
-                <button
-                  type="button"
-                  onClick={closeQuotationDetails}
-                  className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-bold hover:bg-gray-200"
-                >
+                  <button
+                    type="button"
+                    onClick={closeQuotationDetails}
+                    className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-bold hover:bg-gray-200"
+                  >
                   Close
                 </button>
               </div>
@@ -1225,7 +1211,7 @@ export default function Quotations() {
         </div>
       )}
 
-      {/* Create Quotation Modal */}
+      {/* Create Sales Order Modal */}
       {showModal && (
         <div className="absolute inset-0 z-[90] flex items-start justify-center p-3 sm:p-4 md:p-6 bg-transparent overflow-y-auto">
           <div className="bg-white rounded-[1.5rem] w-full max-w-5xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-gray-200 flex flex-col max-h-[calc(100vh-8rem)]">
@@ -1235,7 +1221,7 @@ export default function Quotations() {
                   <i className="fas fa-file-invoice text-xl"></i>
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold leading-tight">Draft Commercial Quotation</h2>
+                  <h2 className="text-lg font-bold leading-tight">Draft Sales Order</h2>
                   <p className="text-[10px] opacity-80 uppercase tracking-widest font-black">Fiscal Asset Management System</p>
                 </div>
               </div>
@@ -1286,14 +1272,14 @@ export default function Quotations() {
                 <div>
                   <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
                     <i className="fas fa-diagram-project text-blue-500 w-4 text-center"></i>
-                    <span>Project Name</span>
+                    <span>Order Subject</span>
                   </label>
                   <input
                     type="text"
                     value={formData.project_name ?? ''}
                     onChange={(e) => setFormData({ ...formData, project_name: e.target.value })}
                     className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-[13px]"
-                    placeholder="Enter project name"
+                    placeholder="Enter order subject"
                   />
                 </div>
                 <div>
@@ -1439,7 +1425,7 @@ export default function Quotations() {
                 <div className="md:col-span-1">
                   <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
                     <i className="fas fa-history text-blue-500 w-4 text-center"></i>
-                    <span>Proposal Validity</span>
+                    <span>Delivery Date</span>
                   </label>
                   <input
                     type="date"
@@ -1451,7 +1437,7 @@ export default function Quotations() {
                 <div>
                   <label className="flex items-center space-x-2 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
                     <i className="fas fa-balance-scale text-blue-500 w-4 text-center"></i>
-                    <span>Terms of Agreement</span>
+                    <span>Terms / Notes</span>
                   </label>
                   <textarea
                     value={formData.terms_conditions ?? ''}
@@ -1651,7 +1637,7 @@ export default function Quotations() {
                 )}
               </div>
 
-              {/* Send for approval option */}
+              {/* Order Status option */}
               {canRequestApproval && (
                 <div className="mt-3 flex items-center gap-2">
                   <input
@@ -1662,7 +1648,7 @@ export default function Quotations() {
                     className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                   <label htmlFor="send_for_approval" className="text-sm font-medium text-slate-700">
-                    Save and send for manager approval
+                    Mark as sent
                   </label>
                 </div>
               )}
@@ -1684,11 +1670,7 @@ export default function Quotations() {
                   <span>
                     {quotationSaving
                       ? 'Saving...'
-                      : canApprove
-                      ? 'Save & approve'
-                      : formData.send_for_approval
-                        ? 'Save & send for approval'
-                        : 'Save as draft'}
+                      : 'Save sales order'}
                   </span>
                 </button>
               </div>

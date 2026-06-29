@@ -29,7 +29,7 @@ function normalizePaymentStatus(invoice) {
 
   if (status === 'cancelled') return 'cancelled';
   if (paid >= total && total > 0) return 'paid';
-  if (paid > 0) return 'partial';
+  if (paid > 0) return 'partially_paid';
   if (dueDate && dueDate < today) return 'overdue';
   return 'unpaid';
 }
@@ -155,7 +155,8 @@ async function fetchPaymentSummary(companyId, canAll, employeeId, filters = {}) 
   const status = filters.payment_status && filters.payment_status !== 'all'
     ? String(filters.payment_status).toLowerCase()
     : '';
-  return status ? invoices.filter((invoice) => invoice.payment_status === status) : invoices;
+  const normalizedStatus = status === 'partial' ? 'partially_paid' : status;
+  return normalizedStatus ? invoices.filter((invoice) => invoice.payment_status === normalizedStatus) : invoices;
 }
 
 function buildInvoiceSummary(invoices) {
@@ -169,7 +170,7 @@ function buildInvoiceSummary(invoices) {
       acc.overdue_amount += money2(invoice.due_amount);
     }
     if (invoice.payment_status === 'paid') acc.paid_count += 1;
-    if (invoice.payment_status === 'partial') acc.partial_count += 1;
+    if (invoice.payment_status === 'partially_paid') acc.partial_count += 1;
     if (invoice.payment_status === 'unpaid') acc.unpaid_count += 1;
     return acc;
   }, {
@@ -267,7 +268,11 @@ async function recalculateInvoiceStatus(conn, invoiceId, companyId) {
   const total = money2(invoice.total_amount);
   const paid = money2(invoice.paid_amount);
   const dueDate = invoice.due_date ? String(invoice.due_date).slice(0, 10) : '';
-  const status = paid >= total && total > 0 ? 'paid' : (dueDate && dueDate < localYmd() ? 'overdue' : 'sent');
+  const status = paid >= total && total > 0
+    ? 'paid'
+    : paid > 0
+      ? 'partially_paid'
+      : (dueDate && dueDate < localYmd() ? 'overdue' : 'sent');
 
   await conn.query('UPDATE invoices SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND company_id = ?', [status, invoiceId, companyId]);
   return status;

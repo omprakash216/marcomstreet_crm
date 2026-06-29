@@ -1,6 +1,7 @@
 const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
+const { cleanParams, getSafePagination } = require('../utils/queryHelpers');
 
 const router = express.Router();
 // Accept common role variants stored in DB.
@@ -36,11 +37,10 @@ function normalizeDuration(value) {
 
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const { page, safeLimit, safeOffset } = getSafePagination(req.query, { defaultLimit: 100, maxLimit: 100 });
     const hasLimitParam = Object.prototype.hasOwnProperty.call(req.query || {}, 'limit');
     const parsedLimit = parseInt(req.query.limit, 10);
     const usePagination = hasLimitParam && Number.isFinite(parsedLimit) && parsedLimit > 0;
-    const limit = Math.min(Math.max(parsedLimit || 1, 1), 100);
 
     let baseSql = `FROM meetings m LEFT JOIN leads l ON m.lead_id = l.id LEFT JOIN employees e ON m.employee_id = e.id WHERE e.company_id = ?`;
     const params = [req.employee.company_id];
@@ -80,22 +80,21 @@ router.get('/', verifyToken, async (req, res) => {
     const orderBy = ' ORDER BY m.meeting_date DESC, m.created_at DESC';
 
     if (!usePagination) {
-      const rows = await query(`${selectSql}${orderBy}`, params);
+      const rows = await query(`${selectSql}${orderBy}`, cleanParams(params));
       return res.json({ success: true, data: rows || [] });
     }
 
-    const offset = (page - 1) * limit;
-    const pageRows = await query(`${selectSql}${orderBy} LIMIT ? OFFSET ?`, [...params, limit, offset]);
-    const countRows = await query(`SELECT COUNT(*) as total ${baseSql}`, params);
+    const pageRows = await query(`${selectSql}${orderBy} LIMIT ${safeLimit} OFFSET ${safeOffset}`, cleanParams(params));
+    const countRows = await query(`SELECT COUNT(*) as total ${baseSql}`, cleanParams(params));
     const total = Number(countRows && countRows[0] && countRows[0].total) || 0;
 
     return res.json({
       success: true,
       data: pageRows || [],
       page,
-      limit,
+      limit: safeLimit,
       total,
-      has_next: offset + (Array.isArray(pageRows) ? pageRows.length : 0) < total,
+      has_next: safeOffset + (Array.isArray(pageRows) ? pageRows.length : 0) < total,
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

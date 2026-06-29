@@ -6,11 +6,12 @@ const fs = require('fs');
 
 const multer = require('multer');
 
-const { query, getConnection } = require('../config/database');
-
-const { verifyToken } = require('../middleware/auth');
-
-const bcrypt = require('bcryptjs');
+const { query, getConnection } = require('../config/database');
+
+const { verifyToken } = require('../middleware/auth');
+const { cleanParams, getSafePagination } = require('../utils/queryHelpers');
+
+const bcrypt = require('bcryptjs');
 
 const { getIntegrationStats } = require('../services/apiIntegration');
 
@@ -326,7 +327,7 @@ function defaultModulesForRole(role) {
 
   const common = ['calendar', 'notifications', 'chat'];
 
-  const crm = ['leads', 'meetings', 'tasks', 'followups', 'quotations', 'invoices', 'reports', 'history', 'whatsapp', 'group_meetings'];
+  const crm = ['leads', 'meetings', 'tasks', 'followups', 'quotations', 'invoices', 'sales_orders', 'reports', 'history', 'whatsapp', 'group_meetings'];
 
   const hrms = [
     'hrms',
@@ -1701,7 +1702,7 @@ router.get('/employees', verifyToken, async (req, res) => {
 
       const params = isSuper ? [id] : [id, req.employee.company_id];
 
-      const rows = await query(sql, params);
+      const rows = await query(sql, cleanParams(params));
 
       const emp = rows[0];
 
@@ -1721,7 +1722,7 @@ router.get('/employees', verifyToken, async (req, res) => {
 
       const params = isSuper ? [] : [req.employee.company_id];
 
-      const rows = await query(sql, params);
+      const rows = await query(sql, cleanParams(params));
 
     return res.json({ success: true, data: rows });
 
@@ -2570,13 +2571,9 @@ router.get('/audit-logs', verifyToken, requireAdmin, async (req, res) => {
 
     const statusGroup = (req.query.status_group || '').toString().trim().toLowerCase(); // success | error
 
-    const requestedLimit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
-
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-
-    const offset = (page - 1) * requestedLimit;
-
-    const limit = Math.min(requestedLimit + 1, 201);
+    const { page, safeLimit, safeOffset } = getSafePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
+
+    const limit = Math.min(safeLimit + 1, 201);
 
 
 
@@ -2636,11 +2633,11 @@ router.get('/audit-logs', verifyToken, requireAdmin, async (req, res) => {
 
               LEFT JOIN employees e ON a.employee_id = e.id
 
-              ${whereSql}
-
-              ORDER BY a.accessed_at DESC
-
-              LIMIT ? OFFSET ?`,
+              ${whereSql}
+
+              ORDER BY a.accessed_at DESC
+
+              LIMIT ${limit} OFFSET ${safeOffset}`,
 
       },
 
@@ -2654,11 +2651,11 @@ router.get('/audit-logs', verifyToken, requireAdmin, async (req, res) => {
 
               LEFT JOIN employees e ON a.employee_id = e.id
 
-              ${whereSql}
-
-              ORDER BY a.id DESC
-
-              LIMIT ? OFFSET ?`,
+              ${whereSql}
+
+              ORDER BY a.id DESC
+
+              LIMIT ${limit} OFFSET ${safeOffset}`,
 
       },
 
@@ -2670,11 +2667,11 @@ router.get('/audit-logs', verifyToken, requireAdmin, async (req, res) => {
 
     let lastErr = null;
 
-    for (const attempt of attempts) {
-
-      try {
-
-        rows = await query(attempt.sql, [...params, limit, offset]);
+    for (const attempt of attempts) {
+
+      try {
+
+        rows = await query(attempt.sql, cleanParams(params));
 
         lastErr = null;
 
@@ -2710,13 +2707,13 @@ router.get('/audit-logs', verifyToken, requireAdmin, async (req, res) => {
 
 
 
-    const hasNext = Array.isArray(rows) && rows.length > requestedLimit;
+    const hasNext = Array.isArray(rows) && rows.length > safeLimit;
+
+    const pageRows = hasNext ? rows.slice(0, safeLimit) : (rows || []);
 
-    const pageRows = hasNext ? rows.slice(0, requestedLimit) : (rows || []);
 
 
-
-    return res.json({ success: true, data: pageRows, page, limit: requestedLimit, has_next: hasNext });
+    return res.json({ success: true, data: pageRows, page, limit: safeLimit, has_next: hasNext });
 
   } catch (err) {
 

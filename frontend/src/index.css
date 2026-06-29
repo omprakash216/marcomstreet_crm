@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,15 +6,22 @@ html {
   scroll-behavior: smooth;
 }
 
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: Arial, Helvetica, sans-serif;
   background: #f6f8ff;
   color: #0f172a;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -26,10 +31,70 @@ input,
 select,
 textarea {
   font: inherit;
+  max-width: 100%;
+  min-width: 0;
+}
+
+img,
+video,
+canvas,
+iframe,
+embed,
+object {
+  display: block;
+  max-width: 100%;
+}
+
+a,
+button,
+input,
+select,
+textarea {
+  touch-action: manipulation;
 }
 
 code {
-  font-family: 'Space Grotesk', 'Courier New', monospace;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.overflow-x-auto {
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.overflow-x-auto > table {
+  min-width: max-content;
+}
+
+.app-shell,
+.superadmin-shell {
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.app-topbar,
+.superadmin-topbar,
+.admin-topbar {
+  height: 6rem;
+}
+
+.app-workspace,
+.superadmin-content,
+.admin-workspace {
+  min-height: 0;
+}
+
+.app-sidebar,
+.superadmin-sidebar,
+.admin-sidebar {
+  width: 16rem;
+}
+
+.app-content,
+.superadmin-content,
+.admin-main {
+  min-width: 0;
 }
 
 /* Admin layout guardrails: keep the CRM chrome fixed even if document/PDF
@@ -99,6 +164,24 @@ code {
   max-height: calc(100vh - 8rem);
 }
 
+.app-shell .fixed.inset-0,
+.superadmin-shell .fixed.inset-0 {
+  top: 6rem;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+.app-shell .fixed.inset-0 > div,
+.superadmin-shell .fixed.inset-0 > div {
+  max-width: min(52rem, calc(100vw - 1rem));
+  max-height: calc(100vh - 8rem);
+}
+
+.app-sidebar-overlay {
+  backdrop-filter: blur(8px);
+}
+
 /* Custom Scrollbar for Dashboard Widgets */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
@@ -134,6 +217,45 @@ code {
 }
 
 @media (max-width: 768px) {
+  .app-topbar,
+  .superadmin-topbar,
+  .admin-topbar {
+    height: 4.75rem;
+  }
+
+  .app-workspace,
+  .superadmin-content,
+  .admin-workspace {
+    padding-top: 4.75rem;
+  }
+
+  .app-sidebar,
+  .superadmin-sidebar,
+  .admin-sidebar {
+    top: 4.75rem;
+    width: min(18rem, calc(100vw - 1.5rem));
+    height: calc(100vh - 4.75rem);
+  }
+
+  .app-content,
+  .superadmin-content,
+  .admin-main {
+    height: calc(100vh - 4.75rem);
+  }
+
+  .app-shell .fixed.inset-0,
+  .superadmin-shell .fixed.inset-0,
+  .admin-shell .fixed.inset-0 {
+    top: 4.75rem;
+  }
+
+  .app-shell .fixed.inset-0 > div,
+  .superadmin-shell .fixed.inset-0 > div,
+  .admin-shell .fixed.inset-0 > div {
+    max-width: calc(100vw - 1rem);
+    max-height: calc(100vh - 6rem);
+  }
+
   /* Superadmin metric/cards grid: stack on mobile */
   .grid.grid-cols-1.lg\\:grid-cols-2,
   .grid.grid-cols-1.lg\\:grid-cols-3 {

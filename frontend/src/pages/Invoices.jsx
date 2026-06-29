@@ -127,12 +127,18 @@ export default function Invoices() {
     }
 
     try {
-      const response = await api.get('/leads');
-      setLeads(Array.isArray(response.data.data) ? response.data.data : []);
+      const response = await api.get('/clients');
+      const customers = Array.isArray(response.data.data) ? response.data.data : [];
+      if (customers.length > 0) {
+        setLeads(customers);
+        return;
+      }
+      const fallback = await api.get('/leads');
+      setLeads(Array.isArray(fallback.data.data) ? fallback.data.data : []);
     } catch (error) {
       // Only log unexpected errors
       if (error.response?.status !== 401 && error.code !== 'ERR_NETWORK') {
-        console.error('Error fetching leads:', error);
+        console.error('Error fetching customers:', error);
       }
       setLeads([]);
     }
@@ -311,7 +317,7 @@ export default function Invoices() {
     if (!invoice?.id) return;
     setEditingInvoiceId(invoice.id);
     setFormData({
-      lead_id: invoice.lead_id ? String(invoice.lead_id) : '',
+      lead_id: invoice.client_id ? String(invoice.client_id) : (invoice.lead_id ? String(invoice.lead_id) : ''),
       items: Array.isArray(invoice.items) && invoice.items.length
         ? invoice.items.map((it) => ({
           item_name: it.item_name || '',
@@ -368,6 +374,38 @@ export default function Invoices() {
     alert('WhatsApp will open in a new tab. Please attach the downloaded invoice PDF.');
   };
 
+  const handleDuplicateInvoice = async (invoice) => {
+    if (!invoice?.id) return;
+    try {
+      await api.post(`/invoices/${invoice.id}/duplicate`);
+      fetchInvoices();
+      if (showViewModal) {
+        const fresh = await api.get(`/invoices/${invoice.id}`);
+        setViewInvoice(fresh?.data?.data || invoice);
+      }
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to duplicate invoice');
+    }
+  };
+
+  const handleEmailInvoice = async (invoice) => {
+    if (!invoice?.id) return;
+    const recipient = window.prompt('Enter recipient email:', invoice.client_email || invoice.email || '');
+    if (!recipient) return;
+
+    try {
+      await api.post(`/invoices/${invoice.id}/email`, { to: recipient });
+      alert('Invoice emailed successfully');
+      fetchInvoices();
+      if (showViewModal) {
+        const fresh = await api.get(`/invoices/${invoice.id}`);
+        setViewInvoice(fresh?.data?.data || invoice);
+      }
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to email invoice');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -386,10 +424,14 @@ export default function Invoices() {
       const companySettingsSaved = await saveCompanySettings({ silent: false });
       if (!companySettingsSaved) return;
 
+      const payload = {
+        ...formData,
+        client_id: formData.lead_id ? Number(formData.lead_id) : null,
+      };
       if (editingInvoiceId) {
-        await api.put(`/invoices/${editingInvoiceId}`, formData);
+        await api.put(`/invoices/${editingInvoiceId}`, payload);
       } else {
-        await api.post('/invoices', formData);
+        await api.post('/invoices', payload);
       }
       setShowModal(false);
       setEditingInvoiceId(null);
@@ -415,8 +457,11 @@ export default function Invoices() {
     const colors = {
       draft: 'bg-gray-100 text-gray-800',
       sent: 'bg-blue-100 text-blue-800',
+      viewed: 'bg-indigo-100 text-indigo-800',
+      partially_paid: 'bg-amber-100 text-amber-800',
       paid: 'bg-green-100 text-green-800',
       overdue: 'bg-red-100 text-red-800',
+      void: 'bg-slate-100 text-slate-700',
       cancelled: 'bg-yellow-100 text-yellow-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
@@ -507,8 +552,11 @@ export default function Invoices() {
               <option value="">All Status</option>
               <option value="draft">Draft</option>
               <option value="sent">Sent</option>
+              <option value="viewed">Viewed</option>
+              <option value="partially_paid">Partially Paid</option>
               <option value="paid">Paid</option>
               <option value="overdue">Overdue</option>
+              <option value="void">Void</option>
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
@@ -996,6 +1044,22 @@ export default function Invoices() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => handleDuplicateInvoice(viewInvoice)}
+                  className="px-4 py-2 rounded-lg bg-slate-100 text-slate-700 font-bold hover:bg-slate-200"
+                >
+                  <i className="fas fa-clone mr-2"></i>
+                  Duplicate
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleEmailInvoice(viewInvoice)}
+                  className="px-4 py-2 rounded-lg bg-cyan-50 text-cyan-700 font-bold hover:bg-cyan-100"
+                >
+                  <i className="fas fa-envelope mr-2"></i>
+                  Email
+                </button>
+                <button
+                  type="button"
                   onClick={() => setShowViewModal(false)}
                   className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-bold hover:bg-gray-200"
                 >
@@ -1028,20 +1092,20 @@ export default function Invoices() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-3">
-              {/* Lead Selection - Compact */}
+              {/* Customer Selection - Compact */}
               <div className="grid grid-cols-4 gap-3">
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium mb-1">Select Lead *</label>
+                  <label className="block text-xs font-medium mb-1">Select Customer *</label>
                   <select
                     required
                     value={formData.lead_id}
                     onChange={(e) => setFormData({ ...formData, lead_id: e.target.value })}
                     className="w-full border rounded px-2 py-1.5 text-sm"
                   >
-                    <option value="">Select Lead</option>
+                    <option value="">Select Customer</option>
                     {leads.map((lead) => (
                       <option key={lead.id} value={lead.id}>
-                        {lead.company_name} - {lead.contact_person}
+                        {lead.company_name || lead.full_name || `Customer #${lead.id}`} - {lead.contact_person || lead.full_name || lead.phone_number || ''}
                       </option>
                     ))}
                   </select>

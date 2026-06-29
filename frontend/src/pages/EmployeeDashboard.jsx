@@ -126,6 +126,8 @@ export default function Dashboard() {
     quotations_by_status: [],
     total_invoices: 0,
     invoices_by_status: [],
+    total_sales_orders: 0,
+    sales_orders_by_status: [],
     total_invoice_amount: 0,
     total_reports: 0,
     reports_by_type: [],
@@ -169,6 +171,11 @@ export default function Dashboard() {
     value: parseInt(item.count),
   }));
 
+  const salesOrdersStatusData = (dashboardData.sales_orders_by_status || []).map((item) => ({
+    name: item.status.charAt(0).toUpperCase() + item.status.slice(1),
+    value: parseInt(item.count),
+  }));
+
   const invoicesStatusData = (dashboardData.invoices_by_status || []).map((item) => ({
     name: item.status.charAt(0).toUpperCase() + item.status.slice(1),
     value: parseInt(item.count),
@@ -184,7 +191,15 @@ export default function Dashboard() {
     value: parseInt(item.count),
   }));
 
-  const hasData = dashboardData.total_leads > 0 || dashboardData.today_meetings > 0 || dashboardData.pending_tasks > 0;
+  const hasData =
+    dashboardData.total_leads > 0 ||
+    dashboardData.today_meetings > 0 ||
+    dashboardData.pending_tasks > 0 ||
+    dashboardData.total_quotations > 0 ||
+    dashboardData.total_invoices > 0 ||
+    dashboardData.total_sales_orders > 0 ||
+    dashboardData.total_reports > 0 ||
+    dashboardData.total_whatsapp > 0;
 
   return (
     <div>
@@ -383,11 +398,12 @@ export default function Dashboard() {
         </div>
 
         {/* Secondary Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
           {[
             { label: 'Follow-ups', value: dashboardData.pending_followups || 0, color: 'indigo' },
             { label: 'Quotations', value: dashboardData.total_quotations || 0, color: 'teal' },
             { label: 'Invoices', value: dashboardData.total_invoices || 0, color: 'cyan' },
+            { label: 'Sales Orders', value: dashboardData.total_sales_orders || 0, color: 'violet' },
             { label: 'Reports', value: dashboardData.total_reports || 0, color: 'pink' },
             { label: 'WhatsApp', value: dashboardData.total_whatsapp || 0, color: 'green' },
           ].map((stat, idx) => (
@@ -436,12 +452,13 @@ export default function Dashboard() {
             </div>
             <div className="space-y-3">
               {[
-                { label: 'Leads', value: dashboardData.total_leads || 0 },
-                { label: 'Meetings (This Month)', value: dashboardData.month_meetings || 0 },
-                { label: 'Tasks Completed', value: `${dashboardData.today_tasks_completed || 0} today` },
-                { label: 'Follow-ups Pending', value: dashboardData.pending_followups || 0, highlight: true },
-              ].map((item, idx) => (
-                <div key={idx} className="flex justify-between items-center py-2">
+              { label: 'Leads', value: dashboardData.total_leads || 0 },
+              { label: 'Meetings (This Month)', value: dashboardData.month_meetings || 0 },
+              { label: 'Tasks Completed', value: `${dashboardData.today_tasks_completed || 0} today` },
+              { label: 'Sales Orders', value: dashboardData.total_sales_orders || 0 },
+              { label: 'Follow-ups Pending', value: dashboardData.pending_followups || 0, highlight: true },
+            ].map((item, idx) => (
+              <div key={idx} className="flex justify-between items-center py-2">
                   <span className="text-gray-700">{item.label}</span>
                   <span className={`font-bold ${item.highlight ? 'text-orange-600' : 'text-gray-900'}`}>
                     {item.value}
@@ -548,6 +565,22 @@ export default function Dashboard() {
                     <YAxis stroke="#6b7280" />
                     <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }} />
                     <Bar dataKey="value" fill="#14b8a6" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Sales Orders Status */}
+            {salesOrdersStatusData.length > 0 && (
+              <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+                <h2 className="text-lg font-bold text-gray-900 mb-4">Sales Orders by Status</h2>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={salesOrdersStatusData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="name" stroke="#6b7280" />
+                    <YAxis stroke="#6b7280" />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }} />
+                    <Bar dataKey="value" fill="#8b5cf6" radius={[8, 8, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

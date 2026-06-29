@@ -30,21 +30,24 @@ async function ensureTables() {
   );
 
   // For existing installations, try to add new columns; ignore if they already exist
-  try {
-    await query(
-      `ALTER TABLE subscription_sessions
-         ADD COLUMN IF NOT EXISTS payment_method VARCHAR(32) NULL,
-         ADD COLUMN IF NOT EXISTS amount DECIMAL(10,2) NULL,
-         ADD COLUMN IF NOT EXISTS currency VARCHAR(8) NOT NULL DEFAULT 'INR',
-         ADD COLUMN IF NOT EXISTS gateway_reference VARCHAR(128) NULL,
-         ADD COLUMN IF NOT EXISTS activation_status VARCHAR(16) NOT NULL DEFAULT 'pending',
-         ADD COLUMN IF NOT EXISTS activated_at DATETIME NULL`
-    );
-  } catch (err) {
-    // Some MySQL versions don't support IF NOT EXISTS for ADD COLUMN; fall back silently on duplicate column errors
-    if (err && err.code !== 'ER_DUP_FIELDNAME' && err.code !== 'ER_PARSE_ERROR') {
-      // Log but don't crash request
-      console.error('subscription_sessions alter error:', err.message);
+  const alterStatements = [
+    'ALTER TABLE subscription_sessions ADD COLUMN payment_method VARCHAR(32) NULL',
+    'ALTER TABLE subscription_sessions ADD COLUMN amount DECIMAL(10,2) NULL',
+    "ALTER TABLE subscription_sessions ADD COLUMN currency VARCHAR(8) NOT NULL DEFAULT 'INR'",
+    'ALTER TABLE subscription_sessions ADD COLUMN gateway_reference VARCHAR(128) NULL',
+    'ALTER TABLE subscription_sessions ADD COLUMN activation_status VARCHAR(16) NOT NULL DEFAULT \'pending\'',
+    'ALTER TABLE subscription_sessions ADD COLUMN activated_at DATETIME NULL',
+    'ALTER TABLE subscription_sessions ADD COLUMN plan_id INT NULL',
+    'ALTER TABLE subscription_sessions ADD COLUMN plan_name VARCHAR(120) NULL',
+  ];
+
+  for (const sql of alterStatements) {
+    try {
+      await query(sql);
+    } catch (err) {
+      if (err && err.code !== 'ER_DUP_FIELDNAME' && err.code !== 'ER_PARSE_ERROR') {
+        console.error('subscription_sessions alter error:', err.message);
+      }
     }
   }
 }
@@ -81,7 +84,82 @@ function getPlanLabel(plan) {
   if (normalized === 'starter') return 'Starter';
   if (normalized === 'business') return 'Business';
   if (normalized === 'enterprise') return 'Enterprise';
+  if (/^\d+$/.test(normalized)) return `Plan ${normalized}`;
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : 'Plan';
+}
+
+function parseModulesInPlan(modules) {
+  if (Array.isArray(modules)) {
+    return modules;
+  }
+
+  if (typeof modules === 'string') {
+    try {
+      const parsed = JSON.parse(modules);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (err) {
+      return modules.split(',').map((item) => String(item || '').trim()).filter(Boolean);
+    }
+  }
+
+  return [];
+}
+
+async function resolveCheckoutPlan(rawPlan) {
+  const normalized = String(rawPlan || '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const lower = normalized.toLowerCase();
+  if (['starter', 'business', 'enterprise'].includes(lower)) {
+    return {
+      sessionPlan: lower,
+      planId: null,
+      planName: getPlanLabel(lower),
+      billingCycle: lower === 'enterprise' ? 'custom' : 'monthly',
+      amount: lower === 'starter' ? 999 : lower === 'business' ? 2499 : null,
+      modulesIncluded: [],
+    };
+  }
+
+  let rows = [];
+  if (/^(?:plan[-_:])?\d+$/.test(lower)) {
+    const numericId = Number(lower.replace(/^(?:plan[-_:])/, ''));
+    rows = await query(
+      `SELECT id, name, price, billing_cycle, modules_included
+       FROM subscription_plans
+       WHERE id = ? AND status = 'active'
+       LIMIT 1`,
+      [numericId]
+    );
+  }
+
+  if (!rows.length) {
+    rows = await query(
+      `SELECT id, name, price, billing_cycle, modules_included
+       FROM subscription_plans
+       WHERE status = 'active' AND LOWER(name) = LOWER(?)
+       LIMIT 1`,
+      [normalized]
+    );
+  }
+
+  const plan = rows && rows[0];
+  if (!plan) {
+    return null;
+  }
+
+  return {
+    sessionPlan: String(plan.id),
+    planId: Number(plan.id),
+    planName: String(plan.name || 'Plan').trim() || 'Plan',
+    billingCycle: String(plan.billing_cycle || 'monthly').trim().toLowerCase(),
+    amount: plan.price === null || plan.price === undefined ? null : Number(plan.price),
+    modulesIncluded: parseModulesInPlan(plan.modules_included),
+  };
 }
 
 function buildGatewayReference(method, paymentDetails = {}) {
@@ -111,7 +189,7 @@ router.get('/plans', async (_req, res) => {
     let rows = [];
     try {
       rows = await query(
-        "SELECT id, name, price, billing_cycle, user_limit, storage_limit_gb, modules_included, status FROM subscription_plans WHERE status='active' ORDER BY price ASC"
+        "SELECT id, name, price, billing_cycle, user_limit, storage_limit_gb, modules_included, status FROM subscription_plans WHERE status='active' ORDER BY price IS NULL, price ASC, id ASC"
       );
     } catch (e) {
       rows = [];
@@ -149,9 +227,11 @@ router.get('/session/:sessionId', async (req, res) => {
     }
 
     const rows = await query(
-      `SELECT id, email, full_name, company, plan, status, payment_method, amount, currency, created_at, paid_at, activation_status, activated_at
-       FROM subscription_sessions
-       WHERE id = ?
+      `SELECT s.id, s.email, s.full_name, s.company, s.plan, s.plan_id, s.plan_name, s.status, s.payment_method, s.amount, s.currency, s.created_at, s.paid_at, s.activation_status, s.activated_at,
+              sp.name AS catalog_plan_name, sp.price AS catalog_plan_price, sp.billing_cycle AS catalog_billing_cycle
+       FROM subscription_sessions s
+       LEFT JOIN subscription_plans sp ON sp.id = s.plan_id
+       WHERE s.id = ?
        LIMIT 1`,
       [sessionId]
     );
@@ -161,11 +241,22 @@ router.get('/session/:sessionId', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Session not found' });
     }
 
+    const resolvedPlanLabel = String(session.plan_name || session.catalog_plan_name || getPlanLabel(session.plan)).trim();
+    const resolvedAmount = session.amount !== null && session.amount !== undefined
+      ? session.amount
+      : session.catalog_plan_price !== null && session.catalog_plan_price !== undefined
+        ? session.catalog_plan_price
+        : null;
+    const resolvedBillingCycle = session.catalog_billing_cycle
+      || (String(session.plan || '').toLowerCase() === 'enterprise' ? 'custom' : ['starter', 'business'].includes(String(session.plan || '').toLowerCase()) ? 'monthly' : null);
+
     return res.json({
       success: true,
       data: {
         ...session,
-        plan_label: getPlanLabel(session.plan),
+        amount: resolvedAmount,
+        plan_label: resolvedPlanLabel,
+        billing_cycle: resolvedBillingCycle,
         payment_method: normalizePaymentMethod(session.payment_method),
       },
     });
@@ -181,23 +272,37 @@ router.post('/checkout', async (req, res) => {
     const email = String(b.email || '').trim().toLowerCase();
     const fullName = String(b.fullName || b.name || '').trim();
     const company = String(b.company || '').trim();
-    const plan = String(b.plan || 'starter').trim().toLowerCase();
+    const planInput = String(b.plan || 'starter').trim();
 
     if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ success: false, message: 'Invalid email' });
-    if (!['starter', 'business', 'enterprise'].includes(plan)) return res.status(400).json({ success: false, message: 'Invalid plan' });
+
+    const selectedPlan = await resolveCheckoutPlan(planInput);
+    if (!selectedPlan) {
+      return res.status(400).json({ success: false, message: 'Invalid plan' });
+    }
 
     const sessionId = crypto.randomBytes(24).toString('hex');
     const tempPassword = generatePassword(10);
 
-    let amount = null;
-    if (plan === 'starter') amount = 999;
-    else if (plan === 'business') amount = 2499;
-
     await query(
-      `INSERT INTO subscription_sessions (id, email, full_name, company, plan, status, payment_method, amount, currency, gateway_reference, temp_password)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      [sessionId, email, fullName || null, company || null, plan, 'pending', null, amount, 'INR', null, tempPassword]
+      `INSERT INTO subscription_sessions (id, email, full_name, company, plan, plan_id, plan_name, status, payment_method, amount, currency, gateway_reference, temp_password)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        sessionId,
+        email,
+        fullName || null,
+        company || null,
+        selectedPlan.sessionPlan,
+        selectedPlan.planId || null,
+        selectedPlan.planName || null,
+        'pending',
+        null,
+        selectedPlan.amount,
+        'INR',
+        null,
+        tempPassword,
+      ]
     );
 
     return res.json({

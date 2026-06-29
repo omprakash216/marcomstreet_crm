@@ -159,6 +159,7 @@ export default function AdminDashboard() {
     { label: 'Add Employee', icon: 'fa-user-plus', action: () => navigate('/admin/employees'), className: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700' },
     { label: 'Add Lead', icon: 'fa-plus', action: () => navigate('/admin/leads'), className: 'bg-blue-50 hover:bg-blue-100 text-blue-700' },
     { label: 'Media Lead', icon: 'fa-photo-video', action: () => navigate('/admin/leads?create=media'), className: 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700' },
+    { label: 'Sales Orders', icon: 'fa-truck', action: () => navigate('/admin/sales-orders'), className: 'bg-violet-50 hover:bg-violet-100 text-violet-700' },
     { label: 'Create Invoice', icon: 'fa-file-invoice-dollar', action: () => navigate('/admin/invoices'), className: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700' },
     { label: 'Create Quote', icon: 'fa-file-signature', action: () => navigate('/admin/quotations'), className: 'bg-pink-50 hover:bg-pink-100 text-pink-700' },
     { label: 'Add Expense', icon: 'fa-receipt', action: () => navigate('/admin/expenses'), className: 'bg-amber-50 hover:bg-amber-100 text-amber-700' },
@@ -415,6 +416,7 @@ export default function AdminDashboard() {
             icon="fa-rupee-sign"
             links={[
               { label: 'Quotations', to: '/admin/quotations' },
+              { label: 'Sales Orders', to: '/admin/sales-orders' },
               { label: 'Invoices', to: '/admin/invoices' },
               { label: 'Payments', to: '/admin/invoices' },
               { label: 'Expenses', to: '/admin/expenses' }

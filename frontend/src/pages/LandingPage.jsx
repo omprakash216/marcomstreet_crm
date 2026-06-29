@@ -8,13 +8,16 @@ import {
   FiBriefcase,
   FiCalendar,
   FiCheckCircle,
+  FiChevronLeft,
   FiChevronDown,
+  FiChevronRight,
   FiClock,
   FiCreditCard,
   FiDollarSign,
   FiDownload,
   FiFile,
   FiFileText,
+  FiGift,
   FiFolder,
   FiGrid,
   FiHeadphones,
@@ -30,8 +33,9 @@ import {
   FiUsers,
   FiX,
 } from 'react-icons/fi';
-import MarcomLogo from '../components/MarcomLogo';
 import api from '../utils/api';
+import crmBannerImage from '../assets/banner.png';
+import hrmsBannerImage from '../assets/hrms-banner.png';
 import '../styles/landing.css';
 
 const CURRENCY = new Intl.NumberFormat('en-IN', {
@@ -118,19 +122,50 @@ function formatCycle(value) {
   return '/ month';
 }
 
-function resolveCheckoutKey(plan, index = 0) {
-  const explicit = normalizeText(plan?.checkout_key || plan?.checkoutKey || plan?.slug || '').toLowerCase();
-  if (['starter', 'business', 'enterprise'].includes(explicit)) {
+function getPlanDisplayRank(plan, index = 0) {
+  const title = normalizeText(plan?.title || plan?.name || '').toLowerCase();
+  const key = normalizeText(plan?.planKey || plan?.checkout_key || plan?.checkoutKey || plan?.public_key || plan?.slug || '').toLowerCase();
+  const haystack = `${title} ${key}`;
+
+  if (haystack.includes('starter')) return 0;
+  if (haystack.includes('business')) return 1;
+  if (haystack.includes('enterprise')) return 2;
+  return 10 + index;
+}
+
+function sortPricingPlans(plans) {
+  return [...(plans || [])].sort((left, right) => {
+    const rankDelta = getPlanDisplayRank(left) - getPlanDisplayRank(right);
+    if (rankDelta !== 0) {
+      return rankDelta;
+    }
+
+    const leftPrice = Number(left?.raw?.price ?? left?.price);
+    const rightPrice = Number(right?.raw?.price ?? right?.price);
+    if (Number.isFinite(leftPrice) && Number.isFinite(rightPrice) && leftPrice !== rightPrice) {
+      return leftPrice - rightPrice;
+    }
+
+    return normalizeText(left?.title || left?.name).localeCompare(normalizeText(right?.title || right?.name));
+  });
+}
+
+function resolvePlanKey(plan, index = 0) {
+  const explicit = normalizeText(
+    plan?.checkout_key || plan?.checkoutKey || plan?.public_key || plan?.slug || ''
+  ).toLowerCase();
+  if (explicit) {
     return explicit;
   }
 
-  const title = normalizeText(plan?.name || plan?.title).toLowerCase();
-  if (title.includes('enterprise') || title.includes('custom')) return 'enterprise';
-  if (title.includes('business') || title.includes('growth') || title.includes('pro')) return 'business';
-  if (title.includes('starter') || title.includes('basic') || title.includes('beginner')) return 'starter';
+  const rawId = plan?.id;
+  if (rawId !== null && rawId !== undefined && String(rawId).trim()) {
+    return String(rawId).trim();
+  }
 
-  if (plan?.price === null || plan?.price === undefined || plan?.price === '') {
-    return 'enterprise';
+  const title = normalizeText(plan?.name || plan?.title).toLowerCase();
+  if (title) {
+    return makeSlug(title);
   }
 
   if (index === 1) return 'business';
@@ -138,12 +173,33 @@ function resolveCheckoutKey(plan, index = 0) {
   return 'starter';
 }
 
-function formatModuleHighlights(plan, product, index) {
-  const modules = parseModules(plan?.modules_included);
-  if (modules.length) {
-    return modules.slice(0, 4);
+function formatPlanMeta(plan) {
+  const meta = [];
+  const userLimit = Number(plan?.user_limit ?? plan?.userLimit);
+  const storageLimit = Number(plan?.storage_limit_gb ?? plan?.storageLimitGb);
+  const cycle = normalizeText(plan?.billing_cycle ?? plan?.billingCycle).toLowerCase();
+
+  if (Number.isFinite(userLimit) && userLimit > 0) {
+    meta.push(`${userLimit} users`);
   }
 
+  if (Number.isFinite(storageLimit) && storageLimit > 0) {
+    meta.push(`${storageLimit} GB storage`);
+  }
+
+  if (cycle === 'monthly') {
+    meta.push('Billed monthly');
+  } else if (cycle === 'yearly' || cycle === 'annual') {
+    meta.push('Billed yearly');
+  } else if (cycle === 'custom') {
+    meta.push('Custom pricing');
+  }
+
+  return meta.slice(0, 3);
+}
+
+function formatModuleHighlights(plan, product, index) {
+  const modules = parseModules(plan?.modules_included);
   const fallbackHighlights = {
     crm: [
       ['Lead Management', 'Sales Pipeline', 'Email Automation', 'Reports'],
@@ -157,21 +213,33 @@ function formatModuleHighlights(plan, product, index) {
     ],
   };
 
+  if (modules.length) {
+    const fallbackItems = fallbackHighlights[product] || fallbackHighlights.crm;
+    return Array.from(new Set([...modules, ...fallbackItems[Math.min(index, fallbackItems.length - 1)]])).slice(0, 4);
+  }
+
   const items = fallbackHighlights[product] || fallbackHighlights.crm;
   return items[Math.min(index, items.length - 1)];
 }
 
 function normalizePlan(plan, index, product) {
+  const title = normalizeText(plan?.name || 'Plan') || 'Plan';
+  const titleLower = title.toLowerCase();
+  const planKey = resolvePlanKey(plan, index);
+  const isBusinessLike = titleLower.includes('business') || planKey.toLowerCase().includes('business');
+
   return {
-    id: makeSlug(plan?.id ?? plan?.name ?? `plan-${product}-${index}`),
-    title: normalizeText(plan?.name || 'Plan') || 'Plan',
+    id: String(plan?.id ?? `plan-${product}-${index}`),
+    title,
     planType: inferPlanType(plan),
     typeLabel: inferPlanType(plan) === 'all-in-one' ? 'All-in-One' : inferPlanType(plan).toUpperCase(),
+    price: plan?.price,
     priceLabel: formatPrice(plan?.price),
     cycleLabel: formatCycle(plan?.billing_cycle),
-    checkoutKey: resolveCheckoutKey(plan, index),
-    isPopular: Boolean(plan?.is_popular || plan?.popular || plan?.featured) || index === 1,
+    planKey,
+    isPopular: Boolean(plan?.is_popular || plan?.popular || plan?.featured) || isBusinessLike || index === 1,
     highlights: formatModuleHighlights(plan, product, index),
+    meta: formatPlanMeta(plan),
     raw: plan,
   };
 }
@@ -184,30 +252,40 @@ function fallbackPricingPlans(product) {
         price: 999,
         priceLabel: '\u20B9999',
         cycleLabel: '/ month',
-        checkoutKey: 'starter',
+        planKey: 'starter',
         isPopular: false,
         typeLabel: 'CRM',
         highlights: ['Lead Management', 'Sales Pipeline', 'Email Automation', 'Basic Reports'],
+        meta: ['10 users', '5 GB storage', 'Billed monthly'],
+        userLimit: 10,
+        storageLimitGb: 5,
+        billingCycle: 'monthly',
       },
       {
         title: 'Business',
         price: 2499,
         priceLabel: '\u20B92499',
         cycleLabel: '/ month',
-        checkoutKey: 'business',
+        planKey: 'business',
         isPopular: true,
         typeLabel: 'CRM',
         highlights: ['Quotation Management', 'Invoice Management', 'WhatsApp Integration', 'Advanced Reports'],
+        meta: ['25 users', '25 GB storage', 'Billed monthly'],
+        userLimit: 25,
+        storageLimitGb: 25,
+        billingCycle: 'monthly',
       },
       {
         title: 'Enterprise',
         price: null,
         priceLabel: 'Custom',
         cycleLabel: 'Pricing',
-        checkoutKey: 'enterprise',
+        planKey: 'enterprise',
         isPopular: false,
         typeLabel: 'All-in-One',
         highlights: ['Custom Integrations', 'Dedicated Support', 'Advanced Security', 'Priority Onboarding'],
+        meta: ['Custom users', 'Custom storage', 'Bespoke pricing'],
+        billingCycle: 'custom',
       },
     ],
     hrms: [
@@ -216,30 +294,40 @@ function fallbackPricingPlans(product) {
         price: 999,
         priceLabel: '\u20B9999',
         cycleLabel: '/ month',
-        checkoutKey: 'starter',
+        planKey: 'starter',
         isPopular: false,
         typeLabel: 'HRMS',
         highlights: ['Employee Management', 'Attendance Tracking', 'Leave Management', 'Basic Reports'],
+        meta: ['10 users', '5 GB storage', 'Billed monthly'],
+        userLimit: 10,
+        storageLimitGb: 5,
+        billingCycle: 'monthly',
       },
       {
         title: 'Business',
         price: 2499,
         priceLabel: '\u20B92499',
         cycleLabel: '/ month',
-        checkoutKey: 'business',
+        planKey: 'business',
         isPopular: true,
         typeLabel: 'HRMS',
         highlights: ['Payroll System', 'Salary Slips', 'Document Management', 'Advanced Reports'],
+        meta: ['25 users', '25 GB storage', 'Billed monthly'],
+        userLimit: 25,
+        storageLimitGb: 25,
+        billingCycle: 'monthly',
       },
       {
         title: 'Enterprise',
         price: null,
         priceLabel: 'Custom',
         cycleLabel: 'Pricing',
-        checkoutKey: 'enterprise',
+        planKey: 'enterprise',
         isPopular: false,
         typeLabel: 'All-in-One',
         highlights: ['POSH Module', 'Self Service Portal', 'Dedicated Support', 'Advanced Analytics'],
+        meta: ['Custom users', 'Custom storage', 'Bespoke pricing'],
+        billingCycle: 'custom',
       },
     ],
   };
@@ -268,6 +356,278 @@ function buildAreaPath(points, height = 150, padding = 16) {
   const firstPoint = points[0];
   const line = points.map((point) => `${point.x},${point.y}`).join(' ');
   return `M ${firstPoint.x} ${height - padding} L ${line} L ${lastPoint.x} ${height - padding} Z`;
+}
+
+function getPlanSubtitle(plan, index = 0) {
+  const billingCycle = normalizeText(plan?.billingCycle ?? plan?.billing_cycle).toLowerCase();
+  const priceLabel = normalizeText(plan?.priceLabel).toLowerCase();
+  const userLimit = Number(plan?.raw?.user_limit ?? plan?.user_limit ?? plan?.userLimit);
+
+  if (billingCycle === 'custom' || priceLabel === 'custom') {
+    return 'For large organizations';
+  }
+
+  if (Number.isFinite(userLimit) && userLimit <= 10) {
+    return 'Perfect for small teams';
+  }
+
+  if (Number.isFinite(userLimit) && userLimit <= 25) {
+    return 'Ideal for growing teams';
+  }
+
+  if (index === 0) {
+    return 'Perfect for small teams';
+  }
+
+  if (index === 1) {
+    return 'Ideal for growing teams';
+  }
+
+  return 'Built for scaling teams';
+}
+
+function getPlanIconMeta(plan, index = 0) {
+  const billingCycle = normalizeText(plan?.billingCycle ?? plan?.billing_cycle).toLowerCase();
+  const priceLabel = normalizeText(plan?.priceLabel).toLowerCase();
+
+  if (billingCycle === 'custom' || priceLabel === 'custom') {
+    return { Icon: FiShield, tone: 'violet' };
+  }
+
+  if (plan?.isPopular || index === 1) {
+    return { Icon: FiBriefcase, tone: 'green' };
+  }
+
+  if (index === 0) {
+    return { Icon: FiTarget, tone: 'blue' };
+  }
+
+  return { Icon: FiLayers, tone: 'indigo' };
+}
+
+function getPlanCtaLabel(plan) {
+  const billingCycle = normalizeText(plan?.billingCycle ?? plan?.billing_cycle).toLowerCase();
+  const priceLabel = normalizeText(plan?.priceLabel).toLowerCase();
+  if (billingCycle === 'custom' || priceLabel === 'custom') {
+    return 'Contact Sales';
+  }
+  return 'Get Started';
+}
+
+function getPlanCtaClass(plan) {
+  return getPlanCtaLabel(plan) === 'Contact Sales' ? 'landing-plan-button--secondary' : '';
+}
+
+function buildPricingInsights(plans, product) {
+  const sourcePlans = plans?.length ? plans : fallbackPricingPlans(product);
+  const visiblePlans = sourcePlans.slice(0, 3);
+  const popularPlan = visiblePlans.find((plan) => plan.isPopular) || visiblePlans[1] || visiblePlans[0] || null;
+  const priceValues = visiblePlans
+    .map((plan) => Number(plan?.raw?.price ?? plan?.price))
+    .filter((value) => Number.isFinite(value));
+  const lowestPrice = priceValues.length ? Math.min(...priceValues) : null;
+  const allModules = visiblePlans.flatMap((plan) => {
+    const modules = parseModules(plan?.raw?.modules_included ?? plan?.raw?.modules);
+    return modules.length ? modules : plan?.highlights || [];
+  });
+  const uniqueModules = new Set(allModules.map((item) => normalizeText(item).toLowerCase()).filter(Boolean));
+
+  return [
+    {
+      icon: FiGift,
+      label: 'Active Plans',
+      value: `${sourcePlans.length} from Super Admin`,
+      tone: 'blue',
+    },
+    {
+      icon: FiTrendingUp,
+      label: 'Most Popular',
+      value: popularPlan ? popularPlan.title : 'Loading...',
+      tone: 'green',
+    },
+    {
+      icon: FiCreditCard,
+      label: 'Starting At',
+      value: lowestPrice !== null ? formatPrice(lowestPrice) : 'Custom',
+      tone: 'violet',
+    },
+    {
+      icon: FiBarChart2,
+      label: 'Modules Included',
+      value: `${uniqueModules.size || 0} live modules`,
+      tone: 'indigo',
+    },
+  ];
+}
+
+function buildPricingStories(plans, product) {
+  const sourcePlans = plans?.length ? plans : fallbackPricingPlans(product);
+
+  return sourcePlans.slice(0, 2).map((plan, index) => {
+    const { Icon, tone } = getPlanIconMeta(plan, index);
+    const planMeta = Array.isArray(plan?.meta) ? plan.meta : [];
+    const metaText = planMeta.length
+      ? planMeta.slice(0, 3).join(' | ')
+      : Array.isArray(plan?.highlights)
+        ? plan.highlights.slice(0, 3).join(' | ')
+        : '';
+
+    return {
+      Icon,
+      tone,
+      badge: plan.isPopular ? 'Most Popular' : index === 0 ? 'Top Choice' : 'Live Plan',
+      title: plan.title,
+      subtitle: getPlanSubtitle(plan, index),
+      description: metaText || 'Synced live from the Super Admin pricing catalog.',
+      price: plan.priceLabel,
+      cycle: plan.cycleLabel,
+    };
+  });
+}
+
+function formatPlanSummary(plan) {
+  const modules = parseModules(plan?.raw?.modules_included ?? plan?.raw?.modules);
+  if (modules.length) {
+    return modules.slice(0, 4).join(' | ');
+  }
+
+  if (Array.isArray(plan?.highlights) && plan.highlights.length) {
+    return plan.highlights.slice(0, 4).join(' | ');
+  }
+
+  return 'Live from Super Admin';
+}
+
+function HeroBanner({
+  config,
+  pricingLoading,
+  pricingPlans,
+  bannerImage,
+  heroClassName = '',
+  shellClassName = '',
+  imageClassName = '',
+  showNote = true,
+}) {
+  const activePlanText = pricingLoading
+    ? 'Syncing live pricing from Super Admin...'
+    : `${pricingPlans.length || 0} active plan${pricingPlans.length === 1 ? '' : 's'} from Super Admin`;
+
+  return (
+    <section className={`landing-hero landing-hero--poster ${heroClassName}`.trim()} aria-label="Landing page hero banner">
+      <div className={`landing-hero-poster-shell ${shellClassName}`.trim()}>
+        <img
+          src={bannerImage}
+          alt={`${config.brandTag} banner`}
+          className={`landing-hero-poster-image ${imageClassName}`.trim()}
+          loading="eager"
+          decoding="async"
+        />
+        {showNote ? <p className="landing-live-note landing-live-note--banner">{activePlanText}</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function LandingFooter({ config, product, productPath, primaryPlanKey, onNavigate }) {
+  const currentYear = new Date().getFullYear();
+  const productSummary =
+    product === 'crm'
+      ? 'Track leads, quotations, invoices, and follow-ups in one clean flow.'
+      : 'Manage employees, attendance, payroll, and documents in one clean flow.';
+
+  return (
+    <footer className="landing-site-footer" aria-label="Site footer">
+      <div className="landing-site-footer-surface">
+        <div className="landing-site-footer-inner">
+          <div className="landing-site-footer-grid">
+            <div className="landing-site-footer-brand">
+          <Link className="landing-site-footer-brand-link" to={productPath} aria-label="VANYA GROUP home">
+            <span className="landing-site-footer-brand-copy">
+              <strong>VANYA GROUP</strong>
+            </span>
+          </Link>
+
+              <p className="landing-site-footer-description">{productSummary}</p>
+
+              <div className="landing-site-footer-points" aria-label="Footer highlights">
+                <span className="landing-site-footer-point">
+                  <FiShield />
+                  Secure by design
+                </span>
+                <span className="landing-site-footer-point">
+                  <FiUsers />
+                  Team ready
+                </span>
+                <span className="landing-site-footer-point">
+                  <FiBarChart2 />
+                  Live reporting
+                </span>
+              </div>
+            </div>
+
+            <nav className="landing-site-footer-column" aria-label="Footer navigation">
+              <h3>Navigate</h3>
+              <div className="landing-site-footer-links">
+                <button type="button" className="landing-site-footer-action" onClick={() => onNavigate('top')}>
+                  Home
+                </button>
+                <button type="button" className="landing-site-footer-action" onClick={() => onNavigate('features')}>
+                  Features
+                </button>
+                <button type="button" className="landing-site-footer-action" onClick={() => onNavigate('pricing')}>
+                  Pricing
+                </button>
+              </div>
+            </nav>
+
+            <nav className="landing-site-footer-column" aria-label="Products">
+              <h3>Products</h3>
+              <div className="landing-site-footer-links">
+                <Link
+                  to="/crm"
+                  className={`landing-site-footer-link ${product === 'crm' ? 'is-current' : ''}`.trim()}
+                  aria-current={product === 'crm' ? 'page' : undefined}
+                >
+                  CRM
+                  <FiArrowRight />
+                </Link>
+                <Link
+                  to="/hrms"
+                  className={`landing-site-footer-link ${product === 'hrms' ? 'is-current' : ''}`.trim()}
+                  aria-current={product === 'hrms' ? 'page' : undefined}
+                >
+                  HRMS
+                  <FiArrowRight />
+                </Link>
+              </div>
+            </nav>
+
+            <div className="landing-site-footer-column">
+              <h3>Get started</h3>
+              <div className="landing-site-footer-links">
+                <Link
+                  to={`/subscribe?plan=${encodeURIComponent(primaryPlanKey)}&product=${encodeURIComponent(product)}`}
+                  className="landing-site-footer-link landing-site-footer-link--primary"
+                >
+                  Start Free Trial
+                  <FiArrowRight />
+                </Link>
+                <Link to="/login" className="landing-site-footer-link">
+                  Login
+                  <FiArrowRight />
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          <div className="landing-site-footer-bottom">
+            <span>Copyright {currentYear} VANYA GROUP. All rights reserved.</span>
+            <span>{productSummary}</span>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
 }
 
 const CRM_FEATURES = [
@@ -510,10 +870,10 @@ const PRODUCT_CONFIG = {
     sectionDescription: 'Everything your sales team needs, from first inquiry to paid invoice.',
     workflowTitle: 'How CRM Works',
     workflowDescription: 'A clean flow from lead capture to revenue reporting.',
-    pricingTitle: 'CRM Pricing Plans',
-    pricingDescription: 'Active plans from the Super Admin panel appear here automatically.',
+    pricingTitle: 'Simple Pricing for Every Business',
+    pricingDescription: 'Choose a plan that fits your team. Plans are managed live from Super Admin.',
     testimonialTitle: 'What CRM Customers Say',
-    testimonialDescription: 'Growing teams use MARCOM STREET to close faster and stay organized.',
+    testimonialDescription: 'Growing teams use VANYA GROUP to close faster and stay organized.',
     footerTitle: 'Ready to grow your sales with Smart CRM?',
     footerDescription: 'Start your free trial today. No credit card required.',
     benefits: ['No credit card required', 'Easy setup', 'Cancel anytime'],
@@ -567,10 +927,10 @@ const PRODUCT_CONFIG = {
     sectionDescription: 'One clean system for employee operations, compliance, and reporting.',
     workflowTitle: 'How HRMS Works',
     workflowDescription: 'From onboarding to payroll, everything stays in one flow.',
-    pricingTitle: 'HRMS Pricing Plans',
-    pricingDescription: 'Active plans from the Super Admin panel appear here automatically.',
+    pricingTitle: 'Simple Pricing for Every Business',
+    pricingDescription: 'Choose a plan that fits your team. Plans are managed live from Super Admin.',
     testimonialTitle: 'What HR Managers Say',
-    testimonialDescription: 'HR teams rely on MARCOM STREET to save time and stay compliant.',
+    testimonialDescription: 'HR teams rely on VANYA GROUP to save time and stay compliant.',
     footerTitle: 'Simplify your HR operations with Smart HRMS',
     footerDescription: 'Start your free trial today. No credit card required.',
     benefits: ['No credit card required', 'Easy setup', 'Cancel anytime'],
@@ -827,26 +1187,83 @@ function TestimonialCard({ testimonial }) {
 }
 
 function PricingPlanCard({ plan, product, index }) {
+  const { Icon, tone } = getPlanIconMeta(plan, index);
+  const subtitle = getPlanSubtitle(plan, index);
+  const ctaLabel = getPlanCtaLabel(plan);
+  const ctaClassName = getPlanCtaClass(plan);
+
   return (
-    <article className={`landing-plan-card ${plan.isPopular ? 'is-popular' : ''}`}>
+    <article className={`landing-plan-card landing-plan-card--${tone} ${plan.isPopular ? 'is-popular' : ''}`}>
       {plan.isPopular ? <div className="landing-plan-badge">Most Popular</div> : null}
-      <p className="landing-plan-type">{plan.typeLabel}</p>
-      <h3>{plan.title}</h3>
+      <div className="landing-plan-card-top">
+        <div className={`landing-plan-icon landing-plan-icon--${tone}`} aria-hidden="true">
+          <Icon />
+        </div>
+        <div className="landing-plan-heading">
+          <p className="landing-plan-type">{plan.typeLabel}</p>
+          <h3>{plan.title}</h3>
+          <p className="landing-plan-subtitle">{subtitle}</p>
+        </div>
+      </div>
       <p className="landing-plan-price">
-        {plan.priceLabel}
-        <span>{plan.cycleLabel}</span>
+        {normalizeText(plan.priceLabel).toLowerCase() === 'custom' ? (
+          <span className="landing-plan-price--custom">Custom Pricing</span>
+        ) : (
+          <>
+            <strong>{plan.priceLabel}</strong>
+            <span>{plan.cycleLabel}</span>
+          </>
+        )}
       </p>
+      {plan.meta?.length ? (
+        <div className="landing-plan-meta" aria-label={`${plan.title} plan details`}>
+          {plan.meta.map((item) => (
+            <span className="landing-plan-meta-chip" key={`${product}-${plan.id}-${item}`}>
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="landing-plan-features">
-        {plan.highlights.map((item) => (
+        {plan.highlights.slice(0, 5).map((item) => (
           <div className="landing-plan-feature" key={`${product}-${plan.id}-${item}`}>
             <FiCheckCircle />
             <span>{item}</span>
           </div>
         ))}
       </div>
-      <Link to={`/subscribe?plan=${encodeURIComponent(plan.checkoutKey)}`} className="landing-plan-button">
-        Get Started
+      <Link
+        to={`/subscribe?plan=${encodeURIComponent(plan.planKey)}&product=${encodeURIComponent(product)}`}
+        className={`landing-plan-button ${ctaClassName}`.trim()}
+      >
+        {ctaLabel}
       </Link>
+    </article>
+  );
+}
+
+function PricingStoryCard({ story }) {
+  const Icon = story.Icon;
+
+  return (
+    <article className={`landing-pricing-story-card landing-pricing-story-card--${story.tone}`}>
+      <div className="landing-pricing-story-top">
+        <div className="landing-pricing-story-icon" aria-hidden="true">
+          <Icon />
+        </div>
+        <div className="landing-pricing-story-copy">
+          <p>{story.badge}</p>
+          <strong>{story.title}</strong>
+          <span>{story.subtitle}</span>
+        </div>
+      </div>
+      <div className="landing-pricing-story-body">
+        <p>{story.description}</p>
+        <div className="landing-pricing-story-price">
+          <strong>{story.price}</strong>
+          <span>{story.cycle}</span>
+        </div>
+      </div>
     </article>
   );
 }
@@ -861,9 +1278,28 @@ export default function LandingPage() {
   const [pricingPlans, setPricingPlans] = useState([]);
   const [pricingLoading, setPricingLoading] = useState(true);
   const navRef = useRef(null);
+  const pricingTrackRef = useRef(null);
+  const orderedPricingPlans = sortPricingPlans(pricingPlans);
+  const featuredPlan = orderedPricingPlans.find((plan) => plan.isPopular) || orderedPricingPlans[1] || orderedPricingPlans[0];
+  const primaryPlanKey = featuredPlan?.planKey || config.ctaPlan || 'starter';
+  const pricingHasCarousel = orderedPricingPlans.length > 3;
+
+  const scrollPricingTrack = (direction) => {
+    const container = pricingTrackRef.current;
+    if (!container) return;
+
+    const firstCard = container.querySelector('.landing-plan-card');
+    const cardWidth = firstCard?.getBoundingClientRect().width || container.clientWidth * 0.85;
+    const gap = 18;
+
+    container.scrollBy({
+      left: direction * (cardWidth + gap),
+      behavior: 'smooth',
+    });
+  };
 
   useEffect(() => {
-    document.title = `MARCOM STREET | ${config.brandTag}`;
+    document.title = `VANYA GROUP | ${config.brandTag}`;
   }, [config.brandTag]);
 
   useEffect(() => {
@@ -899,6 +1335,7 @@ export default function LandingPage() {
     let cancelled = false;
 
     const loadPlans = async () => {
+      setPricingPlans([]);
       setPricingLoading(true);
       try {
         const response = await api.get('/billing/plans');
@@ -908,10 +1345,16 @@ export default function LandingPage() {
           .filter((plan) => planVisibleForProduct(plan.raw, product));
 
         if (!cancelled) {
-          setPricingPlans(mapped.length ? mapped : fallbackPricingPlans(product).map((plan, index) => ({
-            ...plan,
-            id: `${product}-fallback-${index}`,
-          })));
+          if (mapped.length) {
+            setPricingPlans(mapped);
+          } else if (rows.length === 0) {
+            setPricingPlans(fallbackPricingPlans(product).map((plan, index) => ({
+              ...plan,
+              id: `${product}-fallback-${index}`,
+            })));
+          } else {
+            setPricingPlans([]);
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -960,18 +1403,13 @@ export default function LandingPage() {
       </div>
     </div>
   ));
-
   return (
     <div className={`landing-page landing-page--${product}`}>
       <header className="landing-topbar" ref={navRef}>
         <div className="landing-topbar-inner">
-          <Link className="landing-brand" to={productPath} aria-label="MARCOM STREET home">
-            <span className="landing-brand-mark" aria-hidden="true">
-              <MarcomLogo className="landing-brand-logo" />
-            </span>
+          <Link className="landing-brand" to={productPath} aria-label="VANYA GROUP home">
             <span className="landing-brand-copy">
-              <strong>MARCOM STREET</strong>
-              <span>{config.brandTag}</span>
+              <strong>VANYA GROUP</strong>
             </span>
           </Link>
 
@@ -1035,7 +1473,7 @@ export default function LandingPage() {
               Pricing
             </button>
             <Link
-              to={`/subscribe?plan=${encodeURIComponent(config.ctaPlan)}`}
+              to={`/subscribe?plan=${encodeURIComponent(primaryPlanKey)}&product=${encodeURIComponent(product)}`}
               className="landing-nav-pill landing-nav-pill--primary"
               onClick={() => {
                 setMobileNavOpen(false);
@@ -1066,45 +1504,25 @@ export default function LandingPage() {
       </header>
 
       <main id="top">
-        <section className="landing-hero">
-          <div className="landing-hero-inner">
-            <div className="landing-hero-copy">
-              <div className="landing-kicker">{config.badge}</div>
-              <h1 className="landing-hero-title">
-                {config.titlePrefix}{' '}
-                <span className="landing-hero-title-accent">{config.titleAccent}</span>{' '}
-                {config.titleSuffix}
-              </h1>
-              <p className="landing-hero-subtitle">{config.subtitle}</p>
-
-              <div className="landing-hero-actions">
-                <Link to={`/subscribe?plan=${encodeURIComponent(config.ctaPlan)}`} className="landing-hero-button landing-hero-button--primary">
-                  {config.primaryCta}
-                </Link>
-                <button
-                  type="button"
-                  className="landing-hero-button landing-hero-button--secondary"
-                  onClick={() => handleScrollTo('pricing')}
-                >
-                  {config.secondaryCta}
-                </button>
-              </div>
-
-              <div className="landing-hero-benefits" aria-label="Benefits">
-                {config.benefits.map((item) => (
-                  <span className="landing-hero-benefit" key={item}>
-                    <FiCheckCircle />
-                    {item}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className="landing-hero-visual">
-              <DashboardPreview config={config} />
-            </div>
-          </div>
-        </section>
+        {product === 'crm' ? (
+          <HeroBanner
+            config={config}
+            pricingLoading={pricingLoading}
+            pricingPlans={pricingPlans}
+            bannerImage={crmBannerImage}
+          />
+        ) : (
+          <HeroBanner
+            config={config}
+            pricingLoading={pricingLoading}
+            pricingPlans={pricingPlans}
+            bannerImage={hrmsBannerImage}
+            heroClassName="landing-hero--poster--hrms"
+            shellClassName="landing-hero-poster-shell--hrms"
+            imageClassName="landing-hero-poster-image--hrms"
+            showNote={false}
+          />
+        )}
 
         <section id="features" className="landing-section">
           <div className="landing-panel">
@@ -1133,7 +1551,7 @@ export default function LandingPage() {
         </section>
 
         <section className="landing-section">
-          <div className="landing-panel landing-panel--soft" id="workflow">
+          <div className="landing-panel landing-panel--workflow" id="workflow">
             <div className="landing-section-header">
               <div>
                 <div className="landing-section-lead">{config.sectionLead}</div>
@@ -1151,64 +1569,70 @@ export default function LandingPage() {
         </section>
 
         <section className="landing-section" id="pricing">
-          <div className="landing-pricing-layout">
-            <div className="landing-panel">
-              <div className="landing-section-header">
-                <div>
-                  <div className="landing-section-lead">{config.sectionLead}</div>
-                  <h2>{config.pricingTitle}</h2>
-                  <p>{config.pricingDescription}</p>
-                </div>
+          <div className="landing-panel landing-panel--pricing">
+            <div className="landing-pricing-header">
+              <div className="landing-kicker landing-kicker--pricing">
+                <FiGift />
+                Built for Sales Teams
               </div>
-
-              <div className="landing-plan-grid" aria-busy={pricingLoading ? 'true' : 'false'}>
-                {pricingLoading ? (
-                  pricingSkeletonCards
-                ) : pricingPlans.length ? (
-                  pricingPlans.map((plan, index) => (
-                    <PricingPlanCard key={plan.id || `${plan.title}-${index}`} plan={plan} product={product} index={index} />
-                  ))
-                ) : (
-                  <div className="landing-empty-state">
-                    <FiLayers />
-                    <h3>No active plans yet</h3>
-                    <p>Ask the Super Admin team to publish subscription plans, then refresh this page.</p>
-                  </div>
-                )}
-              </div>
-
-              <p className="landing-pricing-note">
-                * Custom plans and onboarding can be configured from the Super Admin panel.
-              </p>
+              <h2>{config.pricingTitle}</h2>
+              <p>{config.pricingDescription}</p>
             </div>
 
-            <aside className="landing-panel landing-panel--testimonial">
-              <div className="landing-section-header landing-section-header--stack">
-                <div>
-                  <div className="landing-section-lead">{product === 'crm' ? 'Revenue stories' : 'People stories'}</div>
-                  <h2>{config.testimonialTitle}</h2>
-                  <p>{config.testimonialDescription}</p>
+            {pricingHasCarousel ? (
+              <div className="landing-pricing-carousel-controls">
+                <p>More than three active plans are shown in a swipeable carousel.</p>
+                <div className="landing-pricing-carousel-buttons">
+                  <button
+                    type="button"
+                    className="landing-pricing-carousel-button"
+                    aria-label="Previous plans"
+                    onClick={() => scrollPricingTrack(-1)}
+                  >
+                    <FiChevronLeft />
+                  </button>
+                  <button
+                    type="button"
+                    className="landing-pricing-carousel-button"
+                    aria-label="Next plans"
+                    onClick={() => scrollPricingTrack(1)}
+                  >
+                    <FiChevronRight />
+                  </button>
                 </div>
               </div>
+            ) : null}
 
-              <div className="landing-testimonial-grid">
-                {config.testimonials.map((testimonial) => (
-                  <TestimonialCard key={testimonial.name} testimonial={testimonial} />
-                ))}
-              </div>
-            </aside>
+            <div
+              ref={pricingTrackRef}
+              className={`landing-plan-grid ${pricingHasCarousel ? 'landing-plan-grid--carousel' : ''}`}
+              aria-busy={pricingLoading ? 'true' : 'false'}
+            >
+              {pricingLoading ? (
+                pricingSkeletonCards
+              ) : orderedPricingPlans.length ? (
+                orderedPricingPlans.map((plan, index) => (
+                  <PricingPlanCard key={plan.id || `${plan.title}-${index}`} plan={plan} product={product} index={index} />
+                ))
+              ) : (
+                <div className="landing-empty-state">
+                  <FiLayers />
+                  <h3>No active {config.brandTag} plans yet</h3>
+                  <p>Ask the Super Admin team to publish matching subscription plans, then refresh this page.</p>
+                </div>
+              )}
+            </div>
+
           </div>
         </section>
 
-        <section className="landing-footer-cta">
-          <div>
-            <h2>{config.footerTitle}</h2>
-            <p>{config.footerDescription}</p>
-          </div>
-          <Link to={`/subscribe?plan=${encodeURIComponent(config.ctaPlan)}`} className="landing-footer-button">
-            Start Free Trial
-          </Link>
-        </section>
+        <LandingFooter
+          config={config}
+          product={product}
+          productPath={productPath}
+          primaryPlanKey={primaryPlanKey}
+          onNavigate={handleScrollTo}
+        />
       </main>
     </div>
   );

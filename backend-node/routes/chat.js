@@ -148,8 +148,8 @@ router.get('/', verifyTokenNoTouch, async (req, res) => {
              FROM chat_messages cm
              JOIN employees e ON e.id = cm.from_employee_id
              WHERE cm.to_employee_id = ? ${includeRead ? '' : 'AND cm.is_read = 0'}
-             ORDER BY cm.created_at DESC LIMIT ?`,
-            [employeeId, limitVal]
+             ORDER BY cm.created_at DESC LIMIT ${limitVal}`,
+            [employeeId]
           );
         } else {
           notifications = await query(
@@ -160,8 +160,8 @@ router.get('/', verifyTokenNoTouch, async (req, res) => {
                ${includeRead ? '' : 'AND cm.is_read = 0'}
                AND e.company_id = ?
                AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(e.role,'')), ' ', '_'), '-', '_')) NOT IN ('superadmin', 'super_admin')
-             ORDER BY cm.created_at DESC LIMIT ?`,
-            [employeeId, requesterCompanyId, limitVal]
+             ORDER BY cm.created_at DESC LIMIT ${limitVal}`,
+            [employeeId, requesterCompanyId]
           );
         }
         return res.json({ success: true, data: notifications });

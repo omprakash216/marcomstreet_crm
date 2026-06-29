@@ -30,6 +30,7 @@ function getAdminSidebarSections(showMasterCompanyManagement, showPoshManagement
         { to: "/admin/quotations", icon: "fas fa-file-signature", label: "Quotations" },
         { to: "/admin/quotation-templates", icon: "fas fa-file-invoice", label: "Quotation Formats" },
         { to: "/admin/invoices", icon: "fas fa-file-invoice-dollar", label: "Invoices" },
+        { to: "/admin/sales-orders", icon: "fas fa-truck", label: "Sales Orders" },
       ],
     },
     {
@@ -446,9 +447,9 @@ export default function AdminLayout() {
             >
               <i className="fas fa-bars text-xl"></i>
             </button>
-            <div className="w-40 sm:w-64 h-full flex items-center justify-center border-r border-white/10 pr-4">
+            <div className="w-24 sm:w-64 h-full flex items-center justify-center border-r border-white/10 pr-3 sm:pr-4">
               <Link to="/admin" className="flex items-center shrink-0">
-                <MarcomLogo className="w-[86px] h-[86px] transition-transform duration-300 hover:scale-110 select-none" />
+                <MarcomLogo className="h-14 w-14 select-none transition-transform duration-300 hover:scale-110 sm:h-[86px] sm:w-[86px]" />
               </Link>
             </div>
           </div>

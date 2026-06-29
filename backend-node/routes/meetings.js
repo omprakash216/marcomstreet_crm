@@ -1,6 +1,7 @@
 const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
+const { cleanParams, getSafePagination } = require('../utils/queryHelpers');
 const { logActivity } = require('../middleware/activityLog');
 
 const router = express.Router();
@@ -15,8 +16,7 @@ async function listMeetings(req) {
   const status = req.query.status || null;
   const dateFrom = req.query.date_from || null;
   const dateTo = req.query.date_to || null;
-  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
-  const offset = ((parseInt(req.query.page, 10) || 1) - 1) * limit;
+  const { safeLimit, safeOffset } = getSafePagination(req.query, { defaultLimit: 100, maxLimit: 500 });
 
   const employeeId = req.employee.id;
   const companyId = req.employee.company_id;
@@ -45,8 +45,7 @@ async function listMeetings(req) {
       sql += ' AND m.status = ?';
       params.push(status);
     }
-    sql += ' ORDER BY m.meeting_date DESC, m.created_at DESC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
+    sql += ` ORDER BY m.meeting_date DESC, m.created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
     return { sql, params };
   };
 
@@ -133,7 +132,7 @@ async function listMeetings(req) {
   let lastErr = null;
   for (const attempt of attempts) {
     try {
-      const rows = await query(attempt.sql, attempt.params);
+      const rows = await query(attempt.sql, cleanParams(attempt.params));
       return rows || [];
     } catch (e) {
       lastErr = e;

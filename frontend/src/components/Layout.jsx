@@ -19,6 +19,7 @@ export default function Layout() {
   const [company, setCompany] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [checkedIn, setCheckedIn] = useState(false);
   const [checkInLoading, setCheckInLoading] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
@@ -235,6 +236,10 @@ export default function Layout() {
     };
   }, [showProfileDropdown]);
 
+  useEffect(() => {
+    setShowMobileSidebar(false);
+  }, [location.pathname, location.search]);
+
   const isActive = (path) => {
     if (path === "/") {
       return location.pathname === "/";
@@ -290,9 +295,16 @@ export default function Layout() {
 
   return (
     // Keep navbar + sidebar fixed; only the main content scrolls.
-    <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50">
+    <div className="app-shell h-screen overflow-hidden bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50">
+      {showMobileSidebar ? (
+        <div
+          className="app-sidebar-overlay fixed inset-0 z-30 bg-gray-900/55 backdrop-blur-sm lg:hidden"
+          onClick={() => setShowMobileSidebar(false)}
+        />
+      ) : null}
+
       {/* Shared panel header (matches Company Admin) */}
-      <header className="fixed top-0 left-0 right-0 h-24 bg-[#2c86ab] shadow-lg border-b border-[#247596] backdrop-blur-sm z-50 px-4 sm:px-6 overflow-visible">
+      <header className="app-topbar fixed top-0 left-0 right-0 z-50 h-24 overflow-visible border-b border-[#247596] bg-[#2c86ab] px-3 shadow-lg backdrop-blur-sm sm:px-6">
         <div
           className="pointer-events-none absolute inset-0"
           style={{
@@ -304,9 +316,18 @@ export default function Layout() {
 
         <div className="h-full flex items-center justify-between max-w-[1600px] mx-auto w-full relative z-10">
           <div className="flex items-center h-full gap-4">
-            <div className="w-40 sm:w-64 h-full flex items-center justify-center border-r border-white/10 pr-4">
+            <button
+              type="button"
+              onClick={() => setShowMobileSidebar((shown) => !shown)}
+              className="rounded-lg p-2 text-white transition-colors hover:bg-white/10 lg:hidden"
+              aria-label={showMobileSidebar ? "Close menu" : "Open menu"}
+              aria-expanded={showMobileSidebar}
+            >
+              <i className={`fas ${showMobileSidebar ? "fa-times" : "fa-bars"} text-xl`} />
+            </button>
+            <div className="w-24 sm:w-64 h-full flex items-center justify-center border-r border-white/10 pr-3 sm:pr-4">
               <Link to={portalHome} className="flex items-center shrink-0">
-                <MarcomLogo className="w-[86px] h-[86px] transition-transform duration-300 hover:scale-110 select-none" />
+                <MarcomLogo className="h-14 w-14 select-none transition-transform duration-300 hover:scale-110 sm:h-[86px] sm:w-[86px]" />
               </Link>
             </div>
           </div>
@@ -540,9 +561,13 @@ export default function Layout() {
       </header>
 
       {/* Fixed Sidebar + Scrollable Main Content */}
-      <div className="pt-24 h-full">
+      <div className="app-workspace pt-24 h-full">
         {/* Sidebar (fixed) */}
-        <aside className="fixed top-24 left-0 bottom-0 w-64 bg-white border-r border-gray-200/50 shadow-sm flex flex-col z-40">
+        <aside
+          className={`app-sidebar fixed top-24 left-0 bottom-0 z-40 flex w-64 flex-col border-r border-gray-200/50 bg-white shadow-sm transition-transform duration-300 ${
+            showMobileSidebar ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+          }`}
+        >
           <nav className="p-4 space-y-1 flex-1 overflow-y-auto">
             {isCompanyRoute ? (
               // Company-specific navigation
@@ -815,6 +840,37 @@ export default function Layout() {
                         <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
                       )}
                     </Link>
+
+                    {hasModuleAccess(employee, "sales_orders") && (
+                      <Link
+                        to="/sales-orders"
+                        className={`group flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive("/sales-orders")
+                          ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/30 font-semibold"
+                          : "text-gray-700 hover:bg-gray-50 hover:text-blue-600"
+                          }`}
+                      >
+                        <svg
+                          className={`w-5 h-5 mr-3 ${isActive("/sales-orders")
+                            ? "text-white"
+                            : "text-gray-500 group-hover:text-blue-600"
+                            }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"
+                          />
+                        </svg>
+                        <span>Sales Orders</span>
+                        {isActive("/sales-orders") && (
+                          <div className="ml-auto w-2 h-2 bg-white rounded-full"></div>
+                        )}
+                      </Link>
+                    )}
 
                     <Link
                       to="/sample-reports"
@@ -1854,8 +1910,8 @@ export default function Layout() {
         </aside>
 
         {/* Main Content Area (scroll only here) */}
-        <div className="ml-64 h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden">
-          <main className="p-6 lg:p-8 min-h-full">
+        <div className="app-content ml-0 h-[calc(100vh-6rem)] overflow-y-auto overflow-x-hidden lg:ml-64">
+          <main className="min-h-full p-4 sm:p-6 lg:p-8">
             <div>
               <Outlet />
             </div>

@@ -2,6 +2,7 @@ const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const { logActivity } = require('../middleware/activityLog');
+const { cleanParams, getSafePagination } = require('../utils/queryHelpers');
 
 const router = express.Router();
 
@@ -17,14 +18,20 @@ function isSuperUser(employee) {
   return role === 'superadmin' || role === 'super_admin';
 }
 
+function toPositiveInt(value) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
 router.get('/', verifyToken, async (req, res) => {
   try {
     const isSuper = isSuperUser(req.employee);
+    const companyId = toPositiveInt(req.employee.company_id);
     const id = req.query.id || null;
     if (id) {
       const sql = isSuper ? 'SELECT * FROM leads WHERE id = ?' : 'SELECT * FROM leads WHERE id = ? AND company_id = ?';
-      const params = isSuper ? [id] : [id, req.employee.company_id];
-      const rows = await query(sql, params);
+      const params = isSuper ? [toPositiveInt(id) || id] : [toPositiveInt(id) || id, companyId];
+      const rows = await query(sql, cleanParams(params));
       const lead = rows[0];
       if (!lead) return res.status(404).json({ success: false, message: 'Lead not found or unauthorized' });
       return res.json({ success: true, data: lead });
@@ -35,16 +42,14 @@ router.get('/', verifyToken, async (req, res) => {
     const dateFrom = req.query.date_from || null;
     const dateTo = req.query.date_to || null;
 
-    const requestedLimit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const offset = (page - 1) * requestedLimit;
-    const limit = Math.min(requestedLimit + 1, 501);
+    const { page, safeLimit, safeOffset } = getSafePagination(req.query, { defaultLimit: 50, maxLimit: 500 });
+    const queryLimit = Math.min(safeLimit + 1, 501);
 
     let whereSql = ' FROM leads l WHERE 1=1';
     const params = [];
     if (!isSuper) {
       whereSql += ' AND l.company_id = ?';
-      params.push(req.employee.company_id);
+      params.push(companyId);
     }
     if (status) { whereSql += ' AND l.status = ?'; params.push(status); }
     if (priority) { whereSql += ' AND l.priority = ?'; params.push(priority); }
@@ -55,20 +60,21 @@ router.get('/', verifyToken, async (req, res) => {
       const term = '%' + search + '%';
       params.push(term, term, term, term, term);
     }
-    const countRows = await query(`SELECT COUNT(*) as total${whereSql}`, params);
+    const countRows = await query(`SELECT COUNT(*) as total${whereSql}`, cleanParams(params));
     const total = Number(countRows?.[0]?.total || 0);
 
     let sql = `SELECT l.id, l.lead_code, l.company_name, l.contact_person, l.email, l.phone,
                l.assigned_to, l.source, l.status, l.priority, l.estimated_value, l.notes,
                l.next_followup_date, l.created_at, l.updated_at
                ${whereSql}
-               ORDER BY l.created_at DESC LIMIT ? OFFSET ?`;
+               ORDER BY l.created_at DESC
+               LIMIT ${queryLimit} OFFSET ${safeOffset}`;
 
-    let rows = await query(sql, [...params, limit, offset]);
-    const hasNext = Array.isArray(rows) && rows.length > requestedLimit;
-    if (hasNext) rows = rows.slice(0, requestedLimit);
+    let rows = await query(sql, cleanParams(params));
+    const hasNext = Array.isArray(rows) && rows.length > safeLimit;
+    if (hasNext) rows = rows.slice(0, safeLimit);
 
-    return res.json({ success: true, data: rows, page, limit: requestedLimit, total, has_next: hasNext });
+    return res.json({ success: true, data: rows, page, limit: safeLimit, total, has_next: hasNext });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -77,6 +83,7 @@ router.get('/', verifyToken, async (req, res) => {
 router.post('/crud', verifyToken, async (req, res) => {
   try {
     const b = req.body || {};
+    const companyId = toPositiveInt(req.employee.company_id);
     if (!b.company_name || !b.contact_person) {
       return res.status(400).json({ success: false, message: 'Company name and contact person are required' });
     }
@@ -86,7 +93,7 @@ router.post('/crud', verifyToken, async (req, res) => {
     const conn = await getConnection();
     const [r] = await conn.execute(
       `INSERT INTO leads (company_id, lead_code, company_name, contact_person, email, phone, assigned_to, source, status, priority, estimated_value, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [req.employee.company_id, leadCode, b.company_name, b.contact_person, b.email || null, b.phone || null, b.assigned_to || req.employee.id, b.source || 'website', b.status || 'new', b.priority || 'medium', b.estimated_value || null, b.notes || null]
+      [companyId, leadCode, b.company_name, b.contact_person, b.email || null, b.phone || null, b.assigned_to || req.employee.id, b.source || 'website', b.status || 'new', b.priority || 'medium', b.estimated_value || null, b.notes || null]
     );
     conn.release();
     await logActivity(req.employee.id, 'lead_created', 'lead', r.insertId, 'Lead created: ' + b.company_name, req);
@@ -101,9 +108,10 @@ router.put('/crud', verifyToken, async (req, res) => {
     const b = req.body || {};
     if (!b.id) return res.status(400).json({ success: false, message: 'Lead ID is required' });
     const isSuper = isSuperUser(req.employee);
+    const companyId = toPositiveInt(req.employee.company_id);
     const rows = isSuper 
         ? await query('SELECT * FROM leads WHERE id = ?', [b.id])
-        : await query('SELECT * FROM leads WHERE id = ? AND company_id = ?', [b.id, req.employee.company_id]);
+        : await query('SELECT * FROM leads WHERE id = ? AND company_id = ?', [b.id, companyId]);
     const lead = rows[0];
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found or unauthorized' });
     const role = normalizeRole(req.employee.role);
@@ -115,7 +123,7 @@ router.put('/crud', verifyToken, async (req, res) => {
         : `UPDATE leads SET company_name=?, contact_person=?, email=?, phone=?, assigned_to=?, source=?, status=?, priority=?, estimated_value=?, notes=?, updated_at=NOW() WHERE id=? AND company_id=?`;
     const updateParams = isSuper
         ? [b.company_name ?? lead.company_name, b.contact_person ?? lead.contact_person, b.email ?? lead.email, b.phone ?? lead.phone, b.assigned_to ?? lead.assigned_to, b.source ?? lead.source, b.status ?? lead.status, b.priority ?? lead.priority, b.estimated_value ?? lead.estimated_value, b.notes ?? lead.notes, b.id]
-        : [b.company_name ?? lead.company_name, b.contact_person ?? lead.contact_person, b.email ?? lead.email, b.phone ?? lead.phone, b.assigned_to ?? lead.assigned_to, b.source ?? lead.source, b.status ?? lead.status, b.priority ?? lead.priority, b.estimated_value ?? lead.estimated_value, b.notes ?? lead.notes, b.id, req.employee.company_id];
+        : [b.company_name ?? lead.company_name, b.contact_person ?? lead.contact_person, b.email ?? lead.email, b.phone ?? lead.phone, b.assigned_to ?? lead.assigned_to, b.source ?? lead.source, b.status ?? lead.status, b.priority ?? lead.priority, b.estimated_value ?? lead.estimated_value, b.notes ?? lead.notes, b.id, companyId];
     
     await query(updateSql, updateParams);
     await logActivity(req.employee.id, 'lead_updated', 'lead', b.id, 'Lead updated: ' + (b.company_name || lead.company_name), req);
@@ -148,14 +156,14 @@ router.put('/update_status', verifyToken, async (req, res) => {
         : 'WHERE (id = ? OR lead_code = ?) AND company_id = ?';
       params = isSuper
         ? [numericId, leadIdentifier]
-        : [numericId, leadIdentifier, req.employee.company_id];
+        : [numericId, leadIdentifier, toPositiveInt(req.employee.company_id)];
     } else {
       whereClause = isSuper
         ? 'WHERE lead_code = ?'
         : 'WHERE lead_code = ? AND company_id = ?';
       params = isSuper
         ? [leadIdentifier]
-        : [leadIdentifier, req.employee.company_id];
+        : [leadIdentifier, toPositiveInt(req.employee.company_id)];
     }
 
     const rows = await query(`SELECT id FROM leads ${whereClause} LIMIT 1`, params);
@@ -175,9 +183,10 @@ router.delete('/crud', verifyToken, async (req, res) => {
     const id = req.body && req.body.id ? req.body.id : (req.query.id || null);
     if (!id) return res.status(400).json({ success: false, message: 'Lead ID is required' });
     const isSuper = isSuperUser(req.employee);
+    const companyId = toPositiveInt(req.employee.company_id);
     const rows = isSuper 
         ? await query('SELECT * FROM leads WHERE id = ?', [id])
-        : await query('SELECT * FROM leads WHERE id = ? AND company_id = ?', [id, req.employee.company_id]);
+        : await query('SELECT * FROM leads WHERE id = ? AND company_id = ?', [id, companyId]);
     const lead = rows[0];
     if (!lead) return res.status(404).json({ success: false, message: 'Lead not found or unauthorized' });
     const role = normalizeRole(req.employee.role);
@@ -202,12 +211,13 @@ router.delete('/crud', verifyToken, async (req, res) => {
 router.post('/', verifyToken, async (req, res) => {
   try {
     const b = req.body || {};
+    const companyId = toPositiveInt(req.employee.company_id);
     const maxId = await query('SELECT COALESCE(MAX(id),0) as m FROM leads');
     const nextId = (maxId[0] && maxId[0].m) ? maxId[0].m + 1 : 1;
     const leadCode = b.lead_code || 'L' + String(nextId).padStart(6, '0');
     await query(
       `INSERT INTO leads (company_id, lead_code, company_name, contact_person, email, phone, assigned_to, source, status, priority, estimated_value, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [req.employee.company_id, leadCode, b.company_name, b.contact_person, b.email || '', b.phone || '', b.assigned_to || req.employee.id, b.source || 'website', b.status || 'new', b.priority || 'medium', b.estimated_value || 0, b.notes || '']
+      [companyId, leadCode, b.company_name, b.contact_person, b.email || '', b.phone || '', b.assigned_to || req.employee.id, b.source || 'website', b.status || 'new', b.priority || 'medium', b.estimated_value || 0, b.notes || '']
     );
     return res.json({ success: true, message: 'Lead created' });
   } catch (err) {
@@ -219,12 +229,14 @@ router.put('/:id', verifyToken, async (req, res) => {
   try {
     const b = req.body || {};
     const isSuper = isSuperUser(req.employee);
+    const companyId = toPositiveInt(req.employee.company_id);
+    const leadId = toPositiveInt(req.params.id) || req.params.id;
     const sql = isSuper 
         ? `UPDATE leads SET company_name=?, contact_person=?, email=?, phone=?, status=?, priority=?, notes=?, updated_at=NOW() WHERE id=?`
         : `UPDATE leads SET company_name=?, contact_person=?, email=?, phone=?, status=?, priority=?, notes=?, updated_at=NOW() WHERE id=? AND company_id=?`;
     const params = isSuper
-        ? [b.company_name, b.contact_person, b.email, b.phone, b.status, b.priority, b.notes, req.params.id]
-        : [b.company_name, b.contact_person, b.email, b.phone, b.status, b.priority, b.notes, req.params.id, req.employee.company_id];
+        ? [b.company_name, b.contact_person, b.email, b.phone, b.status, b.priority, b.notes, leadId]
+        : [b.company_name, b.contact_person, b.email, b.phone, b.status, b.priority, b.notes, leadId, companyId];
         
     await query(sql, params);
     return res.json({ success: true, message: 'Lead updated' });

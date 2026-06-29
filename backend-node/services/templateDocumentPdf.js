@@ -394,6 +394,15 @@ function drawHeader(doc, q, settings, config, logoDataUrl, meta) {
 function drawParties(doc, q, settings, startY) {
   const { pageW, ml, mr } = A4;
   const half = (pageW - ml - mr) / 2 - 5;
+  const customerLines = [
+    q.contact_person,
+    q.billing_address || q.client_address || '',
+    q.shipping_address || '',
+    q.client_email || '',
+    q.client_phone || '',
+    q.gst_number ? `GSTIN: ${q.gst_number}` : '',
+    q.place_of_supply ? `Place of Supply: ${q.place_of_supply}` : '',
+  ].filter(Boolean);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(75, 85, 99);
@@ -406,17 +415,10 @@ function drawParties(doc, q, settings, startY) {
   doc.text(q.company_name || 'Client Name', ml + half + 12, startY + 6);
 
   const fromEndY = drawWrappedText(doc, companyLines(settings), ml, startY + 12, half, { fontSize: 7, lineHeight: 3.8 });
-  const toEndY = drawWrappedText(
-    doc,
-    [q.contact_person, q.client_address || '', q.client_email || '', q.client_phone || ''].filter(Boolean),
-    ml + half + 12,
-    startY + 12,
-    half,
-    {
-      fontSize: 7,
-      lineHeight: 3.8,
-    }
-  );
+  const toEndY = drawWrappedText(doc, customerLines, ml + half + 12, startY + 12, half, {
+    fontSize: 7,
+    lineHeight: 3.8,
+  });
 
   return Math.max(startY + 36, fromEndY, toEndY) + 2;
 }
@@ -430,9 +432,13 @@ function drawTotals(doc, q, config, startY, settings = {}) {
   const subtotal = Math.round(Number(q.subtotal) || 0);
   const discount = Math.round(Number(q.discount_amount) || 0);
   const tax = Math.round(Number(q.tax_amount) || 0);
+  const tds = Math.round(Number(q.tds_amount) || 0);
+  const adjustment = Math.round(Number(q.adjustment_amount ?? q.adjustment) || 0);
+  const roundOff = Math.round(Number(q.round_off_amount ?? q.round_off) || 0);
   const total = Math.round(Number(q.total_amount) || 0);
   const taxPct = Number(q.tax_percentage) || 0;
   const discPct = Number(q.discount_percentage) || 0;
+  const tdsPct = Number(q.tds_percentage) || 0;
   const split = splitTaxEvenly(tax, taxPct);
   const rows = [
     ['Subtotal', formatCurrency(subtotal)],
@@ -440,6 +446,9 @@ function drawTotals(doc, q, config, startY, settings = {}) {
     [`CGST (${formatPercent(split.cgstPercentage)}%)`, `+ ${formatCurrency(split.cgstAmount)}`],
     [`SGST (${formatPercent(split.sgstPercentage)}%)`, `+ ${formatCurrency(split.sgstAmount)}`],
     [`Tax (${formatPercent(taxPct)}%)`, `+ ${formatCurrency(tax)}`],
+    ...(tds ? [[`TDS (${formatPercent(tdsPct)}%)`, `- ${formatCurrency(tds)}`]] : []),
+    ...(adjustment ? [['Adjustment', `${adjustment > 0 ? '+' : '-'} ${formatCurrency(Math.abs(adjustment))}`]] : []),
+    ...(roundOff ? [['Round Off', `${roundOff > 0 ? '+' : '-'} ${formatCurrency(Math.abs(roundOff))}`]] : []),
   ];
 
   let y = startY;
@@ -748,7 +757,47 @@ async function generateInvoicePdfBuffer(invoice, rawSettings = {}) {
   });
 }
 
+async function generateSalesOrderPdfBuffer(order, rawSettings = {}) {
+  return generateDocumentPdf(order, rawSettings, {
+    documentTitle: 'Sales Order',
+    numberLabel: 'Sales Order No',
+    filenamePrefix: 'SalesOrder',
+    documentNumber: order.order_number || order.id,
+  });
+}
+
+async function generateDeliveryChallanPdfBuffer(challan, rawSettings = {}) {
+  return generateDocumentPdf(challan, rawSettings, {
+    documentTitle: 'Delivery Challan',
+    numberLabel: 'Challan No',
+    filenamePrefix: 'DeliveryChallan',
+    documentNumber: challan.challan_number || challan.id,
+  });
+}
+
+async function generateCreditNotePdfBuffer(creditNote, rawSettings = {}) {
+  return generateDocumentPdf(creditNote, rawSettings, {
+    documentTitle: 'Credit Note',
+    numberLabel: 'Credit Note No',
+    filenamePrefix: 'CreditNote',
+    documentNumber: creditNote.credit_note_number || creditNote.id,
+  });
+}
+
+async function generateRecurringInvoicePdfBuffer(recurringInvoice, rawSettings = {}) {
+  return generateDocumentPdf(recurringInvoice, rawSettings, {
+    documentTitle: 'Recurring Invoice',
+    numberLabel: 'Recurring No',
+    filenamePrefix: 'RecurringInvoice',
+    documentNumber: recurringInvoice.recurring_number || recurringInvoice.id,
+  });
+}
+
 module.exports = {
   generateQuotationPdfBuffer,
   generateInvoicePdfBuffer,
+  generateSalesOrderPdfBuffer,
+  generateDeliveryChallanPdfBuffer,
+  generateCreditNotePdfBuffer,
+  generateRecurringInvoicePdfBuffer,
 };

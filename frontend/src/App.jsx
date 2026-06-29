@@ -1,4 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './pages/Login';
 import ForgotPasswordEmail from './pages/ForgotPasswordEmail';
 import VerifyEmailOtp from './pages/VerifyEmailOtp';
@@ -50,6 +51,7 @@ import Tasks from './pages/Tasks';
 import Followups from './pages/Followups';
 import Quotations from './pages/Quotations';
 import Invoices from './pages/Invoices';
+import SalesOrders from './pages/SalesOrders';
 import History from './pages/History';
 import WhatsAppHits from './pages/WhatsAppHits';
 import Reports from './pages/Reports';
@@ -109,8 +111,8 @@ import Calendar from './pages/Calendar';
 import JoiningQRGenerator from './pages/hrms/JoiningQRGenerator';
 import JoiningSubmissions from './pages/hrms/JoiningSubmissions';
 import {
-  isAuthenticated,
   getEmployee,
+  setEmployee,
   normalizeRole,
   isSuperAdminRole,
   hasCrmModuleAccess,
@@ -119,6 +121,7 @@ import {
   isHrPortalRole,
   getDefaultPortalRoute,
 } from './utils/auth';
+import api from './utils/api';
 import LandingPage from './pages/LandingPage';
 import Subscription from './pages/Subscription';
 import Payment from './pages/Payment';
@@ -130,6 +133,82 @@ import AutoLogout from './components/AutoLogout';
 
 function PrivateRoute({ children }) {
   return <ProtectedRoute>{children}</ProtectedRoute>;
+}
+
+function RootRouteGate() {
+  const location = useLocation();
+  const [storedEmployee] = useState(() => getEmployee());
+  const [loading, setLoading] = useState(Boolean(storedEmployee) || location.pathname !== '/');
+  const [authenticated, setAuthenticated] = useState(Boolean(storedEmployee));
+
+  useEffect(() => {
+    let active = true;
+    const hasStoredSession = Boolean(storedEmployee);
+
+    if (!hasStoredSession) {
+      if (active) {
+        setAuthenticated(false);
+        setLoading(false);
+      }
+      return () => {
+        active = false;
+      };
+    }
+
+    const verifySession = async () => {
+      if (active) {
+        setLoading(true);
+      }
+
+      try {
+        const response = await api.get('/auth/me');
+        const employee = response.data?.data?.employee;
+        if (active && (response.data?.success || employee)) {
+          if (employee) {
+            setEmployee(employee);
+          }
+          setAuthenticated(true);
+        } else if (active) {
+          setAuthenticated(false);
+        }
+      } catch (err) {
+        if (active) {
+          setAuthenticated(false);
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    verifySession();
+
+    return () => {
+      active = false;
+    };
+  }, [storedEmployee, location.pathname]);
+
+  if (loading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+          <p className="text-sm font-semibold text-gray-500">Checking session security...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authenticated) {
+    if (location.pathname === '/') {
+      return <LandingPage />;
+    }
+
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  return <Layout />;
 }
 
 function fallbackRoute(employee) {
@@ -332,6 +411,7 @@ function App() {
             <Route path="tasks" element={<Tasks />} />
             <Route path="followups" element={<Followups />} />
             <Route path="quotations" element={<Quotations />} />
+            <Route path="sales-orders" element={<SalesOrders />} />
             <Route path="sample-reports" element={<SampleReports />} />
             <Route path="client-history" element={<ClientHistory />} />
             <Route path="group-meetings" element={<GroupMeetings />} />
@@ -396,9 +476,7 @@ function App() {
           <Route
             path="/"
             element={
-              <PrivateRoute>
-                <Layout />
-              </PrivateRoute>
+              <RootRouteGate />
             }
           >
             <Route index element={<EmployeeHomeRoute />} />
@@ -408,6 +486,7 @@ function App() {
             <Route path="tasks" element={<CrmRoute><Tasks /></CrmRoute>} />
             <Route path="followups" element={<CrmRoute><Followups /></CrmRoute>} />
             <Route path="quotations" element={<CrmRoute><Quotations /></CrmRoute>} />
+            <Route path="sales-orders" element={<CrmRoute><SalesOrders /></CrmRoute>} />
             <Route path="invoices" element={<CrmRoute><Invoices /></CrmRoute>} />
             <Route path="sample-reports" element={<CrmRoute><SampleReports /></CrmRoute>} />
             <Route path="client-history" element={<CrmRoute><ClientHistory /></CrmRoute>} />
@@ -448,6 +527,7 @@ function App() {
             <Route path="followups" element={<Followups />} />
             <Route path="deals-pipeline" element={<AdminDealsPipeline />} />
             <Route path="quotations" element={<Quotations />} />
+            <Route path="sales-orders" element={<SalesOrders />} />
             <Route path="quotation-templates" element={<AdminQuotationTemplates />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="payments" element={<AdminPayments />} />

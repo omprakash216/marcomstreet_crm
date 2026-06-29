@@ -168,18 +168,43 @@ Current file `database/COMPLETE_DATABASE_SETUP.sql`:
 - existing database ko `DROP DATABASE IF EXISTS` se delete karta hai;
 - demo employees aur predictable demo passwords insert karta hai;
 - base `employees.role` enum me `superadmin` nahi hai;
-- current Super Admin/multi-company migration `employees.company_id` aur
-  `superadmin` role expect karta hai.
+- current Node app `company_code`, `company_id`, `designation_id`,
+  company-scoped CRM tables, aur `company_settings` ke invoice/bank fields
+  expect karta hai.
 
 Isliye production database par current complete setup SQL ko blindly import
-nahi karna hai. Production ke liye ek safe schema/migration script tayyar aur
-staging database par tested hona required hai, jisme:
+nahi karna hai. Live path yeh hai:
 
-- koi `DROP DATABASE` na ho;
-- demo user/demo business data na ho;
-- current tables aur migrations aligned hon;
-- Super Admin role aur company mapping verified ho;
-- import ke baad login, CRM, HRMS, billing aur backup screens test ho jayen.
+1. Fresh/staging DB par base schema import karein ya existing DB ka backup lein.
+2. `backend-node` folder me ye command chalayein:
+
+```bash
+npm run db:bootstrap
+```
+
+3. Verify karein:
+
+```bash
+npm run db:test
+npm run db:doctor
+```
+
+`db:bootstrap` current code ke hisaab se ye main changes apply karta hai:
+
+- `companies`: `company_code`
+- `employees`: `company_id`, `designation_id`, `joining_date`, bank/profile fields
+- `departments`: `company_id`, `department_code`
+- `designations` table
+- `leads.company_id`, `meetings.company_id`, `tasks.company_id`,
+  `quotations.company_id`
+- `followups.followup_type`, `followups.completed_date`
+- `company_settings.company_id` plus GST/PAN, quotation, bank, signature, stamp fields
+- `bank_accounts`, `api_keys`, `employee_module_access`, password reset tables
+- HRMS and super admin control tables used by the current routes
+- `employees.role` ko `superadmin` / `super_admin` accounts ke liye usable banata hai
+
+Import ke baad login, CRM, HRMS, billing, PDF, aur backup screens staging par
+test ho jane chahiye tabhi live traffic open karein.
 
 ### 5.2 Payment Confirmation Abhi Real Gateway Nahi Hai
 
@@ -408,21 +433,17 @@ direct production import ke liye approved nahi hai, because it drops the
 database and loads demo data. Is step par:
 
 1. Pehle staging/test database banaya jayega.
-2. Current schema aur required migrations staging par run/test ki jayengi.
-3. Project ke current code ke liye ek non-destructive production schema file
-   finalize ki jayegi.
-4. Sirf tested production schema ko empty live database me import kiya jayega.
+2. Base import ke baad backend bootstrap migration run ki jayegi.
+3. `db:test` aur `db:doctor` se verify kiya jayega.
+4. Sirf verified schema ke baad live traffic open kiya jayega.
 
-Expected production schema file ka naam, jab prepare ho:
-
-```text
-database/PRODUCTION_SCHEMA.sql
-```
-
-Us file ke tested hone ke baad import command:
+Recommended command sequence:
 
 ```bash
-mysql -h 127.0.0.1 -u marcom_app -p marcom_street_crm < database/PRODUCTION_SCHEMA.sql
+cd backend-node
+npm run db:bootstrap
+npm run db:test
+npm run db:doctor
 ```
 
 Current functionality me schema ko at least in areas ke liye cover karna hoga:
@@ -436,6 +457,9 @@ Current functionality me schema ko at least in areas ke liye cover karna hoga:
 | Super Admin/SaaS | plans, subscriptions, modules, flags, settings, sessions |
 | Integrations | API keys, webhooks, audit/API logs |
 | Backup UI | backup log records |
+
+`db:bootstrap` already covers these areas for the current codebase, so a separate
+`PRODUCTION_SCHEMA.sql` file is no longer required for the live rollout.
 
 ### Step 15: Database Connectivity Test
 

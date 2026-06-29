@@ -1,6 +1,7 @@
 const express = require('express');
 const { query, getConnection } = require('../config/database');
-const { verifyToken } = require('../middleware/auth');
+const { verifyToken } = require('../middleware/auth');
+const { cleanParams, getSafePagination } = require('../utils/queryHelpers');
 const bcrypt = require('bcryptjs');
 const { buildCompanyAdminEmployeeCode, deriveCompanyCodeFromName, normalizeCompanyCode } = require('../utils/companyCode');
 const { ensureEmployeeCodeSchema } = require('../utils/employeeCodeSchema');
@@ -86,8 +87,7 @@ router.get('/', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
     const search = req.query.search || null;
     const status = req.query.status || null;
-    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
-    const offset = ((parseInt(req.query.page, 10) || 1) - 1) * limit;
+    const { safeLimit, safeOffset } = getSafePagination(req.query, { defaultLimit: 50, maxLimit: 500 });
     
     const isSuper = req.employee.role === 'superadmin' || req.employee.role === 'super_admin';
     let sql = `SELECT id, company_code, company_name, email, phone, address, city, state, country, status, created_at, updated_at FROM companies WHERE 1=1`;
@@ -98,9 +98,8 @@ router.get('/', verifyToken, requireSuperAdmin, async (req, res) => {
     }
     if (status) { sql += ' AND status = ?'; params.push(status); }
     if (search) { sql += ' AND (company_name LIKE ? OR email LIKE ?)'; const t = '%' + search + '%'; params.push(t, t); }
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
-    const rows = await query(sql, params);
+    sql += ` ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
+    const rows = await query(sql, cleanParams(params));
     return res.json({ success: true, data: rows || [] });
   } catch (err) {
     return res.json({ success: true, data: [] });
@@ -110,15 +109,14 @@ router.get('/', verifyToken, requireSuperAdmin, async (req, res) => {
 router.get('/history', verifyToken, requireSuperAdmin, async (req, res) => {
   try {
     const companyId = req.query.company_id || null;
-    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const { safeLimit } = getSafePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
     let sql = `SELECT al.id, al.activity_type, al.entity_type, al.entity_id, al.description, al.created_at, al.ip_address, e.name as employee_name, e.employee_code, c.company_name
       FROM activity_logs al LEFT JOIN employees e ON al.employee_id = e.id LEFT JOIN companies c ON al.entity_id = c.id AND al.entity_type = 'company'
       WHERE al.entity_type = 'company'`;
     const params = [];
     if (companyId) { sql += ' AND al.entity_id = ?'; params.push(companyId); }
-    sql += ' ORDER BY al.created_at DESC LIMIT ?';
-    params.push(limit);
-    const rows = await query(sql, params);
+    sql += ` ORDER BY al.created_at DESC LIMIT ${safeLimit}`;
+    const rows = await query(sql, cleanParams(params));
     return res.json({ success: true, data: rows || [] });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

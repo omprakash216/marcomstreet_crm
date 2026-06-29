@@ -2,6 +2,7 @@ const express = require('express');
 const { query, getConnection } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
 const { logActivity } = require('../middleware/activityLog');
+const { cleanParams, getSafePagination } = require('../utils/queryHelpers');
 
 const router = express.Router();
 
@@ -113,8 +114,9 @@ function buildFollowupListSql({ includeTypeColumn, filters, employee, countOnly 
   if (!countOnly) {
     sql += ' ORDER BY f.scheduled_date DESC, f.id DESC';
     if (Number.isFinite(limit)) {
-      sql += ' LIMIT ? OFFSET ?';
-      params.push(limit, Math.max(Number(offset) || 0, 0));
+      const safeLimit = Math.max(Math.trunc(Number(limit)) || 0, 0);
+      const safeOffset = Number.isFinite(Number(offset)) ? Math.max(Math.trunc(Number(offset)), 0) : 0;
+      sql += ` LIMIT ${safeLimit} OFFSET ${safeOffset}`;
     }
   }
 
@@ -245,10 +247,8 @@ router.get('/', verifyToken, async (req, res) => {
     const dateTo = req.query.date_to || null;
     const filters = { leadId, status, type, search, dateFilter, dateFrom, dateTo };
     const shouldPaginate = req.query.unlimited !== 'true' && (req.query.page || req.query.limit);
-    const requestedLimit = Math.min(parseInt(req.query.limit, 10) || 10, 100);
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const offset = (page - 1) * requestedLimit;
-    const queryLimit = requestedLimit + 1;
+    const { page, safeLimit, safeOffset } = getSafePagination(req.query, { defaultLimit: 10, maxLimit: 100 });
+    const queryLimit = safeLimit + 1;
 
     let rows;
     let total = 0;
@@ -258,12 +258,12 @@ router.get('/', verifyToken, async (req, res) => {
         filters,
         employee: req.employee,
         limit: shouldPaginate ? queryLimit : null,
-        offset,
+        offset: safeOffset,
       });
-      rows = await query(withTypeSql.sql, withTypeSql.params);
+      rows = await query(withTypeSql.sql, cleanParams(withTypeSql.params));
       if (shouldPaginate) {
         const countSql = buildFollowupListSql({ includeTypeColumn: true, filters, employee: req.employee, countOnly: true });
-        const countRows = await query(countSql.sql, countSql.params);
+        const countRows = await query(countSql.sql, cleanParams(countSql.params));
         total = Number(countRows?.[0]?.total || 0);
       }
     } catch (err) {
@@ -273,18 +273,18 @@ router.get('/', verifyToken, async (req, res) => {
         filters,
         employee: req.employee,
         limit: shouldPaginate ? queryLimit : null,
-        offset,
+        offset: safeOffset,
       });
-      rows = await query(withoutTypeSql.sql, withoutTypeSql.params);
+      rows = await query(withoutTypeSql.sql, cleanParams(withoutTypeSql.params));
       if (shouldPaginate) {
         const countSql = buildFollowupListSql({ includeTypeColumn: false, filters, employee: req.employee, countOnly: true });
-        const countRows = await query(countSql.sql, countSql.params);
+        const countRows = await query(countSql.sql, cleanParams(countSql.params));
         total = Number(countRows?.[0]?.total || 0);
       }
     }
 
-    const hasNext = shouldPaginate && Array.isArray(rows) && rows.length > requestedLimit;
-    if (hasNext) rows = rows.slice(0, requestedLimit);
+    const hasNext = shouldPaginate && Array.isArray(rows) && rows.length > safeLimit;
+    if (hasNext) rows = rows.slice(0, safeLimit);
     const data = (rows || []).map((row) => ({
       ...row,
       followup_type: row.followup_type || 'other',
@@ -295,7 +295,7 @@ router.get('/', verifyToken, async (req, res) => {
       success: true,
       data,
       page: shouldPaginate ? page : 1,
-      limit: shouldPaginate ? requestedLimit : data.length,
+      limit: shouldPaginate ? safeLimit : data.length,
       total: shouldPaginate ? total : data.length,
       has_next: hasNext,
     });

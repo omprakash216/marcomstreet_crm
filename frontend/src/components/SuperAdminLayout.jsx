@@ -229,7 +229,7 @@ export default function SuperAdminLayout() {
   if (!authReady || !employee || !isSuperAdminRole(employee.role)) return null;
 
   return (
-    <div className="h-screen overflow-hidden bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50">
+    <div className="superadmin-shell h-screen overflow-hidden bg-gradient-to-br from-gray-50 via-blue-50/30 to-gray-50">
       {showMobileSidebar && (
         <div
           className="fixed inset-0 z-40 bg-gray-900/60 backdrop-blur-sm lg:hidden"
@@ -237,7 +237,7 @@ export default function SuperAdminLayout() {
         />
       )}
 
-      <header className="fixed left-0 right-0 top-0 z-50 h-24 overflow-visible border-b border-[#247596] bg-[#2c86ab] px-4 shadow-lg backdrop-blur-sm sm:px-6">
+      <header className="superadmin-topbar fixed left-0 right-0 top-0 z-50 h-24 overflow-visible border-b border-[#247596] bg-[#2c86ab] px-4 shadow-lg backdrop-blur-sm sm:px-6">
         <div
           className="pointer-events-none absolute inset-0"
           style={{
@@ -259,9 +259,9 @@ export default function SuperAdminLayout() {
             </button>
             <Link
               to={dashboardHome}
-              className="flex h-full w-40 shrink-0 items-center justify-center border-r border-white/10 pr-4 sm:w-64"
+              className="flex h-full w-24 shrink-0 items-center justify-center border-r border-white/10 pr-3 sm:w-64 sm:pr-4"
             >
-              <MarcomLogo className="h-[86px] w-[86px] select-none transition-transform duration-300 hover:scale-110" />
+              <MarcomLogo className="h-14 w-14 select-none transition-transform duration-300 hover:scale-110 sm:h-[86px] sm:w-[86px]" />
             </Link>
           </div>
 
@@ -319,7 +319,7 @@ export default function SuperAdminLayout() {
       </header>
 
       <aside
-        className={`fixed bottom-0 left-0 top-24 z-40 flex w-64 flex-col border-r border-gray-200 bg-white shadow-sm transition-transform duration-300 ${
+        className={`superadmin-sidebar fixed bottom-0 left-0 top-24 z-40 flex w-64 flex-col border-r border-gray-200 bg-white shadow-sm transition-transform duration-300 ${
           showMobileSidebar ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
@@ -353,8 +353,8 @@ export default function SuperAdminLayout() {
         </nav>
       </aside>
 
-      <div className="h-full overflow-y-auto pt-24 lg:pl-64">
-        <main className="min-h-full p-6 lg:p-8">
+      <div className="superadmin-content h-full overflow-y-auto pt-24 lg:pl-64">
+        <main className="min-h-full p-4 sm:p-6 lg:p-8">
           <Outlet />
         </main>
       </div>

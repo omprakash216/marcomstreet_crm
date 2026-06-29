@@ -4,7 +4,7 @@ import api from '../../utils/api';
 const paymentStatuses = [
   { value: 'all', label: 'All Status' },
   { value: 'unpaid', label: 'Unpaid' },
-  { value: 'partial', label: 'Partial' },
+  { value: 'partially_paid', label: 'Partially Paid' },
   { value: 'paid', label: 'Paid' },
   { value: 'overdue', label: 'Overdue' },
   { value: 'cancelled', label: 'Cancelled' },
@@ -306,7 +306,7 @@ export default function AdminPayments() {
           <div>
             <p className="text-sm font-black text-gray-900">Collection Health</p>
             <p className="mt-1 text-xs font-semibold text-gray-500">
-              {summary.invoice_count} invoices, {summary.paid_count} paid, {summary.partial_count} partial, {summary.overdue_count} overdue
+              {summary.invoice_count} invoices, {summary.paid_count} paid, {summary.partial_count} partially paid, {summary.overdue_count} overdue
             </p>
           </div>
           <div className="flex min-w-[260px] items-center gap-3">
@@ -799,6 +799,7 @@ function PaymentStatusBadge({ status }) {
   const tones = {
     paid: 'border-emerald-200 bg-emerald-100 text-emerald-700',
     partial: 'border-blue-200 bg-blue-100 text-blue-700',
+    partially_paid: 'border-blue-200 bg-blue-100 text-blue-700',
     unpaid: 'border-gray-200 bg-gray-100 text-gray-700',
     overdue: 'border-red-200 bg-red-100 text-red-700',
     cancelled: 'border-slate-200 bg-slate-100 text-slate-600',

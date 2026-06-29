@@ -3,6 +3,10 @@ const DEFAULT_PREFIX = process.env.DOCUMENT_NUMBER_PREFIX || 'VG';
 const CONFIG = {
   quotation: { code: 'QT', table: 'quotations', column: 'quotation_number' },
   invoice: { code: 'INV', table: 'invoices', column: 'invoice_number' },
+  sales_order: { code: 'SO', table: 'sales_orders', column: 'order_number' },
+  delivery_challan: { code: 'DC', table: 'delivery_challans', column: 'challan_number' },
+  credit_note: { code: 'CN', table: 'credit_notes', column: 'credit_note_number' },
+  recurring_invoice: { code: 'RI', table: 'recurring_invoices', column: 'recurring_number' },
 };
 
 function getFinancialYear(dateInput = new Date()) {
